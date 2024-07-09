@@ -26,14 +26,14 @@
 #include <openssl/x509.h>
 #include <string.h>
 
-typedef struct SM2_Ciphertext_st SM2_Ciphertext;
-DECLARE_STATIC_ASN1_FUNCTIONS(SM2_Ciphertext)
+/*typedef struct SM2_Ciphertext_st SM2_Ciphertext;
+DECLARE_ASN1_FUNCTIONS(SM2_Ciphertext)
 
 typedef struct SM2_CiphertextEx_st SM2_CiphertextEx;
-DECLARE_STATIC_ASN1_FUNCTIONS(SM2_CiphertextEx)
+DECLARE_ASN1_FUNCTIONS(SM2_CiphertextEx)
 
 typedef struct SM2_Enveloped_Key_st SM2_Enveloped_Key;
-DECLARE_STATIC_ASN1_FUNCTIONS(SM2_Enveloped_Key)
+DECLARE_ASN1_FUNCTIONS(SM2_Enveloped_Key)*/
 
 struct SM2_Ciphertext_st {
     BIGNUM *C1x;
@@ -54,18 +54,18 @@ ASN1_SEQUENCE(SM2_Ciphertext) = {
     ASN1_SIMPLE(SM2_Ciphertext, C1y, BIGNUM),
     ASN1_SIMPLE(SM2_Ciphertext, C3, ASN1_OCTET_STRING),
     ASN1_SIMPLE(SM2_Ciphertext, C2, ASN1_OCTET_STRING),
-} static_ASN1_SEQUENCE_END(SM2_Ciphertext)
+} ASN1_SEQUENCE_END(SM2_Ciphertext)
 
-IMPLEMENT_STATIC_ASN1_FUNCTIONS(SM2_Ciphertext)
+IMPLEMENT_ASN1_FUNCTIONS(SM2_Ciphertext)
 
 ASN1_SEQUENCE(SM2_CiphertextEx) = {
 	ASN1_SIMPLE(SM2_CiphertextEx, C1x, BIGNUM),
 	ASN1_SIMPLE(SM2_CiphertextEx, C1y, BIGNUM),
 	ASN1_SIMPLE(SM2_CiphertextEx, C2, ASN1_OCTET_STRING),
 	ASN1_SIMPLE(SM2_CiphertextEx, C3, ASN1_OCTET_STRING),
-} static_ASN1_SEQUENCE_END(SM2_CiphertextEx)
+} ASN1_SEQUENCE_END(SM2_CiphertextEx)
 
-IMPLEMENT_STATIC_ASN1_FUNCTIONS(SM2_CiphertextEx)
+IMPLEMENT_ASN1_FUNCTIONS(SM2_CiphertextEx)
 
 /*described in section 7.4, GMT 0009/2014.*/
     struct SM2_Enveloped_Key_st {
@@ -80,9 +80,9 @@ ASN1_SEQUENCE(SM2_Enveloped_Key) = {
     ASN1_SIMPLE(SM2_Enveloped_Key, symEncryptedKey, SM2_Ciphertext),
     ASN1_SIMPLE(SM2_Enveloped_Key, Sm2PublicKey, ASN1_BIT_STRING),
     ASN1_SIMPLE(SM2_Enveloped_Key, Sm2EncryptedPrivateKey, ASN1_BIT_STRING),
-} static_ASN1_SEQUENCE_END(SM2_Enveloped_Key)
+} ASN1_SEQUENCE_END(SM2_Enveloped_Key)
 
-IMPLEMENT_STATIC_ASN1_FUNCTIONS(SM2_Enveloped_Key)
+IMPLEMENT_ASN1_FUNCTIONS(SM2_Enveloped_Key)
 
 
 //2023年7月1日12:09:43 沈雪冰 begin add，C1|C2|C3  相互转换 C1|C2|C3

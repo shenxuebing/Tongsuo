@@ -23,17 +23,16 @@
 extern "C" {
 # endif
     typedef struct SM2_Ciphertext_st SM2_Ciphertext;
-    DECLARE_STATIC_ASN1_FUNCTIONS(SM2_Ciphertext)
+    DECLARE_ASN1_FUNCTIONS(SM2_Ciphertext)
 
     typedef struct SM2_CiphertextEx_st SM2_CiphertextEx;
-    DECLARE_STATIC_ASN1_FUNCTIONS(SM2_CiphertextEx)
+    DECLARE_ASN1_FUNCTIONS(SM2_CiphertextEx)
 
     /*described in section 7.4, GMT 0009/2014.*/
     typedef struct SM2_Enveloped_Key_st SM2_Enveloped_Key;
-    DECLARE_STATIC_ASN1_FUNCTIONS(SM2_Enveloped_Key)
+    DECLARE_ASN1_FUNCTIONS(SM2_Enveloped_Key)
 
     BIO* SM2_Enveloped_Key_dataDecode(SM2_Enveloped_Key* sm2evpkey, EVP_PKEY* pkey);
-
 
 
     int SM2_Ciphertext_get0(const SM2_Ciphertext* cipher,

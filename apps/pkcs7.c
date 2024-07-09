@@ -509,7 +509,7 @@ int pkcs7_main(int argc, char **argv)
     if( bio_key )
       BIO_free_all(bio_key);
     if( sm2evpkey )
-      SM2_Enveloped_Key_free1(sm2evpkey);
+      SM2_Enveloped_Key_free(sm2evpkey);
     if( sign_pkey )
       EVP_PKEY_free(sign_pkey);
     if( enc_pkey )
