@@ -33,7 +33,7 @@ int SMIME_write_PKCS7(BIO *bio, PKCS7 *p7, BIO *data, int flags)
     int ctype_nid = OBJ_obj2nid(p7->type);
     const PKCS7_CTX *ctx = ossl_pkcs7_get0_ctx(p7);
 
-    if (ctype_nid == NID_pkcs7_signed) {
+    if (ctype_nid == NID_pkcs7_signed || ctype_nid == NID_pkcs7_sm2_signed) {
         if (p7->d.sign == NULL)
             return 0;
         mdalgs = p7->d.sign->md_algs;
@@ -69,5 +69,6 @@ PKCS7 *SMIME_read_PKCS7_ex(BIO *bio, BIO **bcont, PKCS7 **p7)
 
 PKCS7 *SMIME_read_PKCS7(BIO *bio, BIO **bcont)
 {
-    return SMIME_read_PKCS7_ex(bio, bcont, NULL);
+    //return SMIME_read_PKCS7_ex(bio, bcont, NULL);
+	 return (PKCS7 *)SMIME_read_ASN1(bio, bcont, ASN1_ITEM_rptr(PKCS7));
 }

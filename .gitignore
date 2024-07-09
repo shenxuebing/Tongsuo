@@ -245,3 +245,5 @@ doc-nits
 
 # Mac .dSYM files
 *.dSYM
+/.vs
+/crypto/objects - 副本

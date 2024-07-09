@@ -4454,12 +4454,12 @@
 
 #define SN_oracle               "oracle-organization"
 #define LN_oracle               "Oracle organization"
-#define NID_oracle              1258
+#define NID_oracle              1272
 #define OBJ_oracle              OBJ_joint_iso_itu_t,16L,840L,1L,113894L
 
 #define SN_oracle_jdk_trustedkeyusage           "oracle-jdk-trustedkeyusage"
 #define LN_oracle_jdk_trustedkeyusage           "Trusted key usage (Oracle)"
-#define NID_oracle_jdk_trustedkeyusage          1259
+#define NID_oracle_jdk_trustedkeyusage          1273
 #define OBJ_oracle_jdk_trustedkeyusage          OBJ_oracle,746875L,1L,1L
 
 #endif /* OPENSSL_OBJ_MAC_H */

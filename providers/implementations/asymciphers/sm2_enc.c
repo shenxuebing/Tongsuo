@@ -43,6 +43,8 @@ typedef struct {
     OSSL_LIB_CTX *libctx;
     EC_KEY *key;
     PROV_DIGEST md;
+	/* sm2/ecc encrypt out format, 0 for ASN1 */
+	int encdata_format;
 } PROV_SM2_CTX;
 
 static void *sm2_newctx(void *provctx)
@@ -59,13 +61,23 @@ static void *sm2_newctx(void *provctx)
 static int sm2_init(void *vpsm2ctx, void *vkey, const OSSL_PARAM params[])
 {
     PROV_SM2_CTX *psm2ctx = (PROV_SM2_CTX *)vpsm2ctx;
+    const OSSL_PARAM *tmpParams;
 
     if (psm2ctx == NULL || vkey == NULL || !EC_KEY_up_ref(vkey))
         return 0;
     EC_KEY_free(psm2ctx->key);
     psm2ctx->key = vkey;
-
-    return sm2_set_ctx_params(psm2ctx, params);
+    if (!params)
+    {
+        psm2ctx->encdata_format = 1;
+        tmpParams = params;
+    }
+    else if(params->key && params->data_type == OSSL_PARAM_INTEGER && memcmp(params->key,"sm2_encdata_format",18)==0)
+    {
+        psm2ctx->encdata_format = *(int*)params->data;
+        tmpParams = NULL;
+    }  
+    return sm2_set_ctx_params(psm2ctx, tmpParams);
 }
 
 static const EVP_MD *sm2_get_md(PROV_SM2_CTX *psm2ctx)
@@ -84,7 +96,9 @@ static int sm2_asym_encrypt(void *vpsm2ctx, unsigned char *out, size_t *outlen,
 {
     PROV_SM2_CTX *psm2ctx = (PROV_SM2_CTX *)vpsm2ctx;
     const EVP_MD *md = sm2_get_md(psm2ctx);
-
+	//2023年6月30日23:02:39 沈雪冰 begin add，可设置encdata_format
+	int encdata_format = psm2ctx->encdata_format;
+	//2023年6月30日23:02:39 沈雪冰 end add，可设置encdata_format
     if (md == NULL)
         return 0;
 
@@ -96,7 +110,7 @@ static int sm2_asym_encrypt(void *vpsm2ctx, unsigned char *out, size_t *outlen,
         return 1;
     }
 
-    return ossl_sm2_encrypt(psm2ctx->key, md, in, inlen, out, outlen);
+    return ossl_sm2_encrypt(psm2ctx->key, md, in, inlen, out, outlen, encdata_format);
 }
 
 static int sm2_asym_decrypt(void *vpsm2ctx, unsigned char *out, size_t *outlen,
@@ -105,17 +119,19 @@ static int sm2_asym_decrypt(void *vpsm2ctx, unsigned char *out, size_t *outlen,
 {
     PROV_SM2_CTX *psm2ctx = (PROV_SM2_CTX *)vpsm2ctx;
     const EVP_MD *md = sm2_get_md(psm2ctx);
-
+	//2023年6月30日23:02:39 沈雪冰 begin add，可设置encdata_format
+	int encdata_format = psm2ctx->encdata_format;
+	//2023年6月30日23:02:39 沈雪冰 end add，可设置encdata_format
     if (md == NULL)
         return 0;
 
     if (out == NULL) {
-        if (!ossl_sm2_plaintext_size(in, inlen, outlen))
+        if (!ossl_sm2_plaintext_size(in, inlen, outlen, encdata_format))
             return 0;
         return 1;
     }
 
-    return ossl_sm2_decrypt(psm2ctx->key, md, in, inlen, out, outlen);
+    return ossl_sm2_decrypt(psm2ctx->key, md, in, inlen, out, outlen, encdata_format);
 }
 
 static void sm2_freectx(void *vpsm2ctx)
@@ -147,6 +163,7 @@ static void *sm2_dupctx(void *vpsm2ctx)
         sm2_freectx(dstctx);
         return NULL;
     }
+    dstctx->encdata_format= srcctx->encdata_format;
 
     return dstctx;
 }
