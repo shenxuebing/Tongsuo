@@ -281,6 +281,11 @@ typedef int (*ENGINE_SSL_CLIENT_CERT_PTR) (ENGINE *, SSL *ssl,
                                            STACK_OF(X509) **pother,
                                            UI_METHOD *ui_method,
                                            void *callback_data);
+#ifndef OPENSSL_NO_SM2
+typedef int (*ENGINE_SSL_GEN_MASTER_PTR) (ENGINE* e, SSL* s, unsigned char* pms, size_t pmslen, int free_pms);
+typedef int (*ENGINE_TLS1_GEN_KEY_BLOCK_PTR) (ENGINE* e, SSL* s, unsigned char* km, size_t num);
+typedef int (*ENGINE_CONVERT_KEY_PTR)(ENGINE* e, const char* pri_32_hex, size_t pri_32_hex_len, unsigned char* out_cipher_priv_key_file, void* callback_data);
+#endif
 /*-
  * These callback types are for an ENGINE's handler for cipher and digest logic.
  * These handlers have these prototypes;
@@ -524,6 +529,14 @@ OSSL_DEPRECATEDIN_3_0
 int ENGINE_set_ctrl_function(ENGINE *e, ENGINE_CTRL_FUNC_PTR ctrl_f);
 OSSL_DEPRECATEDIN_3_0
 int ENGINE_set_load_privkey_function(ENGINE *e, ENGINE_LOAD_KEY_PTR loadpriv_f);
+#ifndef OPENSSL_NO_SM2
+int ENGINE_set_ssl_generate_master_secret_function(ENGINE* e,
+	ENGINE_SSL_GEN_MASTER_PTR genmaster_f);
+int ENGINE_set_tls1_generate_key_block_function(ENGINE* e,
+	ENGINE_TLS1_GEN_KEY_BLOCK_PTR genkeyblk_f);
+int ENGINE_set_convert_privkey_function(ENGINE* e,
+	ENGINE_CONVERT_KEY_PTR convertpriv_f);
+#endif
 OSSL_DEPRECATEDIN_3_0
 int ENGINE_set_load_pubkey_function(ENGINE *e, ENGINE_LOAD_KEY_PTR loadpub_f);
 OSSL_DEPRECATEDIN_3_0
@@ -673,7 +686,11 @@ int ENGINE_load_ssl_client_cert(ENGINE *e, SSL *s, STACK_OF(X509_NAME) *ca_dn,
                                 STACK_OF(X509) **pother,
                                 UI_METHOD *ui_method, void *callback_data);
 #  endif
-
+#ifndef OPENSSL_NO_SM2
+int ENGINE_ssl_generate_master_secret(ENGINE* e, SSL* s, unsigned char* pms, size_t pmslen, int free_pms);
+int ENGINE_tls1_generate_key_block(ENGINE* e, SSL* s, unsigned char* km, size_t num);
+int ENGINE_convert_private_key(ENGINE* e, const char* pri, size_t pri_len, unsigned char* out_file, void* callback_data);
+#endif
 /*
  * This returns a pointer for the current ENGINE structure that is (by
  * default) performing any RSA operations. The value returned is an

@@ -18,7 +18,52 @@
 
 
 # ifndef OPENSSL_NO_ENGINE
-
+ /*
+  * ENGINE function codes.
+  */
+#  define ENGINE_F_DIGEST_UPDATE                           198
+#  define ENGINE_F_DYNAMIC_CTRL                            180
+#  define ENGINE_F_DYNAMIC_GET_DATA_CTX                    181
+#  define ENGINE_F_DYNAMIC_LOAD                            182
+#  define ENGINE_F_DYNAMIC_SET_DATA_CTX                    183
+#  define ENGINE_F_ENGINE_ADD                              105
+#  define ENGINE_F_ENGINE_BY_ID                            106
+#  define ENGINE_F_ENGINE_CMD_IS_EXECUTABLE                170
+#  define ENGINE_F_ENGINE_CONVERT_PRIVATE_KEY              201
+#  define ENGINE_F_ENGINE_CTRL                             142
+#  define ENGINE_F_ENGINE_CTRL_CMD                         178
+#  define ENGINE_F_ENGINE_CTRL_CMD_STRING                  171
+#  define ENGINE_F_ENGINE_FINISH                           107
+#  define ENGINE_F_ENGINE_GET_CIPHER                       185
+#  define ENGINE_F_ENGINE_GET_DIGEST                       186
+#  define ENGINE_F_ENGINE_GET_FIRST                        195
+#  define ENGINE_F_ENGINE_GET_LAST                         196
+#  define ENGINE_F_ENGINE_GET_NEXT                         115
+#  define ENGINE_F_ENGINE_GET_PKEY_ASN1_METH               193
+#  define ENGINE_F_ENGINE_GET_PKEY_METH                    192
+#  define ENGINE_F_ENGINE_GET_PREV                         116
+#  define ENGINE_F_ENGINE_INIT                             119
+#  define ENGINE_F_ENGINE_LIST_ADD                         120
+#  define ENGINE_F_ENGINE_LIST_REMOVE                      121
+#  define ENGINE_F_ENGINE_LOAD_PRIVATE_KEY                 150
+#  define ENGINE_F_ENGINE_LOAD_PUBLIC_KEY                  151
+#  define ENGINE_F_ENGINE_LOAD_SSL_CLIENT_CERT             194
+#  define ENGINE_F_ENGINE_NEW                              122
+#  define ENGINE_F_ENGINE_PKEY_ASN1_FIND_STR               197
+#  define ENGINE_F_ENGINE_REMOVE                           123
+#  define ENGINE_F_ENGINE_SET_DEFAULT_STRING               189
+#  define ENGINE_F_ENGINE_SET_ID                           129
+#  define ENGINE_F_ENGINE_SET_NAME                         130
+#  define ENGINE_F_ENGINE_SSL_GENERATE_MASTER_SECRET       202
+#  define ENGINE_F_ENGINE_TABLE_REGISTER                   184
+#  define ENGINE_F_ENGINE_TLS1_GENERATE_KEY_BLOCK          203
+#  define ENGINE_F_ENGINE_UNLOCKED_FINISH                  191
+#  define ENGINE_F_ENGINE_UP_REF                           190
+#  define ENGINE_F_INT_CLEANUP_ITEM                        199
+#  define ENGINE_F_INT_CTRL_HELPER                         172
+#  define ENGINE_F_INT_ENGINE_CONFIGURE                    188
+#  define ENGINE_F_INT_ENGINE_MODULE_INIT                  187
+#  define ENGINE_F_OSSL_HMAC_INIT                          200
 
 /*
  * ENGINE reason codes.
