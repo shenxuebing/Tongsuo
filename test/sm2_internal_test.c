@@ -174,7 +174,7 @@ static int test_sm2_crypt(const EC_GROUP *group,
     start_fake_rand(k_hex);
     if (!TEST_true(ossl_sm2_encrypt(key, digest,
                                     (const uint8_t *)message, msg_len,
-                                    ctext, &ctext_len))) {
+                                    ctext, &ctext_len,1))) {
         restore_rand();
         goto done;
     }
@@ -183,14 +183,14 @@ static int test_sm2_crypt(const EC_GROUP *group,
     if (!TEST_mem_eq(ctext, ctext_len, expected, ctext_len))
         goto done;
 
-    if (!TEST_true(ossl_sm2_plaintext_size(ctext, ctext_len, &ptext_len))
+    if (!TEST_true(ossl_sm2_plaintext_size(ctext, ctext_len, &ptext_len,1))
             || !TEST_int_eq(ptext_len, msg_len))
         goto done;
 
     recovered = OPENSSL_zalloc(ptext_len);
     if (!TEST_ptr(recovered)
             || !TEST_true(ossl_sm2_decrypt(key, digest, ctext, ctext_len,
-                                           recovered, &recovered_len))
+                                           recovered, &recovered_len,1))
             || !TEST_int_eq(recovered_len, msg_len)
             || !TEST_mem_eq(recovered, recovered_len, message, msg_len))
         goto done;
