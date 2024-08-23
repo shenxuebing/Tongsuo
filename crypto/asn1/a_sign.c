@@ -246,12 +246,17 @@ int ASN1_item_sign_ctx(const ASN1_ITEM *it, X509_ALGOR *algor1,
             ERR_raise(ERR_LIB_ASN1, ASN1_R_DIGEST_AND_KEY_TYPE_NOT_SUPPORTED);
             goto err;
         }
-
-        if (pkey->ameth->pkey_flags & ASN1_PKEY_SIGPARAM_NULL)
+        if (EVP_PKEY_get_id(pkey) == NID_sm2)
+        {
             paramtype = V_ASN1_NULL;
+        }
         else
-            paramtype = V_ASN1_UNDEF;
-
+        {
+			if (pkey->ameth->pkey_flags & ASN1_PKEY_SIGPARAM_NULL)
+				paramtype = V_ASN1_NULL;
+			else
+				paramtype = V_ASN1_UNDEF;
+        }
         if (algor1)
             X509_ALGOR_set0(algor1, OBJ_nid2obj(signid), paramtype, NULL);
         if (algor2)
