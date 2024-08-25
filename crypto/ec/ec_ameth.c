@@ -423,16 +423,15 @@ static int ec_pkey_ctrl(EVP_PKEY *pkey, int op, long arg1, void *arg2)
             if (!OBJ_find_sigid_by_algs(&snid, hnid, EVP_PKEY_id(pkey)))
                 return -1;
             /*为了能够拼凑出pkcs7中的格式的oid，其中sm3withSM2Sign 为 nid 988，oid 1 2 156 10197 1 501，这是从pkey中找到的，
-            但是工行中的国密pkcs7 却为nid 978，oid 1 2 156 10197 1 301 1，OBJ_sm2signature这俩不知道有啥区别，
-            但是为了适配这个地方改为oid=978
-            TODO：需要评估有没有其他影响，目前感觉应该没什么影响，只会影响国密部分
+            但是工行中的国密pkcs7，oid 1 2 156 10197 1 301 1，OBJ_sm2signature这俩不知道有啥区别
             */
             if (snid == NID_SM2_with_SM3) {
-                //snid = NID_sm2signature;  //2023年6月6日23:51:17 沈雪冰屏蔽，暂时不使用工行的oid，还是使用标准的501
+                snid = NID_sm2Signature;  //2024年8月25日18:01:20 GMT 0010 2023 示例中数据为1 2 156 10197 301 1
             }
 
             //X509_ALGOR_set0(alg2, OBJ_nid2obj(snid), V_ASN1_UNDEF, 0);
-            X509_ALGOR_set0(alg2, OBJ_nid2obj(snid), V_ASN1_NULL, 0);//2024年6月7日00:39:41 沈雪冰 update，一般算法后都跟05 00
+            //2024年6月7日00:39:41 沈雪冰 update，一般算法后都跟05 00,但是国际上RSA看证书中的算法是不待05 00的，为了和税务签发的证书保持一致，暂时不按算法区分
+			X509_ALGOR_set0(alg2, OBJ_nid2obj(snid), V_ASN1_NULL, 0);
         }
         return 1;
 #ifndef OPENSSL_NO_CMS
