@@ -199,6 +199,10 @@ int ASN1_item_sign_ctx(const ASN1_ITEM *it, X509_ALGOR *algor1,
                 ERR_raise(ERR_LIB_ASN1, ERR_R_INTERNAL_ERROR);
                 goto err;
             }
+			if (algor1->algorithm->nid == NID_SM2_with_SM3) //当签名算法为SM2时，不需要参数，GMT 0015 2023中 示例要追加 NULL 05 00
+            {
+                X509_ALGOR_set0(algor1, OBJ_nid2obj(NID_SM2_with_SM3), V_ASN1_NULL, NULL);
+            }
         }
 
         if (algor2 != NULL) {
@@ -208,6 +212,10 @@ int ASN1_item_sign_ctx(const ASN1_ITEM *it, X509_ALGOR *algor1,
                 ERR_raise(ERR_LIB_ASN1, ERR_R_INTERNAL_ERROR);
                 goto err;
             }
+			if (algor2->algorithm->nid == NID_SM2_with_SM3) //当签名算法为SM2时，不需要参数，GMT 0015 2023中 示例要追加 NULL 05 00
+			{
+				X509_ALGOR_set0(algor2, OBJ_nid2obj(NID_SM2_with_SM3), V_ASN1_NULL, NULL);
+			}
         }
 
         rv = 3;
@@ -246,9 +254,9 @@ int ASN1_item_sign_ctx(const ASN1_ITEM *it, X509_ALGOR *algor1,
             ERR_raise(ERR_LIB_ASN1, ASN1_R_DIGEST_AND_KEY_TYPE_NOT_SUPPORTED);
             goto err;
         }
-		if (EVP_PKEY_get_id(pkey) == NID_SM2_with_SM3) // SM2 has no parameters
+		if (EVP_PKEY_get_id(pkey) == NID_sm2) // SM2 has no parameters
         {
-            paramtype = V_ASN1_NULL; //add NULL  05 00
+            paramtype = V_ASN1_NULL; //当签名算法为SM2时，不需要参数，GMT 0015 2023 中 示例要追加 NULL 05 00
         }
         else
         {
