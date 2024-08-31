@@ -109,6 +109,11 @@ ECDSA_SIG *ossl_sm2_do_sign(const EC_KEY *key,
         const uint8_t* ciphertext, size_t ciphertext_len,
         uint8_t* ptext_buf, size_t* ptext_len, int encdata_format);
 
+unsigned char *ossl_sm2_ciphertext_encode(const BIGNUM *C1x, const BIGNUM *C1y,
+                                          const uint8_t *C2_data, size_t C2_len,
+                                          const uint8_t *C3_data, size_t C3_len,
+                                          size_t *ciphertext_len);
+
 int ossl_sm2_ciphertext_decode(const uint8_t *ciphertext, size_t ciphertext_len,
                                EC_POINT **C1p, uint8_t **C2p, size_t *C2_len,
                                uint8_t **C3p, size_t *C3_len);
