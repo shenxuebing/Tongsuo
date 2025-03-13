@@ -41,3 +41,6 @@ Then there are some extra commands:
 
 Lines starting with `#` are treated as comments, as well as any line starting
 with ! and not matching the commands above.
+
+perl objects.pl objects.txt obj_mac.num obj_mac.h 
+perl obj_dat.pl obj_mac.h obj_dat.h

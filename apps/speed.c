@@ -323,6 +323,9 @@ enum {
     D_CBC_RC5,
     D_CBC_128_AES, D_CBC_192_AES, D_CBC_256_AES,
     D_EVP, D_GHASH, D_RAND, D_EVP_CMAC, D_SM3, D_CBC_SM4, D_ECB_SM4,
+    D_CBC_WBSM4_XIAOLAI, D_ECB_WBSM4_XIAOLAI,
+    D_CBC_WBSM4_BAIWU, D_ECB_WBSM4_BAIWU,
+    D_CBC_WBSM4_WSISE, D_ECB_WBSM4_WSISE,
     D_EEA3_128_ZUC, D_EIA3_128_ZUC, D_SM2_ENCRYPT, D_SM2_DECRYPT,
     D_SM2_THRESHOLD_DECRYPT, ALGOR_NUM
 };
@@ -334,6 +337,9 @@ static const char *names[ALGOR_NUM] = {
     "rc5-cbc",
     "aes-128-cbc", "aes-192-cbc", "aes-256-cbc",
     "evp", "ghash", "rand", "cmac", "sm3", "sm4-cbc", "sm4-ecb",
+    "wbsm4-xiaolai-cbc", "wbsm4-xiaolai-ecb",
+    "wbsm4-baiwu-cbc", "wbsm4-baiwu-ecb",
+    "wbsm4-wsise-cbc", "wbsm4-wsise-ecb",
     "zuc-128-eea3", "zuc-128-eia3", "sm2-encrypt", "sm2-decrypt", "sm2-thr-dec",
 };
 
@@ -361,6 +367,21 @@ static const OPT_PAIR doit_choices[] = {
     {"sm4-cbc", D_CBC_SM4},
     {"sm4", D_CBC_SM4},
     {"sm4-ecb", D_ECB_SM4},
+#endif
+#ifndef OPENSSL_NO_WBSM4_XIAOLAI
+    {"wbsm4-xiaolai-cbc", D_CBC_WBSM4_XIAOLAI},
+    {"wbsm4-xiaolai", D_CBC_WBSM4_XIAOLAI},
+    {"wbsm4-xiaolai-ecb", D_ECB_WBSM4_XIAOLAI},
+#endif
+#ifndef OPENSSL_NO_WBSM4_BAIWU
+    {"wbsm4-baiwu-cbc", D_CBC_WBSM4_BAIWU},
+    {"wbsm4-baiwu", D_CBC_WBSM4_BAIWU},
+    {"wbsm4-baiwu-ecb", D_ECB_WBSM4_BAIWU},
+#endif
+#ifndef OPENSSL_NO_WBSM4_WSISE
+    {"wbsm4-wsise-cbc", D_CBC_WBSM4_WSISE},
+    {"wbsm4-wsise", D_CBC_WBSM4_WSISE},
+    {"wbsm4-wsise-ecb", D_ECB_WBSM4_WSISE},
 #endif
 #ifndef OPENSSL_NO_ZUC
     {"zuc-128-eea3", D_EEA3_128_ZUC},
@@ -641,7 +662,7 @@ static OPT_PAIR bulletproofs_choices[] = {
 # endif
 };
 
-static int bulletproofs_bits[] = {16, 32, 64};
+static int bulletproofs_bits[] = {16, 32, 63};
 static int bulletproofs_agg_max[] = {1, 16, 32};
 
 # define BULLETPROOFS_NUM                   OSSL_NELEM(bulletproofs_choices)
@@ -1008,7 +1029,7 @@ static int EVP_Update_loop(void *args)
             rc = EVP_DecryptUpdate(ctx, buf, &outl, buf, lengths[testnum]);
             if (rc != 1) {
                 /* reset iv in case of counter overflow */
-                EVP_CipherInit_ex(ctx, NULL, NULL, NULL, iv, -1);
+                rc = EVP_CipherInit_ex(ctx, NULL, NULL, NULL, iv, -1);
             }
         }
     } else {
@@ -1016,14 +1037,18 @@ static int EVP_Update_loop(void *args)
             rc = EVP_EncryptUpdate(ctx, buf, &outl, buf, lengths[testnum]);
             if (rc != 1) {
                 /* reset iv in case of counter overflow */
-                EVP_CipherInit_ex(ctx, NULL, NULL, NULL, iv, -1);
+                rc = EVP_CipherInit_ex(ctx, NULL, NULL, NULL, iv, -1);
             }
         }
     }
     if (decrypt)
-        EVP_DecryptFinal_ex(ctx, buf, &outl);
+        rc = EVP_DecryptFinal_ex(ctx, buf, &outl);
     else
-        EVP_EncryptFinal_ex(ctx, buf, &outl);
+        rc = EVP_EncryptFinal_ex(ctx, buf, &outl);
+
+    if (rc == 0)
+        BIO_printf(bio_err, "Error finalizing cipher loop\n");
+
     return count;
 }
 
@@ -3109,6 +3134,117 @@ int speed_main(int argc, char **argv)
         }
     }
 #endif
+#ifndef OPENSSL_NO_WBSM4_XIAOLAI
+    for (k = 0; k < 2; k++) {
+        algindex = D_CBC_WBSM4_XIAOLAI + k;
+        if (doit[algindex]) {
+            int st = 1;
+
+            const EVP_CIPHER *cipher = EVP_get_cipherbyname("WBSM4-XIAOLAI");
+            if (cipher == NULL)
+                continue;
+
+            keylen = EVP_CIPHER_key_length(cipher);
+            unsigned char *local_key = (unsigned char *)OPENSSL_malloc(keylen);
+            if (local_key == NULL)
+                continue;
+            RAND_bytes(local_key, keylen);
+
+            for (i = 0; st && i < loopargs_len; i++) {
+                loopargs[i].ctx = init_evp_cipher_ctx(names[algindex],
+                                                      local_key, keylen);
+                st = loopargs[i].ctx != NULL;
+            }
+            OPENSSL_free(local_key);
+
+            for (testnum = 0; st && testnum < size_num; testnum++) {
+                print_message(names[algindex], c[algindex][testnum],
+                            lengths[testnum], seconds.sym);
+                Time_F(START);
+                count =
+                    run_benchmark(async_jobs, EVP_Cipher_loop, loopargs);
+                d = Time_F(STOP);
+                print_result(algindex, testnum, count, d);
+            }
+            for (i = 0; i < loopargs_len; i++)
+                EVP_CIPHER_CTX_free(loopargs[i].ctx);
+        }
+    }
+#endif /* OPENSSL_NO_WBSM4_XIAOLAI */
+#ifndef OPENSSL_NO_WBSM4_BAIWU
+    for (k = 0; k < 2; k++) {
+        algindex = D_CBC_WBSM4_BAIWU + k;
+        if (doit[algindex]) {
+            int st = 1;
+
+            const EVP_CIPHER *cipher = EVP_get_cipherbyname("WBSM4-BAIWU");
+            if (cipher == NULL)
+                continue;
+
+            keylen = EVP_CIPHER_key_length(cipher);
+            unsigned char *local_key = (unsigned char *)OPENSSL_malloc(keylen);
+            if (local_key == NULL)
+                continue;
+            RAND_bytes(local_key, keylen);
+
+            for (i = 0; st && i < loopargs_len; i++) {
+                loopargs[i].ctx = init_evp_cipher_ctx(names[algindex],
+                                                      local_key, keylen);
+                st = loopargs[i].ctx != NULL;
+            }
+            OPENSSL_free(local_key);
+
+            for (testnum = 0; st && testnum < size_num; testnum++) {
+                print_message(names[algindex], c[algindex][testnum],
+                            lengths[testnum], seconds.sym);
+                Time_F(START);
+                count =
+                    run_benchmark(async_jobs, EVP_Cipher_loop, loopargs);
+                d = Time_F(STOP);
+                print_result(algindex, testnum, count, d);
+            }
+            for (i = 0; i < loopargs_len; i++)
+                EVP_CIPHER_CTX_free(loopargs[i].ctx);
+        }
+    }
+#endif /* OPENSSL_NO_WBSM4_BAIWU */
+#ifndef OPENSSL_NO_WBSM4_WSISE
+    for (k = 0; k < 2; k++) {
+        algindex = D_CBC_WBSM4_WSISE + k;
+        if (doit[algindex]) {
+            int st = 1;
+
+            const EVP_CIPHER *cipher = EVP_get_cipherbyname("WBSM4-WSISE");
+            if (cipher == NULL)
+                continue;
+
+            keylen = EVP_CIPHER_key_length(cipher);
+            unsigned char *local_key = (unsigned char *)OPENSSL_malloc(keylen);
+            if (local_key == NULL)
+                continue;
+            RAND_bytes(local_key, keylen);
+
+            for (i = 0; st && i < loopargs_len; i++) {
+                loopargs[i].ctx = init_evp_cipher_ctx(names[algindex],
+                                                      local_key, keylen);
+                st = loopargs[i].ctx != NULL;
+            }
+            OPENSSL_free(local_key);
+
+            for (testnum = 0; st && testnum < size_num; testnum++) {
+                print_message(names[algindex], c[algindex][testnum],
+                            lengths[testnum], seconds.sym);
+                Time_F(START);
+                count =
+                    run_benchmark(async_jobs, EVP_Cipher_loop, loopargs);
+                d = Time_F(STOP);
+                print_result(algindex, testnum, count, d);
+            }
+            for (i = 0; i < loopargs_len; i++)
+                EVP_CIPHER_CTX_free(loopargs[i].ctx);
+        }
+    }
+#endif /* OPENSSL_NO_WBSM4_WSISE */
 
 #ifndef OPENSSL_NO_ZUC
     if (doit[D_EEA3_128_ZUC]) {
@@ -4769,7 +4905,7 @@ int speed_main(int argc, char **argv)
 
 #ifndef OPENSSL_NO_BULLETPROOFS
     for (i = 1; i < sizeof(bp_secrets)/sizeof(bp_secrets[0]); i++) {
-        bp_secrets[i] = (1U << i) - 1;
+        bp_secrets[i] = (1ULL << i) - 1;
     }
 
     if (!(v = BN_new()))
@@ -4783,7 +4919,7 @@ int speed_main(int argc, char **argv)
             continue;           /* Ignore Curve */
 
         for (m = 0; m < BULLETPROOFS_BITS_NUM; m++) {
-            bp_secrets[0] = (1U << bulletproofs_bits[m]) - 1;
+            bp_secrets[0] = (1ULL << bulletproofs_bits[m]) - 1;
 
             for (n = 0; n < BULLETPROOFS_AGG_MAX_NUM; n++) {
                 bp_pp[testnum][m][n] = BP_PUB_PARAM_new_by_curve_id(test_bulletproofs_curves[testnum].nid,
@@ -4823,7 +4959,7 @@ int speed_main(int argc, char **argv)
                     }
 
                     bp_ctx[testnum][m][n][j] = BP_RANGE_CTX_new(bp_pp[testnum][m][n], bp_witness[testnum][m][n][j], bp_transcript[testnum][m][n]);
-                    if (bp_ctx[testnum][m][n] == NULL)
+                    if (bp_ctx[testnum][m][n][j] == NULL)
                         goto end;
 
                     if (!BP_RANGE_PROOF_prove(bp_ctx[testnum][m][n][j], bp_proof[testnum][m][n])) {
