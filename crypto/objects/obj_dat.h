@@ -2418,6 +2418,27 @@ static const unsigned int sn_objs[NUM_SN] = {
     1021,    /* "TLS1-PRF" */
      458,    /* "UID" */
        0,    /* "UNDEF" */
+    1268,    /* "WBSM4-BAIWU-CBC" */
+    1271,    /* "WBSM4-BAIWU-CCM" */
+    1278,    /* "WBSM4-BAIWU-CFB" */
+    1269,    /* "WBSM4-BAIWU-CTR" */
+    1267,    /* "WBSM4-BAIWU-ECB" */
+    1270,    /* "WBSM4-BAIWU-GCM" */
+    1277,    /* "WBSM4-BAIWU-OFB" */
+    1273,    /* "WBSM4-WSISE-CBC" */
+    1276,    /* "WBSM4-WSISE-CCM" */
+    1280,    /* "WBSM4-WSISE-CFB" */
+    1274,    /* "WBSM4-WSISE-CTR" */
+    1272,    /* "WBSM4-WSISE-ECB" */
+    1275,    /* "WBSM4-WSISE-GCM" */
+    1279,    /* "WBSM4-WSISE-OFB" */
+    1261,    /* "WBSM4-XIAOLAI-CBC" */
+    1266,    /* "WBSM4-XIAOLAI-CCM" */
+    1263,    /* "WBSM4-XIAOLAI-CFB" */
+    1264,    /* "WBSM4-XIAOLAI-CTR" */
+    1260,    /* "WBSM4-XIAOLAI-ECB" */
+    1265,    /* "WBSM4-XIAOLAI-GCM" */
+    1262,    /* "WBSM4-XIAOLAI-OFB" */
     1034,    /* "X25519" */
     1035,    /* "X448" */
       11,    /* "X500" */
@@ -4260,6 +4281,27 @@ static const unsigned int ln_objs[NUM_LN] = {
      740,    /* "wap-wsg-idm-ecid-wtls7" */
      741,    /* "wap-wsg-idm-ecid-wtls8" */
      742,    /* "wap-wsg-idm-ecid-wtls9" */
+    1268,    /* "wbsm4-baiwu-cbc" */
+    1271,    /* "wbsm4-baiwu-ccm" */
+    1278,    /* "wbsm4-baiwu-cfb" */
+    1269,    /* "wbsm4-baiwu-ctr" */
+    1267,    /* "wbsm4-baiwu-ecb" */
+    1270,    /* "wbsm4-baiwu-gcm" */
+    1277,    /* "wbsm4-baiwu-ofb" */
+    1273,    /* "wbsm4-wsise-cbc" */
+    1276,    /* "wbsm4-wsise-ccm" */
+    1280,    /* "wbsm4-wsise-cfb" */
+    1274,    /* "wbsm4-wsise-ctr" */
+    1272,    /* "wbsm4-wsise-ecb" */
+    1275,    /* "wbsm4-wsise-gcm" */
+    1279,    /* "wbsm4-wsise-ofb" */
+    1261,    /* "wbsm4-xiaolai-cbc" */
+    1266,    /* "wbsm4-xiaolai-ccm" */
+    1263,    /* "wbsm4-xiaolai-cfb" */
+    1264,    /* "wbsm4-xiaolai-ctr" */
+    1260,    /* "wbsm4-xiaolai-ecb" */
+    1265,    /* "wbsm4-xiaolai-gcm" */
+    1262,    /* "wbsm4-xiaolai-ofb" */
      868,    /* "x121Address" */
      503,    /* "x500UniqueIdentifier" */
      158,    /* "x509Certificate" */
