@@ -19,9 +19,7 @@
 
 #  include <openssl/ec.h>
 #  include "crypto/types.h"
-# ifdef  __cplusplus
-extern "C" {
-# endif
+
     typedef struct SM2_Ciphertext_st SM2_Ciphertext;
     DECLARE_ASN1_FUNCTIONS(SM2_Ciphertext)
 
@@ -127,8 +125,8 @@ const unsigned char *ossl_sm2_algorithmidentifier_encoding(int md_nid,
         const EC_KEY* peer_pub_key, const EC_KEY* self_eckey,
         const EVP_MD* md, OSSL_LIB_CTX* libctx,
         const char* propq);
-# ifdef  __cplusplus
-}
-# endif
+    int sm2_sig_verifyEx(const EC_KEY* key, const BIGNUM* r, const BIGNUM* s,
+        const BIGNUM* e);
+
 # endif /* OPENSSL_NO_SM2 */
 #endif

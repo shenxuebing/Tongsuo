@@ -515,3 +515,78 @@ int ossl_sm2_internal_verify(const unsigned char *dgst, int dgstlen,
     ECDSA_SIG_free(s);
     return ret;
 }
+
+int sm2_sig_verifyEx(const EC_KEY* key, const BIGNUM* r, const BIGNUM* s,
+    const BIGNUM* e)
+{
+    int ret = 0;
+    const EC_GROUP* group = EC_KEY_get0_group(key);
+    const BIGNUM* order = EC_GROUP_get0_order(group);
+    BN_CTX* ctx = NULL;
+    EC_POINT* pt = NULL;
+    BIGNUM* t = NULL;
+    BIGNUM* x1 = NULL;
+    OSSL_LIB_CTX* libctx = ossl_ec_key_get_libctx(key);
+
+    ctx = BN_CTX_new_ex(libctx);
+    pt = EC_POINT_new(group);
+    if (ctx == NULL || pt == NULL) {
+        ERR_raise(ERR_LIB_SM2, ERR_R_MALLOC_FAILURE);
+        goto done;
+    }
+
+    BN_CTX_start(ctx);
+    t = BN_CTX_get(ctx);
+    x1 = BN_CTX_get(ctx);
+    if (x1 == NULL) {
+        ERR_raise(ERR_LIB_SM2, ERR_R_MALLOC_FAILURE);
+        goto done;
+    }
+
+    /*
+     * B1: verify whether r' in [1,n-1], verification failed if not
+     * B2: verify whether s' in [1,n-1], verification failed if not
+     * B3: set M'~=ZA || M'
+     * B4: calculate e'=Hv(M'~)
+     * B5: calculate t = (r' + s') modn, verification failed if t=0
+     * B6: calculate the point (x1', y1')=[s']G + [t]PA
+     * B7: calculate R=(e'+x1') modn, verification pass if yes, otherwise failed
+     */
+
+    if (BN_cmp(r, BN_value_one()) < 0
+        || BN_cmp(s, BN_value_one()) < 0
+        || BN_cmp(order, r) <= 0
+        || BN_cmp(order, s) <= 0) {
+        ERR_raise(ERR_LIB_SM2, SM2_R_BAD_SIGNATURE);
+        goto done;
+    }
+
+    if (!BN_mod_add(t, r, s, order, ctx)) {
+        ERR_raise(ERR_LIB_SM2, ERR_R_BN_LIB);
+        goto done;
+    }
+
+    if (BN_is_zero(t)) {
+        ERR_raise(ERR_LIB_SM2, SM2_R_BAD_SIGNATURE);
+        goto done;
+    }
+
+    if (!EC_POINT_mul(group, pt, s, EC_KEY_get0_public_key(key), t, ctx)
+        || !EC_POINT_get_affine_coordinates(group, pt, x1, NULL, ctx)) {
+        ERR_raise(ERR_LIB_SM2, ERR_R_EC_LIB);
+        goto done;
+    }
+
+    if (!BN_mod_add(t, e, x1, order, ctx)) {
+        ERR_raise(ERR_LIB_SM2, ERR_R_BN_LIB);
+        goto done;
+    }
+
+    if (BN_cmp(r, t) == 0)
+        ret = 1;
+
+done:
+    EC_POINT_free(pt);
+    BN_CTX_free(ctx);
+    return ret;
+}

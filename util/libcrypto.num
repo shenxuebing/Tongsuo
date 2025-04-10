@@ -5723,7 +5723,7 @@ PKCS7_encryptEx              			7018	3_0_3	EXIST::FUNCTION:
 ossl_sm2_compute_z_digest				7019	3_0_3	EXIST::FUNCTION:
 PKCS7_decryptEx              			7020	3_0_3	EXIST::FUNCTION:
 PKCS7_encryptEx              			7021	3_0_3	EXIST::FUNCTION:
-ossl_sm2_compute_z_digest				7022	3_0_3	EXIST::FUNCTION:
+sm2_sig_verifyEx						7022	3_0_3	EXIST::FUNCTION:
 ENGINE_convert_private_key              7023	3_0_3	EXIST::FUNCTION:SM2,ENGINE
 ENGINE_set_ssl_generate_master_secret_function 7024	3_0_3	EXIST::FUNCTION:SM2,ENGINE
 ENGINE_set_tls1_generate_key_block_function 7025	3_0_3	EXIST::FUNCTION:SM2,ENGINE
