@@ -198,6 +198,24 @@ static BIGNUM *sm2_compute_msg_hash(const EVP_MD *digest,
     EVP_MD_CTX_free(hash);
     return e;
 }
+#include <crypto/bn/bn_local.h>
+static unsigned char getBigNumByteInternal(const BIGNUM* bn, int index) {
+	int num_bytes = BN_num_bytes(bn);
+	if (index >= num_bytes) return 0;
+
+	// OpenSSL内部以BN_ULONG数组存储，需要计算字节位置
+	const BN_ULONG* words = bn->d;  // 内部数据
+	int word_size = sizeof(BN_ULONG);
+
+	int word_index = (num_bytes - 1 - index) / word_size;
+	int byte_in_word = (num_bytes - 1 - index) % word_size;
+
+	if (word_index < bn->top) {
+		BN_ULONG word = words[word_index];
+		return (word >> (byte_in_word * 8)) & 0xFF;
+	}
+	return 0;
+}
 
 static ECDSA_SIG *sm2_sig_gen(const EC_KEY *key, const BIGNUM *e)
 {
@@ -267,8 +285,8 @@ static ECDSA_SIG *sm2_sig_gen(const EC_KEY *key, const BIGNUM *e)
             goto done;
         }
 
-        /* try again if r == 0 or r+k == n */
-        if (BN_is_zero(r))
+        /* try again if r == 0 or r+k == n or r[0]==0 && (r[1]& 0x80) ==0 */
+        if (BN_is_zero(r) ||(BN_num_bytes(r) == 248 && (getBigNumByteInternal(r, 1) & 0x80) == 0x00))
             continue;
 
         if (!BN_add(rk, r, k)) {
@@ -288,8 +306,8 @@ static ECDSA_SIG *sm2_sig_gen(const EC_KEY *key, const BIGNUM *e)
             goto done;
         }
 
-        /* try again if s == 0 */
-        if (BN_is_zero(s))
+        /* try again if s == 0 or s[0]==0 && (s[1]& 0x80) ==0 */
+        if (BN_is_zero(s) || (BN_num_bytes(s) == 248 && (getBigNumByteInternal(s, 1) & 0x80) == 0x00))
             continue;
 
         sig = ECDSA_SIG_new();
