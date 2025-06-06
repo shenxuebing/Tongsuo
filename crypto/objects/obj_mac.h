@@ -4006,6 +4006,31 @@
 #define NID_sm4_ccm             1251
 #define OBJ_sm4_ccm             OBJ_sm_scheme,104L,9L
 
+#define SN_sm1_ecb              "SM1-ECB"
+#define LN_sm1_ecb              "sm1-ecb"
+#define NID_sm1_ecb             1514
+#define OBJ_sm1_ecb             OBJ_sm_scheme,101L,1L
+
+#define SN_sm1_cbc              "SM1-CBC"
+#define LN_sm1_cbc              "sm1-cbc"
+#define NID_sm1_cbc             1515
+#define OBJ_sm1_cbc             OBJ_sm_scheme,101L,2L
+
+#define SN_sm1_cfb              "SM1-CFB"
+#define LN_sm1_cfb              "sm1-cfb"
+#define NID_sm1_cfb             1516
+#define OBJ_sm1_cfb             OBJ_sm_scheme,101L,3L
+
+#define SN_sm1_ofb              "SM1-OFB"
+#define LN_sm1_ofb              "sm1-ofb"
+#define NID_sm1_ofb             1517
+#define OBJ_sm1_ofb             OBJ_sm_scheme,101L,4L
+
+#define SN_sm1_mac              "SM1-MAC"
+#define LN_sm1_mac              "sm1-mac"
+#define NID_sm1_mac             1518
+#define OBJ_sm1_mac             OBJ_sm_scheme,101L,5L
+
 #define SN_hmac         "HMAC"
 #define LN_hmac         "hmac"
 #define NID_hmac                855

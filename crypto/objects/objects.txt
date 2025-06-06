@@ -1255,6 +1255,14 @@ sm-scheme 104 7         : SM4-CTR             : sm4-ctr
 sm-scheme 104 8         : SM4-GCM             : sm4-gcm
 sm-scheme 104 9         : SM4-CCM             : sm4-ccm
 
+# Definitions for SM1 cipher
+
+sm-scheme 101 1         : SM1-ECB             : sm1-ecb
+sm-scheme 101 2         : SM1-CBC             : sm1-cbc
+sm-scheme 101 3         : SM1-CFB             : sm1-cfb
+sm-scheme 101 4         : SM1-OFB             : sm1-ofb
+sm-scheme 101 5         : SM1-MAC            : sm1-mac
+
 # There is no OID that just denotes "HMAC" oddly enough...
 
 			: HMAC				: hmac
