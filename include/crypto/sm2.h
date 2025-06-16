@@ -127,6 +127,11 @@ const unsigned char *ossl_sm2_algorithmidentifier_encoding(int md_nid,
         const char* propq);
     int sm2_sig_verifyEx(const EC_KEY* key, const BIGNUM* r, const BIGNUM* s,
         const BIGNUM* e);
-
+    int sm2_sig_verify_fast(const EC_GROUP* group,
+        const BIGNUM* pub_key_x,
+        const BIGNUM* pub_key_y,
+        const BIGNUM* r,
+        const BIGNUM* s,
+        const BIGNUM* e);
 # endif /* OPENSSL_NO_SM2 */
 #endif
