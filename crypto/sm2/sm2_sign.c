@@ -702,3 +702,101 @@ done:
     BN_CTX_free(ctx);
     return ret;
 }
+int sm2_sig_fast(const EC_KEY* key, const BIGNUM* e, BIGNUM* r, BIGNUM* s)
+{
+    int ret = 0;
+    const BIGNUM *dA = EC_KEY_get0_private_key(key);
+    const EC_GROUP *group = EC_KEY_get0_group(key);
+    const BIGNUM *order = EC_GROUP_get0_order(group);
+    EC_POINT *kG = NULL;
+    BN_CTX *ctx = NULL;
+    BIGNUM *k = NULL;
+    BIGNUM *rk = NULL;
+    BIGNUM *x1 = NULL;
+    BIGNUM *tmp = NULL;
+    OSSL_LIB_CTX *libctx = ossl_ec_key_get_libctx(key);
+
+    kG = EC_POINT_new(group);
+    ctx = BN_CTX_new_ex(libctx);
+    if (kG == NULL || ctx == NULL) {
+        ERR_raise(ERR_LIB_SM2, ERR_R_MALLOC_FAILURE);
+        goto done;
+    }
+
+    BN_CTX_start(ctx);
+    k = BN_CTX_get(ctx);
+    rk = BN_CTX_get(ctx);
+    x1 = BN_CTX_get(ctx);
+    tmp = BN_CTX_get(ctx);
+    if (tmp == NULL) {
+        ERR_raise(ERR_LIB_SM2, ERR_R_MALLOC_FAILURE);
+        goto done;
+    }
+
+    /*
+     * These values are returned and so should not be allocated out of the
+     * context
+     */
+
+    if (r == NULL || s == NULL) {
+        ERR_raise(ERR_LIB_SM2, ERR_R_MALLOC_FAILURE);
+        goto done;
+    }
+
+    /*
+     * A3: Generate a random number k in [1,n-1] using random number generators;
+     * A4: Compute (x1,y1)=[k]G, and convert the type of data x1 to be integer
+     *     as specified in clause 4.2.8 of GM/T 0003.1-2012;
+     * A5: Compute r=(e+x1) mod n. If r=0 or r+k=n, then go to A3;
+     * A6: Compute s=(1/(1+dA)*(k-r*dA)) mod n. If s=0, then go to A3;
+     * A7: Convert the type of data (r,s) to be bit strings according to the details
+     *     in clause 4.2.2 of GM/T 0003.1-2012. Then the signature of message M is (r,s).
+     */
+    for (;;) {
+        if (!BN_priv_rand_range_ex(k, order, 0, ctx)) {
+            ERR_raise(ERR_LIB_SM2, ERR_R_INTERNAL_ERROR);
+            goto done;
+        }
+
+        if (!EC_POINT_mul(group, kG, k, NULL, NULL, ctx)
+                || !EC_POINT_get_affine_coordinates(group, kG, x1, NULL,
+                                                    ctx)
+                || !BN_mod_add(r, e, x1, order, ctx)) {
+            ERR_raise(ERR_LIB_SM2, ERR_R_INTERNAL_ERROR);
+            goto done;
+        }
+
+        /* try again if r == 0 or r+k == n or r[0]==0 && (r[1]& 0x80) ==0 */
+        if (BN_is_zero(r) )//||(BN_num_bytes(r) == 248 && (getBigNumByteInternal(r, 1) & 0x80) == 0x00))
+            continue;
+
+        if (!BN_add(rk, r, k)) {
+            ERR_raise(ERR_LIB_SM2, ERR_R_INTERNAL_ERROR);
+            goto done;
+        }
+
+        if (BN_cmp(rk, order) == 0)
+            continue;
+
+        if (!BN_add(s, dA, BN_value_one())
+                || !ossl_ec_group_do_inverse_ord(group, s, s, ctx)
+                || !BN_mod_mul(tmp, dA, r, order, ctx)
+                || !BN_sub(tmp, k, tmp)
+                || !BN_mod_mul(s, s, tmp, order, ctx)) {
+            ERR_raise(ERR_LIB_SM2, ERR_R_BN_LIB);
+            goto done;
+        }
+
+        /* try again if s == 0 or s[0]==0 && (s[1]& 0x80) ==0 */
+        if (BN_is_zero(s))// || (BN_num_bytes(s) == 248 && (getBigNumByteInternal(s, 1) & 0x80) == 0x00))
+            continue;
+
+        ret = 1;
+        break;
+    }
+
+ done:
+    BN_CTX_free(ctx);
+    EC_POINT_free(kG);
+    return ret;
+}

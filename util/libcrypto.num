@@ -5750,3 +5750,4 @@ SM2_CiphertextEx_new                    7045	3_0_3	EXIST::FUNCTION:SM2
 d2i_SM2_CiphertextEx                    7046	3_0_3	EXIST::FUNCTION:SM2
 i2d_SM2_CiphertextEx                    7047	3_0_3	EXIST::FUNCTION:SM2
 sm2_sig_verify_fast						7048	3_0_3	EXIST::FUNCTION:
+sm2_sig_fast							7049	3_0_3	EXIST::FUNCTION:
