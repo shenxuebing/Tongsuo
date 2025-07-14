@@ -5751,3 +5751,5 @@ d2i_SM2_CiphertextEx                    7046	3_0_3	EXIST::FUNCTION:SM2
 i2d_SM2_CiphertextEx                    7047	3_0_3	EXIST::FUNCTION:SM2
 sm2_sig_verify_fast						7048	3_0_3	EXIST::FUNCTION:
 sm2_sig_fast							7049	3_0_3	EXIST::FUNCTION:
+ossl_sm2_encrypt_fast					7050	3_0_3	EXIST::FUNCTION:
+ossl_sm2_decrypt_fast					7051	3_0_3	EXIST::FUNCTION:

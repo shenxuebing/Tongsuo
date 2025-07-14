@@ -134,5 +134,18 @@ const unsigned char *ossl_sm2_algorithmidentifier_encoding(int md_nid,
         const BIGNUM* s,
         const BIGNUM* e);
     int sm2_sig_fast(const EC_KEY* key, const BIGNUM* e, BIGNUM* r, BIGNUM* s);
+    int ossl_sm2_encrypt_fast(const EC_KEY* key,
+        const EVP_MD* digest,
+        const uint8_t* msg, size_t msg_len,
+        BIGNUM* c1x, BIGNUM* c1y,
+        uint8_t* c2, size_t* c2_len,
+        uint8_t* c3, size_t* c3_len);
+    int ossl_sm2_decrypt_fast(const EC_KEY* key,
+        const EVP_MD* digest,
+        const BIGNUM* c1x, const BIGNUM* c1y,
+        const uint8_t* c2, size_t c2_len,
+        const uint8_t* c3, size_t c3_len,
+        uint8_t* ptext_buf, size_t* ptext_len);
+
 # endif /* OPENSSL_NO_SM2 */
 #endif

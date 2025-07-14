@@ -1203,3 +1203,314 @@ err:
 
 	return ret;
 }
+int ossl_sm2_encrypt_fast(const EC_KEY* key,
+	const EVP_MD* digest,
+	const uint8_t* msg, size_t msg_len,
+	BIGNUM* c1x, BIGNUM* c1y,
+	uint8_t* c2, size_t* c2_len,
+	uint8_t* c3, size_t* c3_len)
+{
+	int rc = 0;
+	size_t i;
+	BN_CTX* ctx = NULL;
+	BIGNUM* k = NULL;
+	BIGNUM* x1 = NULL;
+	BIGNUM* y1 = NULL;
+	BIGNUM* x2 = NULL;
+	BIGNUM* y2 = NULL;
+	EVP_MD_CTX* hash = EVP_MD_CTX_new();
+	//struct SM2_Ciphertext_st ctext_struct;
+	const EC_GROUP* group = EC_KEY_get0_group(key);
+	const BIGNUM* order = EC_GROUP_get0_order(group);
+	const EC_POINT* P = EC_KEY_get0_public_key(key);
+	EC_POINT* kG = NULL;
+	EC_POINT* kP = NULL;
+	uint8_t* msg_mask = NULL;
+	uint8_t* x2y2 = NULL;
+	uint8_t* C3 = NULL;
+	size_t field_size;
+	const int C3_size = EVP_MD_get_size(digest);
+	EVP_MD* fetched_digest = NULL;
+	OSSL_LIB_CTX* libctx = ossl_ec_key_get_libctx(key);
+	const char* propq = ossl_ec_key_get0_propq(key);
+
+	/* NULL these before any "goto done" */
+	//ctext_struct.C2 = NULL;
+	//ctext_struct.C3 = NULL;
+
+	if (hash == NULL || C3_size <= 0 || digest == NULL || c1x == NULL || c1y == NULL || c2 == NULL || c3 == NULL || c2_len ==NULL || c3_len == NULL)
+	{
+		ERR_raise(ERR_LIB_SM2, ERR_R_INTERNAL_ERROR);
+		goto done;
+	}
+	if (*c2_len < msg_len)
+	{
+        ERR_raise(ERR_LIB_SM2, SM2_R_BUFFER_TOO_SMALL);
+        goto done;
+	}
+	field_size = ec_field_size(group);
+	if (field_size == 0)
+	{
+		ERR_raise(ERR_LIB_SM2, ERR_R_INTERNAL_ERROR);
+		goto done;
+	}
+
+	kG = EC_POINT_new(group);
+	kP = EC_POINT_new(group);
+	ctx = BN_CTX_new_ex(libctx);
+	if (kG == NULL || kP == NULL || ctx == NULL)
+	{
+		ERR_raise(ERR_LIB_SM2, ERR_R_MALLOC_FAILURE);
+		goto done;
+	}
+
+	BN_CTX_start(ctx);
+	k = BN_CTX_get(ctx);
+	x1 = BN_CTX_get(ctx);
+	x2 = BN_CTX_get(ctx);
+	y1 = BN_CTX_get(ctx);
+	y2 = BN_CTX_get(ctx);
+
+	if (y2 == NULL)
+	{
+		ERR_raise(ERR_LIB_SM2, ERR_R_BN_LIB);
+		goto done;
+	}
+
+	x2y2 = OPENSSL_zalloc(2 * field_size);
+	C3 = OPENSSL_zalloc(C3_size);
+
+	if (x2y2 == NULL || C3 == NULL)
+	{
+		ERR_raise(ERR_LIB_SM2, ERR_R_MALLOC_FAILURE);
+		goto done;
+	}
+
+	if (!BN_priv_rand_range_ex(k, order, 0, ctx))
+	{
+		ERR_raise(ERR_LIB_SM2, ERR_R_INTERNAL_ERROR);
+		goto done;
+	}
+
+	if (!EC_POINT_mul(group, kG, k, NULL, NULL, ctx)
+		|| !EC_POINT_get_affine_coordinates(group, kG, x1, y1, ctx)
+		|| !EC_POINT_mul(group, kP, NULL, P, k, ctx)
+		|| !EC_POINT_get_affine_coordinates(group, kP, x2, y2, ctx))
+	{
+		ERR_raise(ERR_LIB_SM2, ERR_R_EC_LIB);
+		goto done;
+	}
+
+	if (BN_bn2binpad(x2, x2y2, field_size) < 0
+		|| BN_bn2binpad(y2, x2y2 + field_size, field_size) < 0)
+	{
+		ERR_raise(ERR_LIB_SM2, ERR_R_INTERNAL_ERROR);
+		goto done;
+	}
+
+	msg_mask = OPENSSL_zalloc(msg_len);
+	if (msg_mask == NULL)
+	{
+		ERR_raise(ERR_LIB_SM2, ERR_R_MALLOC_FAILURE);
+		goto done;
+	}
+
+	/* X9.63 with no salt happens to match the KDF used in SM2 */
+	if (!ossl_ecdh_kdf_X9_63(msg_mask, msg_len, x2y2, 2 * field_size, NULL, 0,
+		digest, libctx, propq))
+	{
+		ERR_raise(ERR_LIB_SM2, ERR_R_EVP_LIB);
+		goto done;
+	}
+
+	for (i = 0; i != msg_len; ++i)
+		msg_mask[i] ^= msg[i];
+
+	fetched_digest = EVP_MD_fetch(libctx, EVP_MD_get0_name(digest), propq);
+	if (fetched_digest == NULL)
+	{
+		ERR_raise(ERR_LIB_SM2, ERR_R_INTERNAL_ERROR);
+		goto done;
+	}
+	if (EVP_DigestInit(hash, fetched_digest) == 0
+		|| EVP_DigestUpdate(hash, x2y2, field_size) == 0
+		|| EVP_DigestUpdate(hash, msg, msg_len) == 0
+		|| EVP_DigestUpdate(hash, x2y2 + field_size, field_size) == 0
+		|| EVP_DigestFinal(hash, C3, NULL) == 0)
+	{
+		ERR_raise(ERR_LIB_SM2, ERR_R_EVP_LIB);
+		goto done;
+	}
+	//x1 copy to c1x and y1 copy to c1y
+	if(!BN_copy(c1x, x1)||!BN_copy(c1y, y1))
+	{
+		ERR_raise(ERR_LIB_SM2, ERR_R_BN_LIB);
+		goto done;
+	}
+	if ((*c3_len < C3_size) || (*c2_len < msg_len))
+	{
+        ERR_raise(ERR_LIB_SM2, SM2_R_BUFFER_TOO_SMALL);
+        goto done;
+	}
+	*c3_len = C3_size;
+	memcpy(c3, C3, C3_size);
+	*c2_len= msg_len;
+    memcpy(c2, msg_mask, msg_len);
+
+	rc = 1;
+
+done:
+	EVP_MD_free(fetched_digest);
+	OPENSSL_free(msg_mask);
+	OPENSSL_free(x2y2);
+	OPENSSL_free(C3);
+	EVP_MD_CTX_free(hash);
+	BN_CTX_free(ctx);
+	EC_POINT_free(kG);
+	EC_POINT_free(kP);
+	return rc;
+}
+int ossl_sm2_decrypt_fast(const EC_KEY* key,
+	const EVP_MD* digest,
+	const BIGNUM* c1x,const BIGNUM* c1y,
+	const uint8_t* c2,size_t c2_len,
+    const uint8_t* c3,size_t c3_len,
+	uint8_t* ptext_buf, size_t* ptext_len)
+{
+	int rc = 0;
+	int i;
+	BN_CTX* ctx = NULL;
+	const EC_GROUP* group = EC_KEY_get0_group(key);
+	EC_POINT* C1 = NULL;
+	//struct SM2_Ciphertext_st* sm2_ctext = NULL;
+	BIGNUM* x2 = NULL;
+	BIGNUM* y2 = NULL;
+	uint8_t* x2y2 = NULL;
+	uint8_t* computed_C3 = NULL;
+	const size_t field_size = ec_field_size(group);
+	const int hash_size = EVP_MD_get_size(digest);
+	uint8_t* msg_mask = NULL;
+	const uint8_t* C2 = NULL;
+	const uint8_t* C3 = NULL;
+	int msg_len = 0;
+	EVP_MD_CTX* hash = NULL;
+	OSSL_LIB_CTX* libctx = ossl_ec_key_get_libctx(key);
+	const char* propq = ossl_ec_key_get0_propq(key);
+
+	if (field_size == 0 || hash_size <= 0)
+		goto done;
+
+	memset(ptext_buf, 0xFF, *ptext_len);
+	
+
+	if (c3_len != hash_size)
+	{
+		ERR_raise(ERR_LIB_SM2, SM2_R_INVALID_ENCODING);
+		goto done;
+	}
+
+	C2 = c2;
+	C3 = c3;
+	msg_len = c2_len;
+	if (*ptext_len < (size_t)msg_len)
+	{
+		ERR_raise(ERR_LIB_SM2, SM2_R_BUFFER_TOO_SMALL);
+		goto done;
+	}
+
+	ctx = BN_CTX_new_ex(libctx);
+	if (ctx == NULL)
+	{
+		ERR_raise(ERR_LIB_SM2, ERR_R_MALLOC_FAILURE);
+		goto done;
+	}
+
+	BN_CTX_start(ctx);
+	x2 = BN_CTX_get(ctx);
+	y2 = BN_CTX_get(ctx);
+
+	if (y2 == NULL)
+	{
+		ERR_raise(ERR_LIB_SM2, ERR_R_BN_LIB);
+		goto done;
+	}
+
+	msg_mask = OPENSSL_zalloc(msg_len);
+	x2y2 = OPENSSL_zalloc(2 * field_size);
+	computed_C3 = OPENSSL_zalloc(hash_size);
+
+	if (msg_mask == NULL || x2y2 == NULL || computed_C3 == NULL)
+	{
+		ERR_raise(ERR_LIB_SM2, ERR_R_MALLOC_FAILURE);
+		goto done;
+	}
+
+	C1 = EC_POINT_new(group);
+	if (C1 == NULL)
+	{
+		ERR_raise(ERR_LIB_SM2, ERR_R_MALLOC_FAILURE);
+		goto done;
+	}
+
+	if (!EC_POINT_set_affine_coordinates(group, C1, c1x,
+		c1y, ctx)
+		|| !EC_POINT_mul(group, C1, NULL, C1, EC_KEY_get0_private_key(key),
+			ctx)
+		|| !EC_POINT_get_affine_coordinates(group, C1, x2, y2, ctx))
+	{
+		ERR_raise(ERR_LIB_SM2, ERR_R_EC_LIB);
+		goto done;
+	}
+
+	if (BN_bn2binpad(x2, x2y2, field_size) < 0
+		|| BN_bn2binpad(y2, x2y2 + field_size, field_size) < 0
+		|| !ossl_ecdh_kdf_X9_63(msg_mask, msg_len, x2y2, 2 * field_size,
+			NULL, 0, digest, libctx, propq))
+	{
+		ERR_raise(ERR_LIB_SM2, ERR_R_INTERNAL_ERROR);
+		goto done;
+	}
+
+	for (i = 0; i != msg_len; ++i)
+		ptext_buf[i] = C2[i] ^ msg_mask[i];
+
+	hash = EVP_MD_CTX_new();
+	if (hash == NULL)
+	{
+		ERR_raise(ERR_LIB_SM2, ERR_R_MALLOC_FAILURE);
+		goto done;
+	}
+
+	if (!EVP_DigestInit(hash, digest)
+		|| !EVP_DigestUpdate(hash, x2y2, field_size)
+		|| !EVP_DigestUpdate(hash, ptext_buf, msg_len)
+		|| !EVP_DigestUpdate(hash, x2y2 + field_size, field_size)
+		|| !EVP_DigestFinal(hash, computed_C3, NULL))
+	{
+		ERR_raise(ERR_LIB_SM2, ERR_R_EVP_LIB);
+		goto done;
+	}
+
+	if (CRYPTO_memcmp(computed_C3, C3, hash_size) != 0)
+	{
+		ERR_raise(ERR_LIB_SM2, SM2_R_INVALID_DIGEST);
+		goto done;
+	}
+
+	rc = 1;
+	*ptext_len = msg_len;
+
+done:
+	if (rc == 0)
+		memset(ptext_buf, 0, *ptext_len);
+
+	OPENSSL_free(msg_mask);
+	OPENSSL_free(x2y2);
+	OPENSSL_free(computed_C3);
+	EC_POINT_free(C1);
+	BN_CTX_free(ctx);
+	//SM2_Ciphertext_free(sm2_ctext);
+	EVP_MD_CTX_free(hash);
+
+	return rc;
+}
