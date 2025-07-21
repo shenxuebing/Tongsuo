@@ -2652,6 +2652,7 @@ static const unsigned int sn_objs[NUM_SN] = {
     1517,    /* "SM1-OFB" */
     1172,    /* "SM2" */
     1204,    /* "SM2-SM3" */
+    1281,    /* "SM2DH-MLKEM768-HYBRID" */
     1143,    /* "SM3" */
     1134,    /* "SM4-CBC" */
     1251,    /* "SM4-CCM" */
@@ -4972,6 +4973,7 @@ static const unsigned int obj_objs[NUM_OBJ] = {
     1144,    /* OBJ_sm3WithRSAEncryption         1 2 156 10197 1 504 */
     1249,    /* OBJ_zuc_128_eea3                 1 2 156 10197 1 801 */
     1255,    /* OBJ_zuc_128_eia3                 1 2 156 10197 1 802 */
+    1281,    /* OBJ_sm2dh_mlkem768_hybrid        1 2 156 10197 1 1001 */
      186,    /* OBJ_pkcs1                        1 2 840 113549 1 1 */
       27,    /* OBJ_pkcs3                        1 2 840 113549 1 3 */
      187,    /* OBJ_pkcs5                        1 2 840 113549 1 5 */
