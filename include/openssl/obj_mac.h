@@ -1206,7 +1206,7 @@
 
 #define SN_sm2dh_mlkem768_hybrid                "SM2DH-MLKEM768-HYBRID"
 #define LN_sm2dh_mlkem768_hybrid                "sm2dh-mlkem768-hybrid"
-#define NID_sm2dh_mlkem768_hybrid               1281
+#define NID_sm2dh_mlkem768_hybrid               1514
 #define OBJ_sm2dh_mlkem768_hybrid               OBJ_sm_scheme,1001L
 
 #define LN_hmacWithSHA224               "hmacWithSHA224"
@@ -4013,27 +4013,27 @@
 
 #define SN_sm1_ecb              "SM1-ECB"
 #define LN_sm1_ecb              "sm1-ecb"
-#define NID_sm1_ecb             1514
+#define NID_sm1_ecb             1515
 #define OBJ_sm1_ecb             OBJ_sm_scheme,101L,1L
 
 #define SN_sm1_cbc              "SM1-CBC"
 #define LN_sm1_cbc              "sm1-cbc"
-#define NID_sm1_cbc             1515
+#define NID_sm1_cbc             1516
 #define OBJ_sm1_cbc             OBJ_sm_scheme,101L,2L
 
 #define SN_sm1_cfb              "SM1-CFB"
 #define LN_sm1_cfb              "sm1-cfb"
-#define NID_sm1_cfb             1516
+#define NID_sm1_cfb             1517
 #define OBJ_sm1_cfb             OBJ_sm_scheme,101L,3L
 
 #define SN_sm1_ofb              "SM1-OFB"
 #define LN_sm1_ofb              "sm1-ofb"
-#define NID_sm1_ofb             1517
+#define NID_sm1_ofb             1518
 #define OBJ_sm1_ofb             OBJ_sm_scheme,101L,4L
 
 #define SN_sm1_mac              "SM1-MAC"
 #define LN_sm1_mac              "sm1-mac"
-#define NID_sm1_mac             1518
+#define NID_sm1_mac             1519
 #define OBJ_sm1_mac             OBJ_sm_scheme,101L,5L
 
 #define SN_hmac         "HMAC"
