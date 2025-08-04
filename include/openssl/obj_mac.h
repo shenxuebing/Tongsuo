@@ -1073,6 +1073,16 @@
 #define NID_pbe_WithSHA1And2_Key_TripleDES_CBC          147
 #define OBJ_pbe_WithSHA1And2_Key_TripleDES_CBC          OBJ_pkcs12_pbeids,4L
 
+#define SN_pbe_WithSHA1And128BitRC2_CBC         "PBE-SHA1-RC2-128"
+#define LN_pbe_WithSHA1And128BitRC2_CBC         "pbeWithSHA1And128BitRC2-CBC"
+#define NID_pbe_WithSHA1And128BitRC2_CBC                148
+#define OBJ_pbe_WithSHA1And128BitRC2_CBC                OBJ_pkcs12_pbeids,5L
+
+#define SN_pbe_WithSHA1And40BitRC2_CBC          "PBE-SHA1-RC2-40"
+#define LN_pbe_WithSHA1And40BitRC2_CBC          "pbeWithSHA1And40BitRC2-CBC"
+#define NID_pbe_WithSHA1And40BitRC2_CBC         149
+#define OBJ_pbe_WithSHA1And40BitRC2_CBC         OBJ_pkcs12_pbeids,6L
+
 #define OBJ_pkcs12_Version1             OBJ_pkcs12,10L
 
 #define OBJ_pkcs12_BagIds               OBJ_pkcs12_Version1,1L
@@ -1232,6 +1242,31 @@
 #define LN_hmacWithSHA512_256           "hmacWithSHA512-256"
 #define NID_hmacWithSHA512_256          1194
 #define OBJ_hmacWithSHA512_256          OBJ_rsadsi,2L,13L
+
+#define SN_rc2_cbc              "RC2-CBC"
+#define LN_rc2_cbc              "rc2-cbc"
+#define NID_rc2_cbc             37
+#define OBJ_rc2_cbc             OBJ_rsadsi,3L,2L
+
+#define SN_rc2_ecb              "RC2-ECB"
+#define LN_rc2_ecb              "rc2-ecb"
+#define NID_rc2_ecb             38
+
+#define SN_rc2_cfb64            "RC2-CFB"
+#define LN_rc2_cfb64            "rc2-cfb"
+#define NID_rc2_cfb64           39
+
+#define SN_rc2_ofb64            "RC2-OFB"
+#define LN_rc2_ofb64            "rc2-ofb"
+#define NID_rc2_ofb64           40
+
+#define SN_rc2_40_cbc           "RC2-40-CBC"
+#define LN_rc2_40_cbc           "rc2-40-cbc"
+#define NID_rc2_40_cbc          98
+
+#define SN_rc2_64_cbc           "RC2-64-CBC"
+#define LN_rc2_64_cbc           "rc2-64-cbc"
+#define NID_rc2_64_cbc          166
 
 #define SN_rc4          "RC4"
 #define LN_rc4          "rc4"

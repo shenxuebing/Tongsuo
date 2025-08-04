@@ -36,6 +36,7 @@ static const ssl_cipher_table ssl_cipher_table_cipher[SSL_ENC_NUM_IDX] = {
     {SSL_DES, NID_des_cbc},     /* SSL_ENC_DES_IDX 0 */
     {SSL_3DES, NID_des_ede3_cbc}, /* SSL_ENC_3DES_IDX 1 */
     {SSL_RC4, NID_rc4},         /* SSL_ENC_RC4_IDX 2 */
+	{SSL_RC2, NID_rc2_cbc},     /* SSL_ENC_RC2_IDX 3 */
     {SSL_eNULL, NID_undef},     /* SSL_ENC_NULL_IDX 3 */
     {SSL_AES128, NID_aes_128_cbc}, /* SSL_ENC_AES128_IDX 4 */
     {SSL_AES256, NID_aes_256_cbc}, /* SSL_ENC_AES256_IDX 5 */
@@ -212,6 +213,7 @@ static const SSL_CIPHER cipher_aliases[] = {
     /* symmetric encryption aliases */
     {0, SSL_TXT_3DES, NULL, 0, 0, 0, SSL_3DES},
     {0, SSL_TXT_RC4, NULL, 0, 0, 0, SSL_RC4},
+	{0, SSL_TXT_RC2, NULL, 0, 0, 0, SSL_RC2},
     {0, SSL_TXT_eNULL, NULL, 0, 0, 0, SSL_eNULL},
     {0, SSL_TXT_AES128, NULL, 0, 0, 0,
      SSL_AES128 | SSL_AES128GCM | SSL_AES128CCM | SSL_AES128CCM8},
@@ -1751,6 +1753,9 @@ char *SSL_CIPHER_description(const SSL_CIPHER *cipher, char *buf, int len)
         break;
     case SSL_RC4:
         enc = "RC4(128)";
+	case SSL_RC2:
+        enc = "RC2(128)";
+        break;
         break;
     case SSL_eNULL:
         enc = "None";

@@ -73,6 +73,20 @@ void openssl_add_all_ciphers_int(void)
     EVP_add_cipher(EVP_sm4_ccm());
 #endif
 
+#ifndef OPENSSL_NO_RC2
+	EVP_add_cipher(EVP_rc2_ecb());
+	EVP_add_cipher(EVP_rc2_cfb());
+	EVP_add_cipher(EVP_rc2_ofb());
+	EVP_add_cipher(EVP_rc2_cbc());
+	EVP_add_cipher(EVP_rc2_40_cbc());
+	EVP_add_cipher(EVP_rc2_64_cbc());
+	EVP_add_cipher_alias(SN_rc2_cbc, "RC2");
+	EVP_add_cipher_alias(SN_rc2_cbc, "rc2");
+	EVP_add_cipher_alias(SN_rc2_cbc, "rc2-128");
+	EVP_add_cipher_alias(SN_rc2_64_cbc, "rc2-64");
+	EVP_add_cipher_alias(SN_rc2_40_cbc, "rc2-40");
+#endif
+
 #ifndef OPENSSL_NO_WBSM4_XIAOLAI
     EVP_add_cipher(EVP_wbsm4_xiaolai_ecb());
     EVP_add_cipher(EVP_wbsm4_xiaolai_cbc());

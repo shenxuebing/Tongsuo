@@ -46,11 +46,22 @@ static const EVP_PBE_CTL builtin_pbe[] = {
      NID_des_ede3_cbc, NID_sha1, PKCS12_PBE_keyivgen, &PKCS12_PBE_keyivgen_ex},
     {EVP_PBE_TYPE_OUTER, NID_pbe_WithSHA1And2_Key_TripleDES_CBC,
      NID_des_ede_cbc, NID_sha1, PKCS12_PBE_keyivgen, &PKCS12_PBE_keyivgen_ex},
+#ifndef OPENSSL_NO_RC2
+	{EVP_PBE_TYPE_OUTER, NID_pbe_WithSHA1And128BitRC2_CBC,
+	 NID_rc2_cbc, NID_sha1, PKCS12_PBE_keyivgen,&PKCS12_PBE_keyivgen_ex},
+	{EVP_PBE_TYPE_OUTER, NID_pbe_WithSHA1And40BitRC2_CBC,
+	 NID_rc2_40_cbc, NID_sha1, PKCS12_PBE_keyivgen,&PKCS12_PBE_keyivgen_ex},
+#endif
 
-    {EVP_PBE_TYPE_OUTER, NID_pbes2, -1, -1, PKCS5_v2_PBE_keyivgen, &PKCS5_v2_PBE_keyivgen_ex},
-
-    {EVP_PBE_TYPE_OUTER, NID_pbeWithSHA1AndDES_CBC,
-     NID_des_cbc, NID_sha1, PKCS5_PBE_keyivgen, PKCS5_PBE_keyivgen_ex},
+	{EVP_PBE_TYPE_OUTER, NID_pbes2, -1, -1, PKCS5_v2_PBE_keyivgen, &PKCS5_v2_PBE_keyivgen_ex},
+#ifndef OPENSSL_NO_RC2
+	/*{EVP_PBE_TYPE_OUTER, NID_pbeWithMD2AndRC2_CBC,
+	 NID_rc2_64_cbc, NID_md2, PKCS5_PBE_keyivgen, PKCS5_PBE_keyivgen_ex},
+	{EVP_PBE_TYPE_OUTER, NID_pbeWithMD5AndRC2_CBC,
+	 NID_rc2_64_cbc, NID_md5, PKCS5_PBE_keyivgen, PKCS5_PBE_keyivgen_ex},*/
+#endif
+	{ EVP_PBE_TYPE_OUTER, NID_pbeWithSHA1AndDES_CBC,
+	 NID_des_cbc, NID_sha1, PKCS5_PBE_keyivgen, PKCS5_PBE_keyivgen_ex },
 
     {EVP_PBE_TYPE_PRF, NID_hmacWithSHA1, -1, NID_sha1, 0},
     {EVP_PBE_TYPE_PRF, NID_hmac_md5, -1, NID_md5, 0},
@@ -225,7 +236,7 @@ int EVP_PBE_alg_add(int nid, const EVP_CIPHER *cipher, const EVP_MD *md,
 }
 
 int EVP_PBE_find_ex(int type, int pbe_nid, int *pcnid, int *pmnid,
-                    EVP_PBE_KEYGEN **pkeygen, EVP_PBE_KEYGEN_EX **pkeygen_ex)
+                     EVP_PBE_KEYGEN **pkeygen, EVP_PBE_KEYGEN_EX **pkeygen_ex)
 {
     EVP_PBE_CTL *pbetmp = NULL, pbelu;
     int i;
@@ -241,7 +252,7 @@ int EVP_PBE_find_ex(int type, int pbe_nid, int *pcnid, int *pmnid,
     }
     if (pbetmp == NULL) {
         pbetmp = OBJ_bsearch_pbe2(&pbelu, builtin_pbe, OSSL_NELEM(builtin_pbe));
-    }
+            }
     if (pbetmp == NULL)
         return 0;
     if (pcnid != NULL)

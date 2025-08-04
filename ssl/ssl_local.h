@@ -217,6 +217,7 @@
 # define SSL_DES                 0x00000001U
 # define SSL_3DES                0x00000002U
 # define SSL_RC4                 0x00000004U
+# define SSL_RC2                 0x00000008U
 # define SSL_eNULL               0x00000020U
 # define SSL_AES128              0x00000040U
 # define SSL_AES256              0x00000080U
@@ -408,9 +409,9 @@
 # define SSL_ENC_SM4_CCM_IDX     14
 # ifndef OPENSSL_NO_SM4
 #  define SSL_ENC_SM4_IDX        15
-#  define SSL_ENC_NUM_IDX        16
+#  define SSL_ENC_NUM_IDX        17
 # else
-#  define SSL_ENC_NUM_IDX        15
+#  define SSL_ENC_NUM_IDX        16
 # endif
 
 /*-

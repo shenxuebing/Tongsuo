@@ -350,6 +350,10 @@ pkcs12-pbeids 2		: PBE-SHA1-RC4-40	: pbeWithSHA1And40BitRC4
 pkcs12-pbeids 3		: PBE-SHA1-3DES		: pbeWithSHA1And3-KeyTripleDES-CBC
 !Cname pbe-WithSHA1And2_Key_TripleDES-CBC
 pkcs12-pbeids 4		: PBE-SHA1-2DES		: pbeWithSHA1And2-KeyTripleDES-CBC
+!Cname pbe-WithSHA1And128BitRC2-CBC
+pkcs12-pbeids 5		: PBE-SHA1-RC2-128	: pbeWithSHA1And128BitRC2-CBC
+!Cname pbe-WithSHA1And40BitRC2-CBC
+pkcs12-pbeids 6		: PBE-SHA1-RC2-40	: pbeWithSHA1And40BitRC2-CBC
 
 !Alias pkcs12-Version1 pkcs12 10
 !Alias pkcs12-BagIds pkcs12-Version1 1
@@ -407,6 +411,15 @@ rsadsi 2 11		:			: hmacWithSHA512
 rsadsi 2 12             :                       : hmacWithSHA512-224
 rsadsi 2 13             :                       : hmacWithSHA512-256
 
+
+rsadsi 3 2		: RC2-CBC		: rc2-cbc
+			: RC2-ECB		: rc2-ecb
+!Cname rc2-cfb64
+			: RC2-CFB		: rc2-cfb
+!Cname rc2-ofb64
+			: RC2-OFB		: rc2-ofb
+			: RC2-40-CBC		: rc2-40-cbc
+			: RC2-64-CBC		: rc2-64-cbc
 rsadsi 3 4		: RC4			: rc4
 			: RC4-40		: rc4-40
 rsadsi 3 7		: DES-EDE3-CBC		: des-ede3-cbc

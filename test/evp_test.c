@@ -523,6 +523,7 @@ typedef struct cipher_data_st {
     int aead;
     unsigned char *key;
     size_t key_len;
+    size_t key_bits; /* Used by RC2 */
     unsigned char *iv;
     unsigned char *next_iv; /* Expected IV state after operation */
     unsigned int rounds;
@@ -3964,6 +3965,12 @@ static int is_kdf_disabled(const char *name)
     return 0;
 }
 
+/* Check if the string literal |p| is a case-insensitive prefix of |s| */
+#define HAS_CASE_PREFIX(s, p) (OPENSSL_strncasecmp(s, p "", sizeof(p) - 1) == 0)
+/* As before, and if check succeeds, advance |str| past the prefix |pre| */
+#define CHECK_AND_SKIP_CASE_PREFIX(str, pre) \
+    (HAS_CASE_PREFIX(str, pre) ? ((str) += sizeof(pre) - 1, 1) : 0)
+
 static int is_cipher_disabled(const char *name)
 {
 #ifdef OPENSSL_NO_CHACHA
@@ -3982,6 +3989,10 @@ static int is_cipher_disabled(const char *name)
 #endif
 #ifdef OPENSSL_NO_OCB
     if (STR_ENDS_WITH(name, "OCB"))
+        return 1;
+#endif
+#ifdef OPENSSL_NO_RC2
+    if (HAS_CASE_PREFIX(name, "RC2"))
         return 1;
 #endif
 #ifdef OPENSSL_NO_RC4

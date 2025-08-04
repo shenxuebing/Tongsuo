@@ -315,7 +315,7 @@ $config{perlargv} = [ @argvcopy ];
 # 'unshift' adds at the front of the list (i.e. in reverse input order).
 foreach ( reverse sort( 'aes', 'des', 'dh',
                         'dsa', 'ec', 'hmac', 'md5',
-                        'rc4', 'rc5', 'sha',
+                        'rc2', 'rc4', 'rc5', 'sha',
                         'sm2', 'sm3', 'sm4', 'zuc', 'eia3') ) {
     unshift @argvcopy, "no-$_" if ! -d catdir($srcdir, 'crypto', $_);
 }
@@ -471,6 +471,7 @@ my @disablables = (
     "posix-io",
     "psk",
     "quic",
+    "rc2",
     "rc4",
     "rc5",
     "rdrand",
@@ -640,7 +641,7 @@ my @disable_cascades = (
                              "ktls",
                              "multiblock", "nextprotoneg",
                              "ocsp", "ocb", "poly1305", "psk",
-                             "rc4",
+                             'rc2', "rc4",
                              "siphash", "siv",
                              "sm3", "sm4", "srp",
                              "srtp", "ssl3-method", "ssl-trace",

@@ -16,7 +16,7 @@ X509_PUBKEY_set0_param                  15	3_0_0	EXIST::FUNCTION:
 PKCS12_it                               16	3_0_0	EXIST::FUNCTION:
 i2d_ASN1_OCTET_STRING                   17	3_0_0	EXIST::FUNCTION:
 EC_KEY_set_private_key                  18	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0,EC
-SRP_VBASE_get_by_user                   19	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_1_1_0,SRP
+SRP_VBASE_get_by_user                   19	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0_3,SRP
 DES_ncbc_encrypt                        22	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0,DES
 TS_REQ_get_ext_count                    23	3_0_0	EXIST::FUNCTION:TS
 EVP_aes_128_ocb                         24	3_0_0	EXIST::FUNCTION:OCB
@@ -87,7 +87,7 @@ OCSP_archive_cutoff_new                 92	3_0_0	EXIST::FUNCTION:OCSP
 DSA_size                                93	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0,DSA
 IPAddressRange_free                     94	3_0_0	EXIST::FUNCTION:RFC3779
 CMS_ContentInfo_free                    95	3_0_0	EXIST::FUNCTION:CMS
-BIO_accept                              96	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_1_1_0,SOCK
+BIO_accept                              96	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0_3,SOCK
 X509_VERIFY_PARAM_set1_policies         97	3_0_0	EXIST::FUNCTION:
 SCT_set0_extensions                     98	3_0_0	EXIST::FUNCTION:CT
 PKCS5_pbe2_set_scrypt                   99	3_0_0	EXIST::FUNCTION:SCRYPT
@@ -113,7 +113,7 @@ EVP_BytesToKey                          120	3_0_0	EXIST::FUNCTION:
 ENGINE_set_default_pkey_asn1_meths      121	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0,ENGINE
 OCSP_BASICRESP_add1_ext_i2d             122	3_0_0	EXIST::FUNCTION:OCSP
 EVP_CIPHER_impl_ctx_size                124	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0
-X509_CRL_get_nextUpdate                 125	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_1_1_0
+X509_CRL_get_nextUpdate                 125	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0_3
 PKCS12_free                             126	3_0_0	EXIST::FUNCTION:
 CMS_signed_get_attr                     127	3_0_0	EXIST::FUNCTION:CMS
 ENGINE_set_destroy_function             128	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0,ENGINE
@@ -218,6 +218,7 @@ EC_POINT_set_Jprojective_coordinates_GFp 230	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_
 DIST_POINT_NAME_new                     231	3_0_0	EXIST::FUNCTION:
 X509_LOOKUP_file                        232	3_0_0	EXIST::FUNCTION:
 EVP_PKEY_meth_set_decrypt               233	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0
+EVP_rc2_ecb                             234	3_0_0	EXIST::FUNCTION:RC2
 i2b_PublicKey_bio                       235	3_0_0	EXIST::FUNCTION:
 d2i_ASN1_SET_ANY                        236	3_0_0	EXIST::FUNCTION:
 ASN1_item_i2d                           238	3_0_0	EXIST::FUNCTION:
@@ -237,6 +238,7 @@ X509_CRL_load_http                      253	3_0_0	EXIST::FUNCTION:
 ENGINE_register_all_ciphers             254	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0,ENGINE
 SXNET_new                               255	3_0_0	EXIST::FUNCTION:
 d2i_PKCS8_PRIV_KEY_INFO                 257	3_0_0	EXIST::FUNCTION:
+RC2_ecb_encrypt                         260	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0,RC2
 ENGINE_register_DH                      261	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0,ENGINE
 ASN1_NULL_free                          262	3_0_0	EXIST::FUNCTION:
 EC_KEY_copy                             263	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0,EC
@@ -313,7 +315,7 @@ EVP_EncryptUpdate                       336	3_0_0	EXIST::FUNCTION:
 SRP_create_verifier                     337	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0,SRP
 TS_TST_INFO_print_bio                   338	3_0_0	EXIST::FUNCTION:TS
 X509_NAME_get_index_by_OBJ              339	3_0_0	EXIST::FUNCTION:
-BIO_get_host_ip                         340	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_1_1_0,SOCK
+BIO_get_host_ip                         340	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0_3,SOCK
 PKCS7_add_certificate                   341	3_0_0	EXIST::FUNCTION:
 TS_REQ_get_ext                          342	3_0_0	EXIST::FUNCTION:TS
 X509_NAME_cmp                           343	3_0_0	EXIST::FUNCTION:
@@ -359,7 +361,7 @@ CONF_free                               384	3_0_0	EXIST::FUNCTION:
 DSO_get_filename                        385	3_0_0	EXIST::FUNCTION:
 i2d_ASN1_SEQUENCE_ANY                   387	3_0_0	EXIST::FUNCTION:
 OPENSSL_strlcpy                         388	3_0_0	EXIST::FUNCTION:
-BIO_get_port                            389	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_1_1_0,SOCK
+BIO_get_port                            389	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0_3,SOCK
 DISPLAYTEXT_free                        390	3_0_0	EXIST::FUNCTION:
 BN_div                                  391	3_0_0	EXIST::FUNCTION:
 PEM_write_bio_CMS                       393	3_0_0	EXIST::FUNCTION:CMS
@@ -449,6 +451,7 @@ ASN1_T61STRING_free                     482	3_0_0	EXIST::FUNCTION:
 PEM_write_CMS                           483	3_0_0	EXIST::FUNCTION:CMS,STDIO
 OPENSSL_sk_find                         484	3_0_0	EXIST::FUNCTION:
 ENGINE_get_ciphers                      485	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0,ENGINE
+EVP_rc2_ofb                             486	3_0_0	EXIST::FUNCTION:RC2
 EVP_PKEY_set1_RSA                       487	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0
 CMS_SignerInfo_get0_md_ctx              488	3_0_0	EXIST::FUNCTION:CMS
 X509_STORE_set_trust                    489	3_0_0	EXIST::FUNCTION:
@@ -489,7 +492,7 @@ BN_set_negative                         527	3_0_0	EXIST::FUNCTION:
 i2d_TS_RESP_bio                         528	3_0_0	EXIST::FUNCTION:TS
 ASYNC_WAIT_CTX_set_wait_fd              529	3_0_0	EXIST::FUNCTION:
 ERR_func_error_string                   530	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0
-ASN1_STRING_data                        531	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_1_1_0
+ASN1_STRING_data                        531	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0_3
 X509_CRL_add1_ext_i2d                   532	3_0_0	EXIST::FUNCTION:
 i2d_TS_TST_INFO                         533	3_0_0	EXIST::FUNCTION:TS
 OBJ_sigid_free                          534	3_0_0	EXIST::FUNCTION:
@@ -575,6 +578,7 @@ X509at_get_attr                         618	3_0_0	EXIST::FUNCTION:
 X509_PUBKEY_it                          619	3_0_0	EXIST::FUNCTION:
 DES_ede3_ofb64_encrypt                  620	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0,DES
 EC_KEY_METHOD_get_compute_key           621	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0,EC
+RC2_cfb64_encrypt                       622	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0,RC2
 EVP_EncryptFinal_ex                     623	3_0_0	EXIST::FUNCTION:
 ERR_load_RSA_strings                    624	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0
 CRYPTO_secure_malloc_done               625	3_0_0	EXIST::FUNCTION:
@@ -718,7 +722,7 @@ BIO_fd_should_retry                     768	3_0_0	EXIST::FUNCTION:
 ASN1_STRING_new                         769	3_0_0	EXIST::FUNCTION:
 ENGINE_init                             770	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0,ENGINE
 TS_RESP_CTX_add_flags                   771	3_0_0	EXIST::FUNCTION:TS
-BIO_gethostbyname                       772	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_1_1_0,SOCK
+BIO_gethostbyname                       772	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0_3,SOCK
 X509V3_EXT_add                          773	3_0_0	EXIST::FUNCTION:
 UI_add_verify_string                    774	3_0_0	EXIST::FUNCTION:
 EVP_rc5_32_12_16_cfb64                  775	3_0_0	EXIST::FUNCTION:RC5
@@ -990,6 +994,7 @@ BN_GF2m_mod_exp                         1055	3_0_0	EXIST::FUNCTION:EC2M
 OPENSSL_buf2hexstr                      1056	3_0_0	EXIST::FUNCTION:
 DES_encrypt2                            1057	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0,DES
 DH_up_ref                               1058	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0,DH
+RC2_ofb64_encrypt                       1059	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0,RC2
 PKCS12_pbe_crypt                        1060	3_0_0	EXIST::FUNCTION:
 ASIdentifiers_free                      1061	3_0_0	EXIST::FUNCTION:RFC3779
 X509_VERIFY_PARAM_get0                  1062	3_0_0	EXIST::FUNCTION:
@@ -1057,6 +1062,7 @@ PKCS8_PRIV_KEY_INFO_it                  1123	3_0_0	EXIST::FUNCTION:
 RSA_OAEP_PARAMS_free                    1124	3_0_0	EXIST::FUNCTION:
 ASN1_item_new                           1125	3_0_0	EXIST::FUNCTION:
 CRYPTO_cts128_encrypt                   1126	3_0_0	EXIST::FUNCTION:
+RC2_encrypt                             1127	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0,RC2
 PEM_write                               1128	3_0_0	EXIST::FUNCTION:STDIO
 EVP_CIPHER_meth_get_get_asn1_params     1129	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0
 i2d_OCSP_RESPBYTES                      1130	3_0_0	EXIST::FUNCTION:OCSP
@@ -1123,7 +1129,7 @@ PEM_SignFinal                           1191	3_0_0	EXIST::FUNCTION:
 PEM_bytes_read_bio                      1192	3_0_0	EXIST::FUNCTION:
 X509_signature_dump                     1193	3_0_0	EXIST::FUNCTION:
 TS_RESP_CTX_set_def_policy              1194	3_0_0	EXIST::FUNCTION:TS
-RAND_pseudo_bytes                       1195	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_1_1_0
+RAND_pseudo_bytes                       1195	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0_3
 DES_ofb_encrypt                         1196	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0,DES
 EVP_add_digest                          1197	3_0_0	EXIST::FUNCTION:
 ASN1_item_sign_ctx                      1198	3_0_0	EXIST::FUNCTION:
@@ -1234,6 +1240,7 @@ UI_get_result_maxsize                   1306	3_0_0	EXIST::FUNCTION:
 PBEPARAM_it                             1307	3_0_0	EXIST::FUNCTION:
 TS_ACCURACY_set_seconds                 1308	3_0_0	EXIST::FUNCTION:TS
 UI_get0_action_string                   1309	3_0_0	EXIST::FUNCTION:
+RC2_decrypt                             1310	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0,RC2
 OPENSSL_atexit                          1311	3_0_0	EXIST::FUNCTION:
 CMS_add_standard_smimecap               1312	3_0_0	EXIST::FUNCTION:CMS
 PKCS7_add_attrib_content_type           1313	3_0_0	EXIST::FUNCTION:
@@ -1241,7 +1248,7 @@ BN_BLINDING_set_flags                   1314	3_0_0	EXIST::FUNCTION:
 ERR_peek_last_error                     1315	3_0_0	EXIST::FUNCTION:
 ENGINE_set_cmd_defns                    1316	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0,ENGINE
 d2i_ASN1_NULL                           1317	3_0_0	EXIST::FUNCTION:
-RAND_event                              1318	3_0_0	EXIST:_WIN32:FUNCTION:DEPRECATEDIN_1_1_0
+RAND_event                              1318	3_0_0	EXIST:_WIN32:FUNCTION:DEPRECATEDIN_3_0_3
 i2d_PKCS12_fp                           1319	3_0_0	EXIST::FUNCTION:STDIO
 EVP_PKEY_meth_get_init                  1320	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0
 X509_check_trust                        1321	3_0_0	EXIST::FUNCTION:
@@ -1468,7 +1475,7 @@ X509_PUBKEY_get                         1549	3_0_0	EXIST::FUNCTION:
 EC_KEY_free                             1550	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0,EC
 BIO_read                                1551	3_0_0	EXIST::FUNCTION:
 EVP_PKEY_get_attr_by_NID                1552	3_0_0	EXIST::FUNCTION:
-BIO_get_accept_socket                   1553	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_1_1_0,SOCK
+BIO_get_accept_socket                   1553	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0_3,SOCK
 CMS_SignerInfo_sign                     1554	3_0_0	EXIST::FUNCTION:CMS
 ASN1_item_i2d_bio                       1555	3_0_0	EXIST::FUNCTION:
 EVP_CIPHER_CTX_get_block_size           1556	3_0_0	EXIST::FUNCTION:
@@ -1509,6 +1516,7 @@ UI_get0_output_string                   1591	3_0_0	EXIST::FUNCTION:
 ERR_get_error_line_data                 1592	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0
 CTLOG_get0_name                         1593	3_0_0	EXIST::FUNCTION:CT
 ASN1_TBOOLEAN_it                        1594	3_0_0	EXIST::FUNCTION:
+RC2_set_key                             1595	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0,RC2
 X509_REVOKED_get_ext_by_NID             1596	3_0_0	EXIST::FUNCTION:
 RSA_padding_add_none                    1597	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0
 EVP_rc5_32_12_16_cbc                    1599	3_0_0	EXIST::FUNCTION:RC5
@@ -1590,7 +1598,7 @@ TS_TST_INFO_dup                         1678	3_0_0	EXIST::FUNCTION:TS
 EVP_aes_192_ctr                         1679	3_0_0	EXIST::FUNCTION:
 PKCS12_pack_authsafes                   1680	3_0_0	EXIST::FUNCTION:
 PKCS7_get_attribute                     1681	3_0_0	EXIST::FUNCTION:
-OPENSSL_config                          1682	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_1_1_0
+OPENSSL_config                          1682	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0_3
 s2i_ASN1_INTEGER                        1683	3_0_0	EXIST::FUNCTION:
 CMS_signed_add1_attr_by_OBJ             1684	3_0_0	EXIST::FUNCTION:CMS
 CRYPTO_128_wrap_pad                     1685	3_0_0	EXIST::FUNCTION:
@@ -1638,6 +1646,7 @@ CMS_unsigned_get_attr                   1730	3_0_0	EXIST::FUNCTION:CMS
 EVP_aes_256_cbc                         1731	3_0_0	EXIST::FUNCTION:
 X509_check_ip_asc                       1732	3_0_0	EXIST::FUNCTION:
 PEM_write_bio_X509_AUX                  1733	3_0_0	EXIST::FUNCTION:
+RC2_cbc_encrypt                         1734	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0,RC2
 TS_MSG_IMPRINT_new                      1735	3_0_0	EXIST::FUNCTION:TS
 EVP_ENCODE_CTX_new                      1736	3_0_0	EXIST::FUNCTION:
 BIO_f_base64                            1737	3_0_0	EXIST::FUNCTION:
@@ -1655,6 +1664,7 @@ CMAC_Update                             1749	3_0_0	EXIST::FUNCTION:CMAC,DEPRECAT
 d2i_ASN1_UTCTIME                        1750	3_0_0	EXIST::FUNCTION:
 OPENSSL_sk_insert                       1751	3_0_0	EXIST::FUNCTION:
 DSO_up_ref                              1752	3_0_0	EXIST::FUNCTION:
+EVP_rc2_cbc                             1753	3_0_0	EXIST::FUNCTION:RC2
 i2d_NETSCAPE_SPKI                       1754	3_0_0	EXIST::FUNCTION:
 ASYNC_init_thread                       1755	3_0_0	EXIST::FUNCTION:
 OCSP_BASICRESP_get_ext_by_OBJ           1756	3_0_0	EXIST::FUNCTION:OCSP
@@ -1702,7 +1712,7 @@ OCSP_SINGLERESP_get_ext_by_NID          1800	3_0_0	EXIST::FUNCTION:OCSP
 a2i_IPADDRESS_NC                        1801	3_0_0	EXIST::FUNCTION:
 CTLOG_STORE_load_default_file           1802	3_0_0	EXIST::FUNCTION:CT
 PKCS12_SAFEBAG_create_pkcs8_encrypt     1803	3_0_0	EXIST::FUNCTION:
-RAND_screen                             1804	3_0_0	EXIST:_WIN32:FUNCTION:DEPRECATEDIN_1_1_0
+RAND_screen                             1804	3_0_0	EXIST:_WIN32:FUNCTION:DEPRECATEDIN_3_0_3
 CONF_get_string                         1805	3_0_0	EXIST::FUNCTION:
 X509_cmp_current_time                   1806	3_0_0	EXIST::FUNCTION:
 i2d_DSAPrivateKey                       1807	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0,DSA
@@ -2026,6 +2036,7 @@ ASN1_PRINTABLE_new                      2139	3_0_0	EXIST::FUNCTION:
 OBJ_NAME_new_index                      2140	3_0_0	EXIST::FUNCTION:
 EVP_PKEY_asn1_add_alias                 2141	3_0_0	EXIST::FUNCTION:
 EVP_PKEY_get1_DSA                       2142	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0,DSA
+EVP_rc2_40_cbc                          2144	3_0_0	EXIST::FUNCTION:RC2
 ECDSA_SIG_new                           2145	3_0_0	EXIST::FUNCTION:EC
 i2d_PKCS8PrivateKey_nid_fp              2146	3_0_0	EXIST::FUNCTION:STDIO
 X509_NAME_ENTRY_it                      2147	3_0_0	EXIST::FUNCTION:
@@ -2139,6 +2150,7 @@ CONF_load_bio                           2259	3_0_0	EXIST::FUNCTION:
 X509_ATTRIBUTE_get0_object              2260	3_0_0	EXIST::FUNCTION:
 EVP_PKEY_missing_parameters             2261	3_0_0	EXIST::FUNCTION:
 X509_REQ_INFO_new                       2262	3_0_0	EXIST::FUNCTION:
+EVP_rc2_cfb64                           2263	3_0_0	EXIST::FUNCTION:RC2
 PKCS7_get_smimecap                      2264	3_0_0	EXIST::FUNCTION:
 ERR_get_state                           2265	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0
 d2i_DSAPrivateKey_bio                   2266	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0,DSA
@@ -2303,7 +2315,7 @@ i2d_TS_MSG_IMPRINT_fp                   2432	3_0_0	EXIST::FUNCTION:STDIO,TS
 PKCS12_new                              2433	3_0_0	EXIST::FUNCTION:
 X509_REVOKED_set_serialNumber           2434	3_0_0	EXIST::FUNCTION:
 EVP_get_digestbyname                    2435	3_0_0	EXIST::FUNCTION:
-X509_CRL_get_lastUpdate                 2436	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_1_1_0
+X509_CRL_get_lastUpdate                 2436	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0_3
 OBJ_create_objects                      2437	3_0_0	EXIST::FUNCTION:
 EVP_enc_null                            2438	3_0_0	EXIST::FUNCTION:
 OCSP_ONEREQ_get_ext_by_critical         2439	3_0_0	EXIST::FUNCTION:OCSP
@@ -2458,6 +2470,7 @@ X509_STORE_CTX_set_time                 2599	3_0_0	EXIST::FUNCTION:
 ENGINE_set_default_DH                   2600	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0,ENGINE
 X509_ocspid_print                       2601	3_0_0	EXIST::FUNCTION:
 DH_set_method                           2602	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0,DH
+EVP_rc2_64_cbc                          2603	3_0_0	EXIST::FUNCTION:RC2
 CRYPTO_THREAD_get_current_id            2604	3_0_0	EXIST::FUNCTION:
 EVP_PKEY_CTX_set_cb                     2605	3_0_0	EXIST::FUNCTION:
 PROXY_POLICY_it                         2606	3_0_0	EXIST::FUNCTION:
@@ -3001,7 +3014,7 @@ PKCS12_SAFEBAG_create_crl               3168	3_0_0	EXIST::FUNCTION:
 d2i_X509_NAME                           3169	3_0_0	EXIST::FUNCTION:
 BN_mod_sub                              3171	3_0_0	EXIST::FUNCTION:
 ASN1_NULL_new                           3172	3_0_0	EXIST::FUNCTION:
-HMAC_Init                               3173	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_1_1_0
+HMAC_Init                               3173	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0_3
 EVP_MD_CTX_update_fn                    3174	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0
 EVP_aes_128_ecb                         3175	3_0_0	EXIST::FUNCTION:
 i2d_PKCS7_bio_stream                    3176	3_0_0	EXIST::FUNCTION:
@@ -3079,7 +3092,7 @@ GENERAL_SUBTREE_it                      3253	3_0_0	EXIST::FUNCTION:
 EVP_read_pw_string_min                  3254	3_0_0	EXIST::FUNCTION:
 X509_set1_notBefore                     3255	3_0_0	EXIST::FUNCTION:
 EVP_PKEY_CTX_dup                        3257	3_0_0	EXIST::FUNCTION:
-ENGINE_setup_bsd_cryptodev              3258	3_0_0	EXIST:__FreeBSD__:FUNCTION:DEPRECATEDIN_1_1_0,ENGINE
+ENGINE_setup_bsd_cryptodev              3258	3_0_0	EXIST:__FreeBSD__:FUNCTION:DEPRECATEDIN_3_0_3,ENGINE
 PEM_read_bio_DHparams                   3259	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0,DH
 CMS_SharedInfo_encode                   3260	3_0_0	EXIST::FUNCTION:CMS
 ASN1_OBJECT_create                      3261	3_0_0	EXIST::FUNCTION:
@@ -3159,7 +3172,7 @@ RSA_setup_blinding                      3336	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_
 ERR_peek_error_line                     3337	3_0_0	EXIST::FUNCTION:
 d2i_PKCS7                               3338	3_0_0	EXIST::FUNCTION:
 ERR_reason_error_string                 3339	3_0_0	EXIST::FUNCTION:
-ERR_remove_thread_state                 3340	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_1_1_0
+ERR_remove_thread_state                 3340	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0_3
 PEM_write_PrivateKey                    3341	3_0_0	EXIST::FUNCTION:STDIO
 EVP_PKEY_CTX_str2ctrl                   3342	3_0_0	EXIST::FUNCTION:
 CMS_SignerInfo_verify_content           3343	3_0_0	EXIST::FUNCTION:CMS
@@ -3925,7 +3938,7 @@ EVP_PKEY_get1_tls_encodedpoint          4139	3_0_0	NOEXIST::FUNCTION:
 ASN1_STRING_get0_data                   4140	3_0_0	EXIST::FUNCTION:
 X509_SIG_getm                           4141	3_0_0	EXIST::FUNCTION:
 X509_get0_serialNumber                  4142	3_0_0	EXIST::FUNCTION:
-PKCS12_get_attr                         4143	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_1_1_0
+PKCS12_get_attr                         4143	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0_3
 X509_CRL_get0_lastUpdate                4144	3_0_0	EXIST::FUNCTION:
 X509_get0_notBefore                     4145	3_0_0	EXIST::FUNCTION:
 X509_get0_notAfter                      4146	3_0_0	EXIST::FUNCTION:

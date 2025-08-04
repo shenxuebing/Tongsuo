@@ -71,6 +71,7 @@ extern "C" {
 #define OSSL_CIPHER_PARAM_TLS_MAC_SIZE         "tls-mac-size" /* size_t */
 #define OSSL_CIPHER_PARAM_MODE                 "mode"         /* uint */
 #define OSSL_CIPHER_PARAM_BLOCK_SIZE           "blocksize"    /* size_t */
+#define OSSL_CIPHER_PARAM_ALGORITHM_ID_PARAMS_OLD "alg_id_param"
 #define OSSL_CIPHER_PARAM_AEAD                 "aead"         /* int, 0 or 1 */
 #define OSSL_CIPHER_PARAM_CUSTOM_IV            "custom-iv"    /* int, 0 or 1 */
 #define OSSL_CIPHER_PARAM_CTS                  "cts"          /* int, 0 or 1 */
@@ -92,6 +93,7 @@ extern "C" {
 #define OSSL_CIPHER_PARAM_AEAD_TAGLEN          "taglen"       /* size_t */
 #define OSSL_CIPHER_PARAM_AEAD_MAC_KEY         "mackey"       /* octet_string */
 #define OSSL_CIPHER_PARAM_RANDOM_KEY           "randkey"      /* octet_string */
+#define OSSL_CIPHER_PARAM_RC2_KEYBITS          "keybits"
 #define OSSL_CIPHER_PARAM_SPEED                "speed"        /* uint */
 #define OSSL_CIPHER_PARAM_CTS_MODE             "cts_mode"     /* utf8_string */
 /* For passing the AlgorithmIdentifier parameter in DER form */
