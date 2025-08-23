@@ -640,6 +640,24 @@ ENGINE_R_UNIMPLEMENTED_DIGEST:147:unimplemented digest
 ENGINE_R_UNIMPLEMENTED_ECP_METH:107:unimplemented ecp meth
 ENGINE_R_UNIMPLEMENTED_PUBLIC_KEY_METHOD:101:unimplemented public key method
 ENGINE_R_VERSION_INCOMPATIBILITY:145:version incompatibility
+SDF_R_DEVICE_NOT_FOUND:200:sdf device not found
+SDF_R_DEVICE_INIT_FAILED:201:sdf device init failed
+SDF_R_INVALID_DEVICE_HANDLE:202:invalid sdf device handle
+SDF_R_KEY_NOT_FOUND:203:sdf key not found
+SDF_R_OPERATION_FAILED:204:sdf operation failed
+SDF_R_INVALID_PARAMETER:205:invalid sdf parameter
+SDF_R_MEMORY_ALLOCATION_FAILED:206:sdf memory allocation failed
+SDF_R_UNSUPPORTED_ALGORITHM:207:unsupported sdf algorithm
+SKF_R_DEVICE_NOT_FOUND:300:skf device not found
+SKF_R_DEVICE_INIT_FAILED:301:skf device init failed
+SKF_R_INVALID_DEVICE_HANDLE:302:invalid skf device handle
+SKF_R_KEY_NOT_FOUND:303:skf key not found
+SKF_R_OPERATION_FAILED:304:skf operation failed
+SKF_R_INVALID_PARAMETER:305:invalid skf parameter
+SKF_R_MEMORY_ALLOCATION_FAILED:306:skf memory allocation failed
+SKF_R_UNSUPPORTED_ALGORITHM:307:unsupported skf algorithm
+SKF_R_CONTAINER_NOT_FOUND:308:skf container not found
+SKF_R_APPLICATION_NOT_FOUND:309:skf application not found
 ESS_R_EMPTY_ESS_CERT_ID_LIST:107:empty ess cert id list
 ESS_R_ESS_CERT_DIGEST_ERROR:103:ess cert digest error
 ESS_R_ESS_CERT_ID_NOT_FOUND:104:ess cert id not found

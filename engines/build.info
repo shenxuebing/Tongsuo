@@ -27,6 +27,12 @@ IF[{- !$disabled{"engine"} -}]
     IF[{- !$disabled{"devcryptoeng"} -}]
       SOURCE[../libcrypto]=e_devcrypto.c
     ENDIF
+    IF[{- !$disabled{"sdfeng"} -}]
+      SOURCE[../libcrypto]=e_sdf.c e_sdf_err.c
+    ENDIF
+    IF[{- !$disabled{"skfeng"} -}]
+      SOURCE[../libcrypto]=e_skf.c e_skf_err.c
+    ENDIF
   ELSE
     IF[{- !$disabled{padlockeng} -}]
       MODULES{engine}=padlock
@@ -99,6 +105,26 @@ IF[{- !$disabled{"engine"} -}]
       IF[{- defined $target{shared_defflag} -}]
         SOURCE[devcrypto]=devcrypto.ld
         GENERATE[devcrypto.ld]=../util/engines.num
+      ENDIF
+    ENDIF
+    IF[{- !$disabled{"sdfeng"} -}]
+      MODULES{engine}=sdf
+      SOURCE[sdf]=e_sdf.c
+      DEPEND[sdf]=../libcrypto
+      INCLUDE[sdf]=../include
+      IF[{- defined $target{shared_defflag} -}]
+        SOURCE[sdf]=sdf.ld
+        GENERATE[sdf.ld]=../util/engines.num
+      ENDIF
+    ENDIF
+    IF[{- !$disabled{"skfeng"} -}]
+      MODULES{engine}=skf
+      SOURCE[skf]=e_skf.c
+      DEPEND[skf]=../libcrypto
+      INCLUDE[skf]=../include
+      IF[{- defined $target{shared_defflag} -}]
+        SOURCE[skf]=skf.ld
+        GENERATE[skf.ld]=../util/engines.num
       ENDIF
     ENDIF
     IF[{- !$disabled{"loadereng"} -}]

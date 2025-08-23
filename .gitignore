@@ -248,3 +248,4 @@ doc-nits
 /.vs
 /crypto/objects - 副本
 /makefile-13256
+/.vscode

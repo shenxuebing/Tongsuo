@@ -18,3 +18,9 @@ void engine_load_capi_int(void);
 void engine_load_dasync_int(void);
 void engine_load_afalg_int(void);
 void engine_cleanup_int(void);
+# if !defined(OPENSSL_NO_SDFENG)
+void engine_load_sdf_int(void);
+# endif
+# if !defined(OPENSSL_NO_SKFENG)
+void engine_load_skf_int(void);
+# endif

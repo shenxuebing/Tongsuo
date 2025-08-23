@@ -44,3 +44,5 @@ with ! and not matching the commands above.
 
 perl objects.pl objects.txt obj_mac.num obj_mac.h 
 perl obj_dat.pl obj_mac.h obj_dat.h
+
+make generate
