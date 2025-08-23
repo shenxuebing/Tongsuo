@@ -1315,7 +1315,7 @@ static int skf_pkey_ec_init(EVP_PKEY_CTX *ctx)
     return 1;
 }
 
-static int skf_pkey_ec_copy(EVP_PKEY_CTX *dst, EVP_PKEY_CTX *src)
+static int skf_pkey_ec_copy(EVP_PKEY_CTX *dst, const EVP_PKEY_CTX *src)
 {
     SKF_EC_PKEY_CTX *dctx, *sctx;
     if (!skf_pkey_ec_init(dst))

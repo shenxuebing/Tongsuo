@@ -764,7 +764,7 @@ static int sdf_ctrl(ENGINE *e, int cmd, long i, void *p, void (*f)(void))
         if (!p) return 0;
 		//return switch_to_vendor((char*)p);
         char* buffer = (char*)p;
-        snprintf(buffer,"%s", "not support");
+        sprintf(buffer,"%s", "not support");
         return 1;
     }
 	case SDF_CMD_GET_CURRENT: 
@@ -784,7 +784,7 @@ static int sdf_ctrl(ENGINE *e, int cmd, long i, void *p, void (*f)(void))
 		if (!p) return 0;
 		//return switch_to_vendor((char*)p);
 		char* buffer = (char*)p;
-		snprintf(buffer, "%s", "not support");
+		sprintf(buffer, "%s", "not support");
 		return 1;
     }
     default:
@@ -845,53 +845,82 @@ static int sdf_rsa_verify(int type, const unsigned char *m, unsigned int m_len,
 {
     SDF_CTX *ctx = global_sdf_ctx;
     SDF_KEY_CTX *key_ctx;
-    unsigned char decrypted[RSAref_MAX_LEN];
-    unsigned int decrypted_len = RSAref_MAX_LEN;
-    unsigned char *padded_msg;
-    unsigned int padded_msg_len;
-    int ret;
-    
-    if (!ctx || !ctx->initialized) {
-        if (!sdf_init_device(ctx)) {
-            return 0;
-        }
-    }
-    
-    key_ctx = RSA_get_ex_data(rsa, 0);
-    if (!key_ctx) {
-        SDFerr(0, 8);
-        return 0;
-    }
-    
-    sdf_lock(ctx);
-    
+	unsigned char decrypted[RSAref_MAX_LEN];
+	unsigned int decrypted_len = RSAref_MAX_LEN;
+	unsigned char* padded_msg = NULL;  
+	int padded_msg_len;
+	int ret;
+	int rsa_len;
+
+	// 参数验证
+	if (!m || !sigbuf || !rsa || m_len == 0 || siglen == 0) {
+		return 0;
+	}
+
+	rsa_len = RSA_size(rsa);
+	if (siglen != (unsigned int)rsa_len) {
+		return 0;
+	}
+
+	if (!ctx || !ctx->initialized) {
+		if (!sdf_init_device(ctx)) {
+			return 0;
+		}
+	}
+
+	key_ctx = RSA_get_ex_data(rsa, 0);
+	if (!key_ctx) {
+		SDFerr(0, 8);
+		return 0;
+	}
+
+	sdf_lock(ctx);
+
     /* 调用 SDF 内部公钥运算 */
-    ret = ctx->p_SDF_InternalPublicKeyOperation_RSA(ctx->hSession, key_ctx->key_index,
+	ret = ctx->p_SDF_InternalPublicKeyOperation_RSA(ctx->hSession, key_ctx->key_index,
                                                     (unsigned char *)sigbuf, siglen,
-                                                    decrypted, &decrypted_len);
-    
-    sdf_unlock(ctx);
-    
-    if (ret != SDR_OK) {
-        SDFerr(0, 3);
-        return 0;
-    }
-    
-    /* 验证 PKCS#1 填充 */
-    padded_msg_len = decrypted_len;
-    if (RSA_padding_check_PKCS1_type_1(&padded_msg, &padded_msg_len,
-                                       decrypted, decrypted_len, RSA_size(rsa)) != 1) {
-        return 0;
-    }
-    
-    /* 比较消息 */
-    if (padded_msg_len != m_len || memcmp(padded_msg, m, m_len) != 0) {
-        OPENSSL_free(padded_msg);
-        return 0;
-    }
-    
-    OPENSSL_free(padded_msg);
-    return 1;
+		decrypted, &decrypted_len);
+
+	sdf_unlock(ctx);
+
+	if (ret != SDR_OK) {
+		SDFerr(0, 3);
+		return 0;
+	}
+
+	// 验证解密长度
+	if (decrypted_len != (unsigned int)rsa_len) {
+		return 0;
+	}
+
+	/* 分配padded_msg缓冲区 */
+	padded_msg = OPENSSL_malloc(rsa_len);
+	if (!padded_msg) {
+		return 0;
+	}
+
+	/* 验证并移除PKCS#1 v1.5填充 */
+	padded_msg_len = RSA_padding_check_PKCS1_type_1(padded_msg, rsa_len,
+		decrypted, decrypted_len,
+		rsa_len);
+
+	if (padded_msg_len < 0) {
+		// RSA_padding_check_PKCS1_type_1失败
+		OPENSSL_free(padded_msg);
+		return 0;
+	}
+
+	/* 比较消息内容 */
+	ret = 0;  // 默认验证失败
+	if ((unsigned int)padded_msg_len == m_len &&
+		CRYPTO_memcmp(padded_msg, m, m_len) == 0) {
+		ret = 1;  // 验证成功
+	}
+
+	/* 清理敏感数据 */
+	OPENSSL_clear_free(padded_msg, rsa_len);
+
+	return ret;
 }
 
 /* RSA 方法表 */
@@ -1307,7 +1336,7 @@ static int sdf_pkey_ec_init(EVP_PKEY_CTX *ctx)
     return 1;
 }
 
-static int sdf_pkey_ec_copy(EVP_PKEY_CTX *dst, EVP_PKEY_CTX *src)
+static int sdf_pkey_ec_copy(EVP_PKEY_CTX *dst, const EVP_PKEY_CTX *src)
 {
     SDF_EC_PKEY_CTX *dctx, *sctx;
     if (!sdf_pkey_ec_init(dst))
