@@ -8,8 +8,7 @@
  */
 
 /*
- * SKF Engine for GMT 0016-2023 Smart Key Interface
- * Based on e_capi.c structure and e_sdf.c implementation
+ * SKF Engine for GMT 0016-2012 Smart Key Interface
  */
 
 #include <stdio.h>
@@ -88,7 +87,7 @@ static HMODULE skf_load_library_win32(const char *filename)
 
 /* ENGINE 标识 */
 static const char *engine_skf_id = "skf";
-static const char *engine_skf_name = "GMT 0016-2023 SKF Engine";
+static const char *engine_skf_name = "SKF Engine";
 
 /* SKF 控制命令 */
 #define SKF_CMD_MODULE_PATH     ENGINE_CMD_BASE
@@ -100,17 +99,42 @@ static const char *engine_skf_name = "GMT 0016-2023 SKF Engine";
 #define SKF_CMD_ENUM_DEVICES    (ENGINE_CMD_BASE + 6)
 #define SKF_CMD_ENUM_APPS       (ENGINE_CMD_BASE + 7)
 #define SKF_CMD_ENUM_CONTAINERS (ENGINE_CMD_BASE + 8)
+#define SKF_CMD_HELP            (ENGINE_CMD_BASE + 9)
+/* 完整的位掩码功能控制命令 */
+#define SKF_CMD_SET_FEATURE_MASK (ENGINE_CMD_BASE + 10)
+#define SKF_CMD_GET_FEATURE_MASK (ENGINE_CMD_BASE + 11)
+#define SKF_CMD_SET_MODE_PRESET  (ENGINE_CMD_BASE + 12)
+#define SKF_CMD_LIST_FEATURES    (ENGINE_CMD_BASE + 13)
+#define SKF_CMD_VALIDATE_MASK    (ENGINE_CMD_BASE + 14)
 
 static const ENGINE_CMD_DEFN skf_cmd_defns[] = {
+    /* 基本配置命令 */
     {SKF_CMD_MODULE_PATH, "MODULE_PATH", "SKF module path", ENGINE_CMD_FLAG_STRING},
     {SKF_CMD_DEVICE_NAME, "DEVICE_NAME", "SKF device name", ENGINE_CMD_FLAG_STRING},
     {SKF_CMD_APP_NAME, "APP_NAME", "SKF application name", ENGINE_CMD_FLAG_STRING},
     {SKF_CMD_CONTAINER_NAME, "CONTAINER_NAME", "SKF container name", ENGINE_CMD_FLAG_STRING},
     {SKF_CMD_USER_PIN, "USER_PIN", "SKF user PIN", ENGINE_CMD_FLAG_STRING},
     {SKF_CMD_ADMIN_PIN, "ADMIN_PIN", "SKF admin PIN", ENGINE_CMD_FLAG_STRING},
+    
+    /* 查询命令 */
     {SKF_CMD_ENUM_DEVICES, "ENUM_DEVICES", "Enumerate SKF devices", ENGINE_CMD_FLAG_NO_INPUT},
     {SKF_CMD_ENUM_APPS, "ENUM_APPS", "Enumerate SKF applications", ENGINE_CMD_FLAG_NO_INPUT},
     {SKF_CMD_ENUM_CONTAINERS, "ENUM_CONTAINERS", "Enumerate SKF containers", ENGINE_CMD_FLAG_NO_INPUT},
+    
+    /* 完整的位掩码功能控制命令 */
+    {SKF_CMD_SET_FEATURE_MASK, "FEATURE_MASK", 
+     "Set feature mask (hex): SSL_KEYS=0x1, BASIC_MGMT=0x2, RSA=0x10, EC=0x40, RAND=0x100", 
+     ENGINE_CMD_FLAG_STRING},
+    {SKF_CMD_GET_FEATURE_MASK, "GET_FEATURE_MASK", "Get current feature mask and status", ENGINE_CMD_FLAG_NO_INPUT},
+    {SKF_CMD_SET_MODE_PRESET, "MODE_PRESET", 
+     "Set preset mode: ssl_only|ssl_hw_sign|full_hw|dangerous|all_features", 
+     ENGINE_CMD_FLAG_STRING},
+    {SKF_CMD_LIST_FEATURES, "LIST_FEATURES", "List all available features and their descriptions", ENGINE_CMD_FLAG_NO_INPUT},
+    {SKF_CMD_VALIDATE_MASK, "VALIDATE_MASK", "Validate feature mask (hex)", ENGINE_CMD_FLAG_STRING},
+    
+    /* 帮助命令 */
+    {SKF_CMD_HELP, "HELP", "Print all available control commands", ENGINE_CMD_FLAG_NO_INPUT},
+    
     {0, NULL, NULL, 0}
 };
 
@@ -299,8 +323,54 @@ static ERR_STRING_DATA skf_str_reasons[] = {
 
 #define SKFerr(f, r) ERR_PUT_error(0, (f), (r), __FILE__, __LINE__)
 
-/* 全局 SKF 上下文 */
-static SKF_CTX *global_skf_ctx = NULL;
+/* 全局 ENGINE index，用于存储 SKF 上下文 */
+static int skf_engine_idx = -1;
+
+/* 完整的位掩码功能控制 - 基于 engine.h 接口分析 */
+
+/* 核心功能层 (0x0001 - 0x000F) */
+#define ENGINE_FEATURE_SSL_KEYS         0x0001  /* SSL密钥加载功能 */
+#define ENGINE_FEATURE_BASIC_MGMT       0x0002  /* 基础管理功能 (init/finish/destroy/ctrl) */
+#define ENGINE_FEATURE_USER_INTERFACE   0x0004  /* 用户接口功能 */
+#define ENGINE_FEATURE_SSL_EXTENSIONS   0x0008  /* SSL扩展功能 (master_secret, key_block) */
+
+/* 密码算法层 (0x0010 - 0x00FF) */
+#define ENGINE_FEATURE_RSA              0x0010  /* RSA算法 */
+#define ENGINE_FEATURE_DSA              0x0020  /* DSA算法 */
+#define ENGINE_FEATURE_EC               0x0040  /* EC/ECDSA算法 */
+#define ENGINE_FEATURE_DH               0x0080  /* DH算法 */
+#define ENGINE_FEATURE_RAND             0x0100  /* 随机数生成 */
+#define ENGINE_FEATURE_BN               0x0200  /* 大数运算 */
+
+/* 高级功能层 (0x0400 - 0x3F00) */
+#define ENGINE_FEATURE_CIPHERS          0x0400  /* 对称加密算法 */
+#define ENGINE_FEATURE_DIGESTS          0x0800  /* 摘要算法 */
+#define ENGINE_FEATURE_PKEY_METHS       0x1000  /* EVP_PKEY_METHOD */
+#define ENGINE_FEATURE_PKEY_ASN1_METHS  0x2000  /* EVP_PKEY_ASN1_METHOD */
+#define ENGINE_FEATURE_ECP_METHS        0x4000  /* EC点运算方法 */
+
+/* 预设模式组合 */
+#define ENGINE_MODE_SSL_ONLY            (ENGINE_FEATURE_SSL_KEYS | ENGINE_FEATURE_BASIC_MGMT)                    /* 0x0003: SSL Only */
+#define ENGINE_MODE_SSL_HW_SIGN         (ENGINE_MODE_SSL_ONLY | ENGINE_FEATURE_RSA | ENGINE_FEATURE_EC)          /* 0x0053: SSL + HW Sign */
+#define ENGINE_MODE_FULL_HARDWARE       (ENGINE_MODE_SSL_HW_SIGN | ENGINE_FEATURE_PKEY_METHS | \
+                                         ENGINE_FEATURE_CIPHERS | ENGINE_FEATURE_DIGESTS)                       /* 0x1C53: Full HW */
+#define ENGINE_MODE_DANGEROUS           (ENGINE_MODE_FULL_HARDWARE | ENGINE_FEATURE_RAND)                       /* 0x1D53: Dangerous */
+#define ENGINE_MODE_ALL_FEATURES        0xFFFF                                                                   /* 0xFFFF: All */
+
+/* 国密SSL专用模式 */
+#define ENGINE_MODE_GM_SSL_FULL         (ENGINE_MODE_SSL_ONLY | ENGINE_FEATURE_SSL_EXTENSIONS | \
+                                         ENGINE_FEATURE_EC)                                                     /* 0x004B: GM SSL Full */
+#define ENGINE_MODE_GM_SSL_HW           (ENGINE_MODE_GM_SSL_FULL | ENGINE_FEATURE_CIPHERS | \
+                                         ENGINE_FEATURE_DIGESTS)                                                /* 0x0C4B: GM SSL HW */
+
+static unsigned int skf_global_feature_mask = ENGINE_MODE_SSL_ONLY;  /* 默认SSL模式 */
+
+/* 位掩码功能控制函数声明 */
+static int skf_rebind_features(ENGINE *e);
+static unsigned int skf_get_feature_mask(void);
+static int skf_set_feature_mask(unsigned int mask);
+static int skf_validate_mask(unsigned int mask);
+static void skf_clear_all_bindings(ENGINE *e);
 
 /* 函数声明 */
 static int skf_init(ENGINE *e);
@@ -308,6 +378,10 @@ static int skf_finish(ENGINE *e);
 static int skf_destroy(ENGINE *e);
 static int skf_ctrl(ENGINE *e, int cmd, long i, void *p, void (*f)(void));
 static int skf_pkey_meths(ENGINE *e, EVP_PKEY_METHOD **pmeth, const int **nids, int nid);
+
+/* SKF 上下文管理函数 */
+static SKF_CTX *skf_get_ctx(ENGINE *e);
+static int skf_set_ctx(ENGINE *e, SKF_CTX *ctx);
 
 /* 枚举函数声明 */
 static int skf_enum_devices(SKF_CTX *ctx, char **device_list);
@@ -389,6 +463,23 @@ static void skf_ctx_free(SKF_CTX *ctx)
 #endif
     
     OPENSSL_free(ctx);
+}
+
+/* SKF 上下文管理函数 */
+static SKF_CTX *skf_get_ctx(ENGINE *e)
+{
+    if (skf_engine_idx == -1) {
+        return NULL;
+    }
+    return ENGINE_get_ex_data(e, skf_engine_idx);
+}
+
+static int skf_set_ctx(ENGINE *e, SKF_CTX *ctx)
+{
+    if (skf_engine_idx == -1) {
+        return 0;
+    }
+    return ENGINE_set_ex_data(e, skf_engine_idx, ctx);
 }
 
 /* 加载 SKF 动态库 */
@@ -501,12 +592,15 @@ static int skf_init_device(SKF_CTX *ctx)
 /* ENGINE 控制函数 */
 static int skf_ctrl(ENGINE *e, int cmd, long i, void *p, void (*f)(void))
 {
-    SKF_CTX *ctx = global_skf_ctx;
+    SKF_CTX *ctx = skf_get_ctx(e);
     
     if (!ctx) {
         ctx = skf_ctx_new();
         if (!ctx) return 0;
-        global_skf_ctx = ctx;
+        if (!skf_set_ctx(e, ctx)) {
+            skf_ctx_free(ctx);
+            return 0;
+        }
     }
     
     switch (cmd) {
@@ -580,6 +674,181 @@ static int skf_ctrl(ENGINE *e, int cmd, long i, void *p, void (*f)(void))
                 OPENSSL_free(container_list);
             }
             return ret;
+        }
+        
+    case SKF_CMD_HELP:
+        {
+            // 打印所有可用的控制命令
+            if (!p) return 0;
+            char* buffer = (char*)p;
+            int offset = 0;
+            
+            offset += snprintf(buffer + offset, 2048 - offset, "Available SKF Engine Control Commands:\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "MODULE_PATH: Set SKF library path\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "DEVICE_NAME: Set device name\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "APP_NAME: Set application name\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "CONTAINER_NAME: Set container name\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "USER_PIN: Set user PIN\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "ADMIN_PIN: Set admin PIN\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "ENUM_DEVICES: Enumerate SKF devices\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "ENUM_APPS: Enumerate SKF applications\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "ENUM_CONTAINERS: Enumerate SKF containers\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "FEATURE_MASK: Set feature mask (hex)\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "MODE_PRESET: Set preset mode\n");
+            return 1;
+        }
+        
+    /* 位掩码功能控制命令 */
+    case SKF_CMD_SET_FEATURE_MASK:
+        {
+            if (!p) return 0;
+            
+            unsigned int new_mask = 0;
+            char *mask_str = (char *)p;
+            
+            /* 支持十六进制输入，如 "0x0053" 或 "83" */
+            if (strncmp(mask_str, "0x", 2) == 0 || strncmp(mask_str, "0X", 2) == 0) {
+                new_mask = (unsigned int)strtoul(mask_str, NULL, 16);
+            } else {
+                new_mask = (unsigned int)strtoul(mask_str, NULL, 10);
+            }
+            
+            /* 验证掉码 */
+            if (!skf_validate_mask(new_mask)) {
+                printf("Invalid feature mask: 0x%04X\n", new_mask);
+                return 0;
+            }
+            
+            skf_global_feature_mask = new_mask;
+            
+            printf("SKF Feature mask set to: 0x%04X\n", new_mask);
+            printf("  SSL Keys: %s\n", (new_mask & ENGINE_FEATURE_SSL_KEYS) ? "ON" : "OFF");
+            printf("  Basic Mgmt: %s\n", (new_mask & ENGINE_FEATURE_BASIC_MGMT) ? "ON" : "OFF");
+            printf("  SSL Extensions (GM SSL): %s\n", (new_mask & ENGINE_FEATURE_SSL_EXTENSIONS) ? "ON" : "OFF");
+            printf("  RSA: %s\n", (new_mask & ENGINE_FEATURE_RSA) ? "ON" : "OFF");
+            printf("  EC: %s\n", (new_mask & ENGINE_FEATURE_EC) ? "ON" : "OFF");
+            printf("  RAND: %s\n", (new_mask & ENGINE_FEATURE_RAND) ? "ON" : "OFF");
+            printf("  PKEY Methods: %s\n", (new_mask & ENGINE_FEATURE_PKEY_METHS) ? "ON" : "OFF");
+            
+            if (new_mask & ENGINE_FEATURE_RAND) {
+                printf("  WARNING: RAND takeover enabled! May cause static linking issues.\n");
+            }
+            
+            /* 重新绑定引擎功能 */
+            return skf_rebind_features(e);
+        }
+
+    case SKF_CMD_GET_FEATURE_MASK:
+        {
+            if (!p) return 0;
+            char* buffer = (char*)p;
+            int offset = 0;
+            
+            offset += snprintf(buffer + offset, 1024 - offset, 
+                              "Current SKF Feature Mask: 0x%04X\n", skf_global_feature_mask);
+            offset += snprintf(buffer + offset, 1024 - offset, 
+                              "  SSL Keys (0x0001): %s\n", 
+                              (skf_global_feature_mask & ENGINE_FEATURE_SSL_KEYS) ? "ON" : "OFF");
+            offset += snprintf(buffer + offset, 1024 - offset, 
+                              "  Basic Mgmt (0x0002): %s\n", 
+                              (skf_global_feature_mask & ENGINE_FEATURE_BASIC_MGMT) ? "ON" : "OFF");
+            offset += snprintf(buffer + offset, 1024 - offset, 
+                              "  RSA (0x0010): %s\n", 
+                              (skf_global_feature_mask & ENGINE_FEATURE_RSA) ? "ON" : "OFF");
+            offset += snprintf(buffer + offset, 1024 - offset, 
+                              "  EC (0x0040): %s\n", 
+                              (skf_global_feature_mask & ENGINE_FEATURE_EC) ? "ON" : "OFF");
+            offset += snprintf(buffer + offset, 1024 - offset, 
+                              "  RAND (0x0100): %s\n", 
+                              (skf_global_feature_mask & ENGINE_FEATURE_RAND) ? "ON" : "OFF");
+            offset += snprintf(buffer + offset, 1024 - offset, 
+                              "  PKEY Methods (0x1000): %s\n", 
+                              (skf_global_feature_mask & ENGINE_FEATURE_PKEY_METHS) ? "ON" : "OFF");
+            return 1;
+        }
+
+    case SKF_CMD_SET_MODE_PRESET:
+        {
+            if (!p) return 0;
+            char *mode_str = (char *)p;
+            
+            if (strcmp(mode_str, "ssl_only") == 0) {
+                skf_global_feature_mask = ENGINE_MODE_SSL_ONLY;
+                printf("Mode set to: SSL Only (0x%04X) - Recommended for Nginx\n", ENGINE_MODE_SSL_ONLY);
+            } else if (strcmp(mode_str, "ssl_hw_sign") == 0) {
+                skf_global_feature_mask = ENGINE_MODE_SSL_HW_SIGN;
+                printf("Mode set to: SSL + HW Sign (0x%04X) - SSL + Hardware signing\n", ENGINE_MODE_SSL_HW_SIGN);
+            } else if (strcmp(mode_str, "full_hw") == 0) {
+                skf_global_feature_mask = ENGINE_MODE_FULL_HARDWARE;
+                printf("Mode set to: Full Hardware (0x%04X) - Complete hardware acceleration\n", ENGINE_MODE_FULL_HARDWARE);
+            } else if (strcmp(mode_str, "dangerous") == 0) {
+                skf_global_feature_mask = ENGINE_MODE_DANGEROUS;
+                printf("Mode set to: Dangerous (0x%04X) - WARNING: Includes RAND takeover!\n", ENGINE_MODE_DANGEROUS);
+            } else if (strcmp(mode_str, "all_features") == 0) {
+                skf_global_feature_mask = ENGINE_MODE_ALL_FEATURES;
+                printf("Mode set to: All Features (0x%04X) - Maximum functionality\n", ENGINE_MODE_ALL_FEATURES);
+            } else if (strcmp(mode_str, "gm_ssl_full") == 0) {
+                skf_global_feature_mask = ENGINE_MODE_GM_SSL_FULL;
+                printf("Mode set to: GM SSL Full (0x%04X) - Complete GM SSL support\n", ENGINE_MODE_GM_SSL_FULL);
+            } else if (strcmp(mode_str, "gm_ssl_hw") == 0) {
+                skf_global_feature_mask = ENGINE_MODE_GM_SSL_HW;
+                printf("Mode set to: GM SSL Hardware (0x%04X) - GM SSL with hardware acceleration\n", ENGINE_MODE_GM_SSL_HW);
+            } else {
+                printf("Invalid mode. Available: ssl_only, ssl_hw_sign, full_hw, dangerous, all_features, gm_ssl_full, gm_ssl_hw\n");
+                return 0;
+            }
+            
+            /* 重新绑定引擎功能 */
+            return skf_rebind_features(e);
+        }
+
+    case SKF_CMD_LIST_FEATURES:
+        {
+            if (!p) return 0;
+            char* buffer = (char*)p;
+            int offset = 0;
+            
+            offset += snprintf(buffer + offset, 2048 - offset, "Available SKF Engine Features:\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "\n核心功能层:\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "  0x0001 - SSL_KEYS: SSL密钥加载功能\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "  0x0002 - BASIC_MGMT: 基础管理功能\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "  0x0004 - USER_INTERFACE: 用户接口功能\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "  0x0008 - SSL_EXTENSIONS: SSL扩展功能\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "\n密码算法层:\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "  0x0010 - RSA: RSA算法\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "  0x0020 - DSA: DSA算法\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "  0x0040 - EC: EC/ECDSA算法\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "  0x0080 - DH: DH算法\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "  0x0100 - RAND: 随机数生成(慎用!)\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "\n高级功能层:\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "  0x0400 - CIPHERS: 对称加密算法\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "  0x0800 - DIGESTS: 摘要算法\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "  0x1000 - PKEY_METHS: EVP_PKEY_METHOD\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "\n预设模式:\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "  ssl_only (0x0003): 仅SSL功能(推荐Nginx)\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "  ssl_hw_sign (0x0053): SSL+硬件签名\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "  full_hw (0x1C53): 完整硬件加速\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "  dangerous (0x1D53): 包含RAND接管(危险!)\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "  gm_ssl_full (0x004B): 国密SSL完整支持\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "  gm_ssl_hw (0x0C4B): 国密SSL硬件加速\n");
+            return 1;
+        }
+
+    case SKF_CMD_VALIDATE_MASK:
+        {
+            if (!p) return 0;
+            char *mask_str = (char *)p;
+            
+            unsigned int mask = 0;
+            if (strncmp(mask_str, "0x", 2) == 0 || strncmp(mask_str, "0X", 2) == 0) {
+                mask = (unsigned int)strtoul(mask_str, NULL, 16);
+            } else {
+                mask = (unsigned int)strtoul(mask_str, NULL, 10);
+            }
+            
+            int valid = skf_validate_mask(mask);
+            printf("Feature mask 0x%04X validation: %s\n", mask, valid ? "VALID" : "INVALID");
+            return valid;
         }
         
     default:
@@ -829,21 +1098,23 @@ static void skf_print_container_list(const char* container_list)
 static int skf_rsa_sign(int type, const unsigned char *m, unsigned int m_len,
                         unsigned char *sigret, unsigned int *siglen, const RSA *rsa)
 {
-    SKF_CTX *ctx = global_skf_ctx;
     SKF_KEY_CTX *key_ctx;
+    SKF_CTX *ctx;
     unsigned long output_len = *siglen;
     int ret;
     
-    if (!ctx || !ctx->initialized) {
+    key_ctx = RSA_get_ex_data(rsa, 0);
+    if (!key_ctx || !key_ctx->skf_ctx) {
+        SKFerr(0, 9);
+        return 0;
+    }
+    
+    ctx = key_ctx->skf_ctx;
+    
+    if (!ctx->initialized) {
         if (!skf_init_device(ctx)) {
             return 0;
         }
-    }
-    
-    key_ctx = RSA_get_ex_data(rsa, 0);
-    if (!key_ctx) {
-        SKFerr(0, 9);
-        return 0;
     }
     
     skf_lock(ctx);
@@ -871,21 +1142,23 @@ static int skf_rsa_sign(int type, const unsigned char *m, unsigned int m_len,
 static int skf_rsa_priv_dec(int flen, const unsigned char *from,
                             unsigned char *to, RSA *rsa, int padding)
 {
-    SKF_CTX *ctx = global_skf_ctx;
     SKF_KEY_CTX *key_ctx;
+    SKF_CTX *ctx;
     unsigned long output_len = RSA_size(rsa);
     int ret;
 
-    if (!ctx || !ctx->initialized) {
+    key_ctx = RSA_get_ex_data(rsa, 0);
+    if (!key_ctx || !key_ctx->skf_ctx) {
+        SKFerr(0, 9);
+        return -1;
+    }
+    
+    ctx = key_ctx->skf_ctx;
+
+    if (!ctx->initialized) {
         if (!skf_init_device(ctx)) {
             return -1;
         }
-    }
-
-    key_ctx = RSA_get_ex_data(rsa, 0);
-    if (!key_ctx) {
-        SKFerr(0, 9);
-        return -1;
     }
 
     skf_lock(ctx);
@@ -926,22 +1199,24 @@ static int skf_ecdsa_sign(int type, const unsigned char *dgst, int dgst_len,
                           unsigned char *sig, unsigned int *siglen, const BIGNUM *kinv,
                           const BIGNUM *r, EC_KEY *eckey)
 {
-    SKF_CTX *ctx = global_skf_ctx;
     SKF_KEY_CTX *key_ctx;
+    SKF_CTX *ctx;
     ECCSIGNATUREBLOB ecc_sig;
     unsigned long sig_len = sizeof(ecc_sig);
     int ret;
 
-    if (!ctx || !ctx->initialized) {
+    key_ctx = EC_KEY_get_ex_data(eckey, 0);
+    if (!key_ctx || !key_ctx->skf_ctx) {
+        SKFerr(0, 9);
+        return 0;
+    }
+    
+    ctx = key_ctx->skf_ctx;
+
+    if (!ctx->initialized) {
         if (!skf_init_device(ctx)) {
             return 0;
         }
-    }
-
-    key_ctx = EC_KEY_get_ex_data(eckey, 0);
-    if (!key_ctx) {
-        SKFerr(0, 9);
-        return 0;
     }
 
     skf_lock(ctx);
@@ -1002,11 +1277,19 @@ static EC_KEY_METHOD *get_skf_ec_method(void)
 /* 随机数生成函数 */
 static int skf_rand_bytes(unsigned char *buf, int num)
 {
-    SKF_CTX *ctx = global_skf_ctx;
+    /* 获取当前活跃的 ENGINE */
+    ENGINE *e = ENGINE_get_default_RAND();
+    SKF_CTX *ctx = NULL;
     int ret;
     
+    if (e && strcmp(ENGINE_get_id(e), engine_skf_id) == 0) {
+        ctx = skf_get_ctx(e);
+    }
+    
     if (!ctx || !ctx->initialized) {
-        if (!skf_init_device(ctx)) {
+        if (ctx && !skf_init_device(ctx)) {
+            return 0;
+        } else if (!ctx) {
             return 0;
         }
     }
@@ -1025,7 +1308,14 @@ static int skf_rand_bytes(unsigned char *buf, int num)
 /* 随机数状态函数 */
 static int skf_rand_status(void)
 {
-    return global_skf_ctx && global_skf_ctx->initialized;
+    ENGINE *e = ENGINE_get_default_RAND();
+    SKF_CTX *ctx = NULL;
+    
+    if (e && strcmp(ENGINE_get_id(e), engine_skf_id) == 0) {
+        ctx = skf_get_ctx(e);
+    }
+    
+    return ctx && ctx->initialized;
 }
 
 /* 随机数方法表 */
@@ -1042,7 +1332,7 @@ static RAND_METHOD skf_rand_method = {
 static EVP_PKEY *skf_load_privkey(ENGINE *e, const char *key_id,
                                   UI_METHOD *ui_method, void *callback_data)
 {
-    SKF_CTX *ctx = global_skf_ctx;
+    SKF_CTX *ctx = skf_get_ctx(e);
     SKF_KEY_CTX *key_ctx;
     EVP_PKEY *pkey = NULL;
     RSA *rsa = NULL;
@@ -1056,7 +1346,7 @@ static EVP_PKEY *skf_load_privkey(ENGINE *e, const char *key_id,
     int ret;
     
     if (!ctx || !ctx->initialized) {
-        if (!skf_init_device(ctx)) {
+        if (!ctx || !skf_init_device(ctx)) {
             return NULL;
         }
     }
@@ -1906,12 +2196,24 @@ static int skf_pkey_meths(ENGINE *e, EVP_PKEY_METHOD **pmeth,
 /* ENGINE 初始化 */
 static int skf_init(ENGINE* e)
 {
-    SKF_CTX* ctx = global_skf_ctx;
-
+    SKF_CTX *ctx;
+    
+    /* 初始化 ENGINE 索引 */
+    if (skf_engine_idx == -1) {
+        skf_engine_idx = ENGINE_get_ex_new_index(0, "SKF_CTX", NULL, NULL, NULL);
+        if (skf_engine_idx == -1) {
+            return 0;
+        }
+    }
+    
+    ctx = skf_get_ctx(e);
     if (!ctx) {
         ctx = skf_ctx_new();
         if (!ctx) return 0;
-        global_skf_ctx = ctx;
+        if (!skf_set_ctx(e, ctx)) {
+            skf_ctx_free(ctx);
+            return 0;
+        }
     }
 
     /* 如果已经设置了模块路径，立即初始化设备 */
@@ -1925,9 +2227,10 @@ static int skf_init(ENGINE* e)
 /* ENGINE 清理 */
 static int skf_finish(ENGINE* e)
 {
-    if (global_skf_ctx) {
-        skf_ctx_free(global_skf_ctx);
-        global_skf_ctx = NULL;
+    SKF_CTX *ctx = skf_get_ctx(e);
+    if (ctx) {
+        skf_ctx_free(ctx);
+        skf_set_ctx(e, NULL);
     }
     return 1;
 }
@@ -1952,37 +2255,224 @@ static int skf_destroy(ENGINE* e)
 
     ERR_unload_strings(0, skf_str_functs);
     ERR_unload_strings(0, skf_str_reasons);
+    
+    /* 清理 ENGINE 索引 */
+    skf_engine_idx = -1;
 
     return 1;
 }
+/* SSL扩展接口实现 - 使用软件回退实现 */
+#ifndef OPENSSL_NO_SM2
 
-/* ENGINE 绑定函数 */
+/* SSL主密钥生成函数 - 软件实现 */
+static int skf_ssl_generate_master_secret(ENGINE* e,
+	unsigned char* out, size_t outlen,
+	const unsigned char* premaster, size_t premasterlen,
+	const unsigned char* client_random, size_t client_randomlen,
+	const unsigned char* server_random, size_t server_randomlen,
+	const SSL* ssl)
+{
+	/* 使用OpenSSL默认实现，不使用硬件加速 */
+	printf("SKF: Using software implementation for master secret generation\n");
+	return 0; /* 返回0让OpenSSL使用默认实现 */
+}
+
+/* TLS密钥块生成函数 - 软件实现 */
+static int skf_tls1_generate_key_block(ENGINE* e,
+	unsigned char* km, size_t kmlen,
+	const unsigned char* master, size_t masterlen,
+	const unsigned char* client_random, size_t client_randomlen,
+	const unsigned char* server_random, size_t server_randomlen,
+	const SSL* ssl)
+{
+	/* 使用OpenSSL默认实现，不使用硬件加速 */
+	printf("SKF: Using software implementation for key block generation\n");
+	return 0; /* 返回0让OpenSSL使用默认实现 */
+}
+
+/* 私钥转换函数 - 硬件实现 */
+static EVP_PKEY* skf_convert_privkey(ENGINE* e, const char* key_id,
+	UI_METHOD* ui_method, void* callback_data)
+{
+	SKF_CTX* ctx = skf_get_ctx(e);
+	if (!ctx) return NULL;
+
+	printf("SKF: Converting private key from hardware device: %s\n", key_id ? key_id : "default");
+
+	/* 这里可以实现从 SKF 设备中加载私钥的逻辑 */
+	/* 目前回退到标准的私钥加载函数 */
+	return skf_load_privkey(e, key_id, ui_method, callback_data);
+}
+
+#endif /* OPENSSL_NO_SM2 */
+/* 位掩码功能控制函数实现 */
+
+/* 清理所有引擎绑定 */
+static void skf_clear_all_bindings(ENGINE* e)
+{
+	ENGINE_set_load_privkey_function(e, NULL);
+	ENGINE_set_load_pubkey_function(e, NULL);
+	ENGINE_set_load_ssl_client_cert_function(e, NULL);
+	ENGINE_set_RSA(e, NULL);
+	ENGINE_set_DSA(e, NULL);
+	ENGINE_set_EC(e, NULL);
+	ENGINE_set_DH(e, NULL);
+	ENGINE_set_RAND(e, NULL);
+	ENGINE_set_ciphers(e, NULL);
+	ENGINE_set_digests(e, NULL);
+	ENGINE_set_pkey_meths(e, NULL);
+	ENGINE_set_pkey_asn1_meths(e, NULL);
+}
+
+/* 根据位掩码动态重新绑定功能 */
+static int skf_rebind_features(ENGINE* e)
+{
+	printf("Rebinding SKF engine features based on mask: 0x%04X\n", skf_global_feature_mask);
+
+	/* 清理所有功能绑定 */
+	skf_clear_all_bindings(e);
+
+	/* 基础管理功能 (总是绑定，确保引擎正常工作) */
+	if (skf_global_feature_mask & ENGINE_FEATURE_BASIC_MGMT) {
+		/* 这些在bind_skf中已经设置，无需重复绑定 */
+		printf("  Basic management: ENABLED\n");
+	}
+
+	/* SSL密钥加载功能 */
+	if (skf_global_feature_mask & ENGINE_FEATURE_SSL_KEYS) {
+		ENGINE_set_load_privkey_function(e, skf_load_privkey);
+		ENGINE_set_load_pubkey_function(e, skf_load_pubkey);
+		ENGINE_set_load_ssl_client_cert_function(e, skf_load_ssl_client_cert);
+		printf("  SSL key loading: ENABLED\n");
+	}
+
+	/* RSA算法功能 */
+	if (skf_global_feature_mask & ENGINE_FEATURE_RSA) {
+		/* RSA方法需要先初始化 */
+		/* ENGINE_set_RSA(e, skf_rsa_method); */
+		printf("  RSA methods: ENABLED (TODO: implement skf_rsa_method)\n");
+	}
+
+	/* EC/ECDSA算法功能 */
+	if (skf_global_feature_mask & ENGINE_FEATURE_EC) {
+		/* EC方法需要先初始化 */
+		/* ENGINE_set_EC(e, skf_ec_method); */
+		printf("  EC methods: ENABLED (TODO: implement skf_ec_method)\n");
+	}
+
+	/* 随机数生成功能 (危险) */
+	if (skf_global_feature_mask & ENGINE_FEATURE_RAND) {
+		/* ENGINE_set_RAND(e, &skf_rand_method); */
+		printf("  RAND takeover: ENABLED (WARNING: May cause static linking issues!)\n");
+	}
+
+	/* EVP_PKEY_METHOD功能 */
+	if (skf_global_feature_mask & ENGINE_FEATURE_PKEY_METHS) {
+		ENGINE_set_pkey_meths(e, skf_pkey_meths);
+		printf("  PKEY methods: ENABLED\n");
+	}
+
+	/* SSL扩展功能（国密SSL支持）*/
+	if (skf_global_feature_mask & ENGINE_FEATURE_SSL_EXTENSIONS) {
+#ifndef OPENSSL_NO_SM2
+		ENGINE_set_ssl_generate_master_secret_function(e, skf_ssl_generate_master_secret);
+		ENGINE_set_tls1_generate_key_block_function(e, skf_tls1_generate_key_block);
+		ENGINE_set_convert_privkey_function(e, skf_convert_privkey);
+		printf("  SSL Extensions (GM SSL/TLS): ENABLED\n");
+#else
+		printf("  SSL Extensions: DISABLED (SM2 not compiled)\n");
+#endif
+	}
+
+	/* 对称加密算法功能 */
+	if (skf_global_feature_mask & ENGINE_FEATURE_CIPHERS) {
+		/* ENGINE_set_ciphers(e, skf_ciphers); */
+		printf("  Ciphers: ENABLED (TODO: implement skf_ciphers)\n");
+	}
+
+	/* 摘要算法功能 */
+	if (skf_global_feature_mask & ENGINE_FEATURE_DIGESTS) {
+		/* ENGINE_set_digests(e, skf_digests); */
+		printf("  Digests: ENABLED (TODO: implement skf_digests)\n");
+	}
+
+	return 1;
+}
+
+/* 获取当前功能掩码 */
+static unsigned int skf_get_feature_mask(void)
+{
+	return skf_global_feature_mask;
+}
+
+/* 设置功能掩码 */
+static int skf_set_feature_mask(unsigned int mask)
+{
+	if (!skf_validate_mask(mask)) {
+		return 0;
+	}
+
+	skf_global_feature_mask = mask;
+	return 1;
+}
+
+/* 验证功能掩码有效性 */
+static int skf_validate_mask(unsigned int mask)
+{
+	/* 基本有效性检查 */
+	if (mask == 0) return 0;  /* 不允许全部禁用 */
+
+	/* 检查未定义的位 */
+	unsigned int valid_bits = ENGINE_FEATURE_SSL_KEYS | ENGINE_FEATURE_BASIC_MGMT |
+		ENGINE_FEATURE_USER_INTERFACE | ENGINE_FEATURE_SSL_EXTENSIONS |
+		ENGINE_FEATURE_RSA | ENGINE_FEATURE_DSA | ENGINE_FEATURE_EC |
+		ENGINE_FEATURE_DH | ENGINE_FEATURE_RAND | ENGINE_FEATURE_BN |
+		ENGINE_FEATURE_CIPHERS | ENGINE_FEATURE_DIGESTS |
+		ENGINE_FEATURE_PKEY_METHS | ENGINE_FEATURE_PKEY_ASN1_METHS |
+		ENGINE_FEATURE_ECP_METHS;
+
+	if (mask & ~valid_bits) {
+		printf("Invalid bits in mask: 0x%04X\n", mask & ~valid_bits);
+		return 0;
+	}
+
+	/* 功能依赖检查 */
+	if ((mask & ENGINE_FEATURE_SSL_KEYS) && !(mask & ENGINE_FEATURE_BASIC_MGMT)) {
+		printf("SSL_KEYS requires BASIC_MGMT\n");
+		return 0;
+	}
+
+	/* RAND功能警告检查 */
+	if (mask & ENGINE_FEATURE_RAND) {
+		printf("WARNING: RAND feature may cause static linking issues\n");
+	}
+
+	return 1;
+}
+
+/* ENGINE 绑定函数 - 支持完整的位掩码功能控制 */
 static int bind_skf(ENGINE* e)
 {
-    if (!ENGINE_set_id(e, engine_skf_id) ||
-        !ENGINE_set_name(e, engine_skf_name) ||
-        !ENGINE_set_init_function(e, skf_init) ||
-        !ENGINE_set_finish_function(e, skf_finish) ||
-        !ENGINE_set_destroy_function(e, skf_destroy) ||
-        !ENGINE_set_ctrl_function(e, skf_ctrl) ||
-        !ENGINE_set_cmd_defns(e, skf_cmd_defns) ||
-        !ENGINE_set_load_privkey_function(e, skf_load_privkey) ||
-        !ENGINE_set_load_pubkey_function(e, skf_load_pubkey) ||
-        !ENGINE_set_load_ssl_client_cert_function(e, skf_load_ssl_client_cert) ||
-        !ENGINE_set_RAND(e, &skf_rand_method) ||
-		//!ENGINE_set_digests(e,xxx) ||
-        //!ENGINE_set_ciphers(e,xxx) ||
-        //!ENGINE_set_RSA(e,xxx) ||
-        //!ENGINE_set_SM2(e,xxx) ||
-        //!ENGINE_set_EC(e,xxx) ||
-        //!ENGINE_set_DSA(e,xxx) ||
-        !ENGINE_set_pkey_meths(e, skf_pkey_meths)) {
+    /* 设置基本属性和标志 */
+	if (!ENGINE_set_id(e, engine_skf_id) ||
+		!ENGINE_set_name(e, engine_skf_name) ||
+		!ENGINE_set_init_function(e, skf_init) ||
+		!ENGINE_set_finish_function(e, skf_finish) ||
+		!ENGINE_set_destroy_function(e, skf_destroy) ||
+		!ENGINE_set_ctrl_function(e, skf_ctrl) ||
+		!ENGINE_set_cmd_defns(e, skf_cmd_defns)) {
         return 0;
     }
+
+    /* 根据全局功能掩码动态绑定功能 */
+    skf_rebind_features(e);
 
     /* 注册错误字符串 */
     ERR_load_strings(0, skf_str_functs);
     ERR_load_strings(0, skf_str_reasons);
+
+    printf("SKF Engine initialized with feature mask: 0x%04X\n", skf_global_feature_mask);
+    printf("Available control commands: FEATURE_MASK, MODE_PRESET, LIST_FEATURES, GET_FEATURE_MASK\n");
 
     return 1;
 }

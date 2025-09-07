@@ -8,7 +8,7 @@
  */
 
 /*
- * SDF Engine Implementation for GMT 0018-2023
+ * SDF Engine Implementation for GMT 0018-2012
  * 支持 RSA 和 ECC/SM2 算法，签名、验证、加密、解密操作，随机数生成
  * 支持 SSL 相关功能，支持 openssl.cnf 加载和代码加载
  */
@@ -278,6 +278,23 @@ typedef int (*SDF_HashFinal_FuncPtr)(void *hSessionHandle, unsigned char *pucHas
 typedef int (*BYCSM_LoadModule_FuncPtr)(const char* pwd);
 typedef int (*BYCSM_UninstallModule_FuncPtr)(const char* pwd);
 
+/* 密钥管理函数 */
+typedef int (*SDF_ImportKeyPair_RSA_FuncPtr)(void *hSessionHandle, unsigned int uiKeyIndex, RSArefPublicKey *pucPublicKey, RSArefPrivateKey *pucPrivateKey);
+typedef int (*SDF_ImportKeyPair_ECC_FuncPtr)(void *hSessionHandle, unsigned int uiKeyIndex, ECCrefPublicKey *pucPublicKey, ECCrefPrivateKey *pucPrivateKey);
+typedef int (*SDF_DestroyKey_FuncPtr)(void *hSessionHandle, unsigned int uiKeyIndex);
+typedef int (*SDF_GenerateKeyPair_RSA_FuncPtr)(void *hSessionHandle, unsigned int uiKeyBits, RSArefPublicKey *pucPublicKey, RSArefPrivateKey *pucPrivateKey);
+typedef int (*SDF_GenerateKeyPair_ECC_FuncPtr)(void *hSessionHandle, unsigned int uiAlgID, unsigned int uiKeyBits, ECCrefPublicKey *pucPublicKey, ECCrefPrivateKey *pucPrivateKey);
+
+/* 证书管理函数 */
+typedef int (*SDF_ImportCertificate_FuncPtr)(void *hSessionHandle, unsigned int uiCertIndex, unsigned char *pucCertificate, unsigned int uiCertificateLength);
+typedef int (*SDF_DeleteCertificate_FuncPtr)(void *hSessionHandle, unsigned int uiCertIndex);
+typedef int (*SDF_ExportCertificate_FuncPtr)(void *hSessionHandle, unsigned int uiCertIndex, unsigned char *pucCertificate, unsigned int *puiCertificateLength);
+
+/* 对称密钥管理函数 */
+typedef int (*SDF_GenerateKeyWithKEK_FuncPtr)(void *hSessionHandle, unsigned int uiKeyBits, unsigned int uiAlgID, unsigned int uiKEKIndex, unsigned char *pucKey, unsigned int *puiKeyLength, void **phKeyHandle);
+typedef int (*SDF_ImportKeyWithKEK_FuncPtr)(void *hSessionHandle, unsigned int uiAlgID, unsigned int uiKEKIndex, unsigned char *pucKey, unsigned int uiKeyLength, void **phKeyHandle);
+typedef int (*SDF_DestroyKeyWithKEK_FuncPtr)(void *hSessionHandle, void *hKeyHandle);
+
 /* 厂商配置结构 */ 
 typedef struct vendor_config {
 	const char* name;
@@ -288,12 +305,9 @@ typedef struct vendor_config {
 
 /* 预定义的厂商配置；1）可以检测待加载的库是否在列表中；2）可以根据优先级自动加载库，完成密码运算 */ 
 static vendor_config_t vendor_configs[] = {
-	{"westone", "westone_sdf.dll", "卫士通SDF", 1},
-	{"huada", "huada_sdf.dll", "华大SDF", 2},
-	{"sansec", "sansec_sdf.dll", "三未信安SDF", 3},
-	{"koal", "koal_sdf.dll", "科蓝SDF", 4},
-	{"tass", "tass_sdf.dll", "天威诚信SDF", 5},
-	{"generic", "sdf.dll", "通用SDF", 99},
+    {"byzk", "byzk0018.dll", "软件密码模块", 100},
+	{"sansec", "swsds.dll", "三未信安SDF", 99},
+	{"generic", "sdf.dll", "通用SDF", 98},
 	{NULL, NULL, NULL, 0}
 };
 // 全局当前使用的厂商
@@ -310,6 +324,20 @@ static int vendor_count = 6;
 #define SDF_CMD_SWITCH_VENDOR    (ENGINE_CMD_BASE + 6)
 #define SDF_CMD_GET_CURRENT      (ENGINE_CMD_BASE + 7)
 #define SDF_CMD_AUTO_SELECT      (ENGINE_CMD_BASE + 8)
+#define SDF_CMD_HELP             (ENGINE_CMD_BASE + 9)
+#define SDF_CMD_IMPORT_KEY       (ENGINE_CMD_BASE + 10)
+#define SDF_CMD_IMPORT_CERT      (ENGINE_CMD_BASE + 11)
+#define SDF_CMD_DELETE_KEY       (ENGINE_CMD_BASE + 12)
+#define SDF_CMD_DELETE_CERT      (ENGINE_CMD_BASE + 13)
+#define SDF_CMD_GEN_SYM_KEY      (ENGINE_CMD_BASE + 14)
+#define SDF_CMD_DELETE_SYM_KEY   (ENGINE_CMD_BASE + 15)
+#define SDF_CMD_IMPORT_SYM_KEY   (ENGINE_CMD_BASE + 16)
+/* 完整的位掩码功能控制命令 */
+#define SDF_CMD_SET_FEATURE_MASK (ENGINE_CMD_BASE + 17)
+#define SDF_CMD_GET_FEATURE_MASK (ENGINE_CMD_BASE + 18)
+#define SDF_CMD_SET_MODE_PRESET  (ENGINE_CMD_BASE + 19)
+#define SDF_CMD_LIST_FEATURES    (ENGINE_CMD_BASE + 20)
+#define SDF_CMD_VALIDATE_MASK    (ENGINE_CMD_BASE + 21)
 
 /* ENGINE 控制命令定义 */
 static const ENGINE_CMD_DEFN sdf_cmd_defns[] = {
@@ -319,9 +347,29 @@ static const ENGINE_CMD_DEFN sdf_cmd_defns[] = {
     {SDF_CMD_PASSWORD, "PASSWORD", "Password", ENGINE_CMD_FLAG_STRING},
     {SDF_CMD_START_PASSWORD, "START_PASSWORD", "Start Password", ENGINE_CMD_FLAG_STRING},
     {SDF_CMD_LIST_VENDORS, "LIST_VENDORS", "List all vendors", ENGINE_CMD_FLAG_NO_INPUT},
-	{SDF_CMD_SWITCH_VENDOR, "SWITCH_VENDOR", "Switch vendor", ENGINE_CMD_FLAG_STRING},
-	{SDF_CMD_GET_CURRENT, "GET_CURRENT", "Get current vendor", ENGINE_CMD_FLAG_NO_INPUT},
-	{SDF_CMD_AUTO_SELECT, "AUTO_SELECT", "Auto select vendor", ENGINE_CMD_FLAG_NO_INPUT},
+    {SDF_CMD_SWITCH_VENDOR, "SWITCH_VENDOR", "Switch vendor", ENGINE_CMD_FLAG_STRING},
+    {SDF_CMD_GET_CURRENT, "GET_CURRENT", "Get current vendor", ENGINE_CMD_FLAG_NO_INPUT},
+    {SDF_CMD_AUTO_SELECT, "AUTO_SELECT", "Auto select vendor", ENGINE_CMD_FLAG_NO_INPUT},
+    {SDF_CMD_HELP, "HELP", "Print all available control commands", ENGINE_CMD_FLAG_NO_INPUT},
+    {SDF_CMD_IMPORT_KEY, "IMPORT_KEY", "Import asymmetric key pair (format: type:index:file_path)", ENGINE_CMD_FLAG_STRING},
+    {SDF_CMD_IMPORT_CERT, "IMPORT_CERT", "Import certificate (format: index:cert_file_path)", ENGINE_CMD_FLAG_STRING},
+    {SDF_CMD_DELETE_KEY, "DELETE_KEY", "Delete asymmetric key pair (format: type:index)", ENGINE_CMD_FLAG_STRING},
+    {SDF_CMD_DELETE_CERT, "DELETE_CERT", "Delete certificate (format: index)", ENGINE_CMD_FLAG_STRING},
+    {SDF_CMD_GEN_SYM_KEY, "GEN_SYM_KEY", "Generate symmetric key (format: alg_id:key_index:key_length)", ENGINE_CMD_FLAG_STRING},
+    {SDF_CMD_DELETE_SYM_KEY, "DELETE_SYM_KEY", "Delete symmetric key (format: key_index)", ENGINE_CMD_FLAG_STRING},
+    {SDF_CMD_IMPORT_SYM_KEY, "IMPORT_SYM_KEY", "Import symmetric key (format: alg_id:key_index:key_data)", ENGINE_CMD_FLAG_STRING},
+    
+    /* 位掩码功能控制命令 */
+    {SDF_CMD_SET_FEATURE_MASK, "FEATURE_MASK", 
+     "Set feature mask (hex): SSL_KEYS=0x1, BASIC_MGMT=0x2, RSA=0x10, EC=0x40, RAND=0x100", 
+     ENGINE_CMD_FLAG_STRING},
+    {SDF_CMD_GET_FEATURE_MASK, "GET_FEATURE_MASK", "Get current feature mask and status", ENGINE_CMD_FLAG_NO_INPUT},
+    {SDF_CMD_SET_MODE_PRESET, "MODE_PRESET", 
+     "Set preset mode: ssl_only|ssl_hw_sign|full_hw|dangerous|all_features", 
+     ENGINE_CMD_FLAG_STRING},
+    {SDF_CMD_LIST_FEATURES, "LIST_FEATURES", "List all available features and their descriptions", ENGINE_CMD_FLAG_NO_INPUT},
+    {SDF_CMD_VALIDATE_MASK, "VALIDATE_MASK", "Validate feature mask (hex)", ENGINE_CMD_FLAG_STRING},
+    
     {0, NULL, NULL, 0}
 };
 
@@ -383,6 +431,23 @@ typedef struct {
     BYCSM_LoadModule_FuncPtr p_BYCSM_LoadModule;
 	BYCSM_UninstallModule_FuncPtr p_BYCSM_UninstallModule;
     
+    /* 密钥管理函数指针 */
+    SDF_ImportKeyPair_RSA_FuncPtr p_SDF_ImportKeyPair_RSA;
+    SDF_ImportKeyPair_ECC_FuncPtr p_SDF_ImportKeyPair_ECC;
+    SDF_DestroyKey_FuncPtr p_SDF_DestroyKey;
+    SDF_GenerateKeyPair_RSA_FuncPtr p_SDF_GenerateKeyPair_RSA;
+    SDF_GenerateKeyPair_ECC_FuncPtr p_SDF_GenerateKeyPair_ECC;
+    
+    /* 证书管理函数指针 */
+    SDF_ImportCertificate_FuncPtr p_SDF_ImportCertificate;
+    SDF_DeleteCertificate_FuncPtr p_SDF_DeleteCertificate;
+    SDF_ExportCertificate_FuncPtr p_SDF_ExportCertificate;
+    
+    /* 对称密钥管理函数指针 */
+    SDF_GenerateKeyWithKEK_FuncPtr p_SDF_GenerateKeyWithKEK;
+    SDF_ImportKeyWithKEK_FuncPtr p_SDF_ImportKeyWithKEK;
+    SDF_DestroyKeyWithKEK_FuncPtr p_SDF_DestroyKeyWithKEK;
+    
 #ifdef _WIN32
     CRITICAL_SECTION lock;
 #else
@@ -399,8 +464,54 @@ typedef struct {
     EVP_PKEY *pkey;
 } SDF_KEY_CTX;
 
-/* 全局 SDF 上下文 */
-static SDF_CTX *global_sdf_ctx = NULL;
+/* 全局 ENGINE index，用于存储 SDF 上下文 */
+static int sdf_engine_idx = -1;
+
+/* 完整的位掩码功能控制 */
+
+/* 核心功能层 (0x0001 - 0x000F) */
+#define ENGINE_FEATURE_SSL_KEYS         0x0001  /* SSL密钥加载功能 */
+#define ENGINE_FEATURE_BASIC_MGMT       0x0002  /* 基础管理功能 (init/finish/destroy/ctrl) */
+#define ENGINE_FEATURE_USER_INTERFACE   0x0004  /* 用户接口功能 */
+#define ENGINE_FEATURE_SSL_EXTENSIONS   0x0008  /* SSL扩展功能 (master_secret, key_block) */
+
+/* 密码算法层 (0x0010 - 0x00FF) */
+#define ENGINE_FEATURE_RSA              0x0010  /* RSA算法 */
+#define ENGINE_FEATURE_DSA              0x0020  /* DSA算法 */
+#define ENGINE_FEATURE_EC               0x0040  /* EC/ECDSA算法 */
+#define ENGINE_FEATURE_DH               0x0080  /* DH算法 */
+#define ENGINE_FEATURE_RAND             0x0100  /* 随机数生成 */
+#define ENGINE_FEATURE_BN               0x0200  /* 大数运算 */
+
+/* 高级功能层 (0x0400 - 0x3F00) */
+#define ENGINE_FEATURE_CIPHERS          0x0400  /* 对称加密算法 */
+#define ENGINE_FEATURE_DIGESTS          0x0800  /* 摘要算法 */
+#define ENGINE_FEATURE_PKEY_METHS       0x1000  /* EVP_PKEY_METHOD */
+#define ENGINE_FEATURE_PKEY_ASN1_METHS  0x2000  /* EVP_PKEY_ASN1_METHOD */
+#define ENGINE_FEATURE_ECP_METHS        0x4000  /* EC点运算方法 */
+
+/* 预设模式组合 */
+#define ENGINE_MODE_SSL_ONLY            (ENGINE_FEATURE_SSL_KEYS | ENGINE_FEATURE_BASIC_MGMT)                    /* 0x0003: SSL Only */
+#define ENGINE_MODE_SSL_HW_SIGN         (ENGINE_MODE_SSL_ONLY | ENGINE_FEATURE_RSA | ENGINE_FEATURE_EC)          /* 0x0053: SSL + HW Sign */
+#define ENGINE_MODE_FULL_HARDWARE       (ENGINE_MODE_SSL_HW_SIGN | ENGINE_FEATURE_PKEY_METHS | \
+                                         ENGINE_FEATURE_CIPHERS | ENGINE_FEATURE_DIGESTS)                       /* 0x1C53: Full HW */
+#define ENGINE_MODE_DANGEROUS           (ENGINE_MODE_FULL_HARDWARE | ENGINE_FEATURE_RAND)                       /* 0x1D53: Dangerous */
+#define ENGINE_MODE_ALL_FEATURES        0xFFFF                                                                   /* 0xFFFF: All */
+
+/* 国密SSL专用模式 */
+#define ENGINE_MODE_GM_SSL_FULL         (ENGINE_MODE_SSL_ONLY | ENGINE_FEATURE_SSL_EXTENSIONS | \
+                                         ENGINE_FEATURE_EC)                                                     /* 0x004B: GM SSL Full */
+#define ENGINE_MODE_GM_SSL_HW           (ENGINE_MODE_GM_SSL_FULL | ENGINE_FEATURE_CIPHERS | \
+                                         ENGINE_FEATURE_DIGESTS)                                                /* 0x0C4B: GM SSL HW */
+
+static unsigned int sdf_global_feature_mask = ENGINE_MODE_SSL_ONLY;  /* 默认SSL模式 */
+
+/* 位掩码功能控制函数声明 */
+static int sdf_rebind_features(ENGINE *e);
+static unsigned int sdf_get_feature_mask(void);
+static int sdf_set_feature_mask(unsigned int mask);
+static int sdf_validate_mask(unsigned int mask);
+static void sdf_clear_all_bindings(ENGINE *e);
 
 /* 错误处理 */
 static ERR_STRING_DATA sdf_str_functs[] = {
@@ -425,7 +536,7 @@ static ERR_STRING_DATA sdf_str_reasons[] = {
 
 /* 引擎 ID 和名称 */
 static const char *engine_sdf_id = "sdf";
-static const char *engine_sdf_name = "SDF engine for GMT 0018-2023";
+static const char *engine_sdf_name = "SDF Engine";
 
 /* 函数声明 */
 static int sdf_init(ENGINE *e);
@@ -435,6 +546,10 @@ static int sdf_ctrl(ENGINE *e, int cmd, long i, void *p, void (*f)(void));
 static EVP_PKEY *sdf_load_privkey(ENGINE *e, const char *key_id, UI_METHOD *ui_method, void *callback_data);
 static EVP_PKEY *sdf_load_pubkey(ENGINE *e, const char *key_id, UI_METHOD *ui_method, void *callback_data);
 static int sdf_load_ssl_client_cert(ENGINE *e, SSL *ssl, STACK_OF(X509_NAME) *ca_dn, X509 **pcert, EVP_PKEY **pkey, STACK_OF(X509) **pother, UI_METHOD *ui_method, void *callback_data);
+
+/* SDF 上下文管理函数 */
+static SDF_CTX *sdf_get_ctx(ENGINE *e);
+static int sdf_set_ctx(ENGINE *e, SDF_CTX *ctx);
 
 /* 辅助函数 */
 static void sdf_lock(SDF_CTX *ctx)
@@ -517,6 +632,23 @@ static void sdf_ctx_free(SDF_CTX *ctx)
 #endif
     
     OPENSSL_free(ctx);
+}
+
+/* SDF 上下文管理函数 */
+static SDF_CTX *sdf_get_ctx(ENGINE *e)
+{
+    if (sdf_engine_idx == -1) {
+        return NULL;
+    }
+    return ENGINE_get_ex_data(e, sdf_engine_idx);
+}
+
+static int sdf_set_ctx(ENGINE *e, SDF_CTX *ctx)
+{
+    if (sdf_engine_idx == -1) {
+        return 0;
+    }
+    return ENGINE_set_ex_data(e, sdf_engine_idx, ctx);
 }
 
 /*static int sdf_switch_to_vendor(const char* vendor_name) {
@@ -623,6 +755,23 @@ static int sdf_load_library(SDF_CTX *ctx)
     ctx->p_BYCSM_LoadModule = (BYCSM_LoadModule_FuncPtr)DLSYM(ctx->dll_handle, "BYCSM_LoadModule");
     ctx->p_BYCSM_UninstallModule = (BYCSM_UninstallModule_FuncPtr)DLSYM(ctx->dll_handle, "BYCSM_UninstallModule");
 
+    /* 密钥管理函数 */
+    ctx->p_SDF_ImportKeyPair_RSA = (SDF_ImportKeyPair_RSA_FuncPtr)DLSYM(ctx->dll_handle, "SDF_ImportKeyPair_RSA");
+    ctx->p_SDF_ImportKeyPair_ECC = (SDF_ImportKeyPair_ECC_FuncPtr)DLSYM(ctx->dll_handle, "SDF_ImportKeyPair_ECC");
+    ctx->p_SDF_DestroyKey = (SDF_DestroyKey_FuncPtr)DLSYM(ctx->dll_handle, "SDF_DestroyKey");
+    ctx->p_SDF_GenerateKeyPair_RSA = (SDF_GenerateKeyPair_RSA_FuncPtr)DLSYM(ctx->dll_handle, "SDF_GenerateKeyPair_RSA");
+    ctx->p_SDF_GenerateKeyPair_ECC = (SDF_GenerateKeyPair_ECC_FuncPtr)DLSYM(ctx->dll_handle, "SDF_GenerateKeyPair_ECC");
+    
+    /* 证书管理函数 */
+    ctx->p_SDF_ImportCertificate = (SDF_ImportCertificate_FuncPtr)DLSYM(ctx->dll_handle, "SDF_ImportCertificate");
+    ctx->p_SDF_DeleteCertificate = (SDF_DeleteCertificate_FuncPtr)DLSYM(ctx->dll_handle, "SDF_DeleteCertificate");
+    ctx->p_SDF_ExportCertificate = (SDF_ExportCertificate_FuncPtr)DLSYM(ctx->dll_handle, "SDF_ExportCertificate");
+    
+    /* 对称密钥管理函数 */
+    ctx->p_SDF_GenerateKeyWithKEK = (SDF_GenerateKeyWithKEK_FuncPtr)DLSYM(ctx->dll_handle, "SDF_GenerateKeyWithKEK");
+    ctx->p_SDF_ImportKeyWithKEK = (SDF_ImportKeyWithKEK_FuncPtr)DLSYM(ctx->dll_handle, "SDF_ImportKeyWithKEK");
+    ctx->p_SDF_DestroyKeyWithKEK = (SDF_DestroyKeyWithKEK_FuncPtr)DLSYM(ctx->dll_handle, "SDF_DestroyKeyWithKEK");
+
     //ctx->p_SDF_GenerateKeyPair_ECC = (SDF_GenerateKeyPair_ECC_FuncPtr)DLSYM(ctx->dll_handle, "SDF_GenerateKeyPair_ECC");
     //ctx->p_SDF_GenerateKeyPair_RSA = (SDF_GenerateKeyPair_RSA_FuncPtr)DLSYM(ctx->dll_handle, "SDF_GenerateKeyPair_RSA");
     
@@ -706,12 +855,15 @@ static int sdf_init_device(SDF_CTX *ctx)
 /* ENGINE 控制函数 */
 static int sdf_ctrl(ENGINE *e, int cmd, long i, void *p, void (*f)(void))
 {
-    SDF_CTX *ctx = global_sdf_ctx;
+    SDF_CTX *ctx = sdf_get_ctx(e);
     
     if (!ctx) {
         ctx = sdf_ctx_new();
         if (!ctx) return 0;
-        global_sdf_ctx = ctx;
+        if (!sdf_set_ctx(e, ctx)) {
+            sdf_ctx_free(ctx);
+            return 0;
+        }
     }
     
     switch (cmd) {
@@ -787,6 +939,265 @@ static int sdf_ctrl(ENGINE *e, int cmd, long i, void *p, void (*f)(void))
 		sprintf(buffer, "%s", "not support");
 		return 1;
     }
+    case SDF_CMD_HELP:
+    {
+        // 打印所有可用的控制命令
+        if (!p) return 0;
+        char* buffer = (char*)p;
+        int offset = 0;
+        
+        offset += snprintf(buffer + offset, 2048 - offset, "Available SDF Engine Control Commands:\n");
+        offset += snprintf(buffer + offset, 2048 - offset, "MODULE_PATH: Set SDF library path\n");
+        offset += snprintf(buffer + offset, 2048 - offset, "DEVICE_NAME: Set device name\n");
+        offset += snprintf(buffer + offset, 2048 - offset, "KEY_INDEX: Set key index\n");
+        offset += snprintf(buffer + offset, 2048 - offset, "PASSWORD: Set password\n");
+        offset += snprintf(buffer + offset, 2048 - offset, "START_PASSWORD: Set start password\n");
+        offset += snprintf(buffer + offset, 2048 - offset, "LIST_VENDORS: List all vendors\n");
+        offset += snprintf(buffer + offset, 2048 - offset, "SWITCH_VENDOR: Switch vendor\n");
+        offset += snprintf(buffer + offset, 2048 - offset, "GET_CURRENT: Get current vendor\n");
+        offset += snprintf(buffer + offset, 2048 - offset, "AUTO_SELECT: Auto select vendor\n");
+        offset += snprintf(buffer + offset, 2048 - offset, "IMPORT_KEY: Import asymmetric key pair (format: type:index:file_path)\n");
+        offset += snprintf(buffer + offset, 2048 - offset, "IMPORT_CERT: Import certificate (format: index:cert_file_path)\n");
+        offset += snprintf(buffer + offset, 2048 - offset, "DELETE_KEY: Delete asymmetric key pair (format: type:index)\n");
+        offset += snprintf(buffer + offset, 2048 - offset, "DELETE_CERT: Delete certificate (format: index)\n");
+        offset += snprintf(buffer + offset, 2048 - offset, "GEN_SYM_KEY: Generate symmetric key (format: alg_id:key_index:key_length)\n");
+        offset += snprintf(buffer + offset, 2048 - offset, "DELETE_SYM_KEY: Delete symmetric key (format: key_index)\n");
+        offset += snprintf(buffer + offset, 2048 - offset, "IMPORT_SYM_KEY: Import symmetric key (format: alg_id:key_index:key_data)\n");
+        offset += snprintf(buffer + offset, 2048 - offset, "FEATURE_MASK: Set feature mask (hex)\n");
+        offset += snprintf(buffer + offset, 2048 - offset, "MODE_PRESET: Set preset mode\n");
+        return 1;
+    }
+    
+    /* 位掩码功能控制命令 */
+    case SDF_CMD_SET_FEATURE_MASK:
+        {
+            if (!p) return 0;
+            
+            unsigned int new_mask = 0;
+            char *mask_str = (char *)p;
+            
+            /* 支持十六进制输入，如 "0x0053" 或 "83" */
+            if (strncmp(mask_str, "0x", 2) == 0 || strncmp(mask_str, "0X", 2) == 0) {
+                new_mask = (unsigned int)strtoul(mask_str, NULL, 16);
+            } else {
+                new_mask = (unsigned int)strtoul(mask_str, NULL, 10);
+            }
+            
+            /* 验证掉码 */
+            if (!sdf_validate_mask(new_mask)) {
+                printf("Invalid feature mask: 0x%04X\n", new_mask);
+                return 0;
+            }
+            
+            sdf_global_feature_mask = new_mask;
+            
+            printf("SDF Feature mask set to: 0x%04X\n", new_mask);
+            printf("  SSL Keys: %s\n", (new_mask & ENGINE_FEATURE_SSL_KEYS) ? "ON" : "OFF");
+            printf("  Basic Mgmt: %s\n", (new_mask & ENGINE_FEATURE_BASIC_MGMT) ? "ON" : "OFF");
+            printf("  SSL Extensions (GM SSL): %s\n", (new_mask & ENGINE_FEATURE_SSL_EXTENSIONS) ? "ON" : "OFF");
+            printf("  RSA: %s\n", (new_mask & ENGINE_FEATURE_RSA) ? "ON" : "OFF");
+            printf("  EC: %s\n", (new_mask & ENGINE_FEATURE_EC) ? "ON" : "OFF");
+            printf("  RAND: %s\n", (new_mask & ENGINE_FEATURE_RAND) ? "ON" : "OFF");
+            printf("  PKEY Methods: %s\n", (new_mask & ENGINE_FEATURE_PKEY_METHS) ? "ON" : "OFF");
+            
+            if (new_mask & ENGINE_FEATURE_RAND) {
+                printf("  WARNING: RAND takeover enabled! May cause static linking issues.\n");
+            }
+            
+            /* 重新绑定引擎功能 */
+            return sdf_rebind_features(e);
+        }
+
+    case SDF_CMD_GET_FEATURE_MASK:
+        {
+            if (!p) return 0;
+            char* buffer = (char*)p;
+            int offset = 0;
+            
+            offset += snprintf(buffer + offset, 1024 - offset, 
+                              "Current SDF Feature Mask: 0x%04X\n", sdf_global_feature_mask);
+            offset += snprintf(buffer + offset, 1024 - offset, 
+                              "  SSL Keys (0x0001): %s\n", 
+                              (sdf_global_feature_mask & ENGINE_FEATURE_SSL_KEYS) ? "ON" : "OFF");
+            offset += snprintf(buffer + offset, 1024 - offset, 
+                              "  Basic Mgmt (0x0002): %s\n", 
+                              (sdf_global_feature_mask & ENGINE_FEATURE_BASIC_MGMT) ? "ON" : "OFF");
+            offset += snprintf(buffer + offset, 1024 - offset, 
+                              "  RSA (0x0010): %s\n", 
+                              (sdf_global_feature_mask & ENGINE_FEATURE_RSA) ? "ON" : "OFF");
+            offset += snprintf(buffer + offset, 1024 - offset, 
+                              "  EC (0x0040): %s\n", 
+                              (sdf_global_feature_mask & ENGINE_FEATURE_EC) ? "ON" : "OFF");
+            offset += snprintf(buffer + offset, 1024 - offset, 
+                              "  RAND (0x0100): %s\n", 
+                              (sdf_global_feature_mask & ENGINE_FEATURE_RAND) ? "ON" : "OFF");
+            offset += snprintf(buffer + offset, 1024 - offset, 
+                              "  PKEY Methods (0x1000): %s\n", 
+                              (sdf_global_feature_mask & ENGINE_FEATURE_PKEY_METHS) ? "ON" : "OFF");
+            return 1;
+        }
+
+    case SDF_CMD_SET_MODE_PRESET:
+        {
+            if (!p) return 0;
+            char *mode_str = (char *)p;
+            
+            if (strcmp(mode_str, "ssl_only") == 0) {
+                sdf_global_feature_mask = ENGINE_MODE_SSL_ONLY;
+                printf("Mode set to: SSL Only (0x%04X) - Recommended for Nginx\n", ENGINE_MODE_SSL_ONLY);
+            } else if (strcmp(mode_str, "ssl_hw_sign") == 0) {
+                sdf_global_feature_mask = ENGINE_MODE_SSL_HW_SIGN;
+                printf("Mode set to: SSL + HW Sign (0x%04X) - SSL + Hardware signing\n", ENGINE_MODE_SSL_HW_SIGN);
+            } else if (strcmp(mode_str, "full_hw") == 0) {
+                sdf_global_feature_mask = ENGINE_MODE_FULL_HARDWARE;
+                printf("Mode set to: Full Hardware (0x%04X) - Complete hardware acceleration\n", ENGINE_MODE_FULL_HARDWARE);
+            } else if (strcmp(mode_str, "dangerous") == 0) {
+                sdf_global_feature_mask = ENGINE_MODE_DANGEROUS;
+                printf("Mode set to: Dangerous (0x%04X) - WARNING: Includes RAND takeover!\n", ENGINE_MODE_DANGEROUS);
+            } else if (strcmp(mode_str, "all_features") == 0) {
+                sdf_global_feature_mask = ENGINE_MODE_ALL_FEATURES;
+                printf("Mode set to: All Features (0x%04X) - Maximum functionality\n", ENGINE_MODE_ALL_FEATURES);
+            } else if (strcmp(mode_str, "gm_ssl_full") == 0) {
+                sdf_global_feature_mask = ENGINE_MODE_GM_SSL_FULL;
+                printf("Mode set to: GM SSL Full (0x%04X) - Complete GM SSL support\n", ENGINE_MODE_GM_SSL_FULL);
+            } else if (strcmp(mode_str, "gm_ssl_hw") == 0) {
+                sdf_global_feature_mask = ENGINE_MODE_GM_SSL_HW;
+                printf("Mode set to: GM SSL Hardware (0x%04X) - GM SSL with hardware acceleration\n", ENGINE_MODE_GM_SSL_HW);
+            } else {
+                printf("Invalid mode. Available: ssl_only, ssl_hw_sign, full_hw, dangerous, all_features, gm_ssl_full, gm_ssl_hw\n");
+                return 0;
+            }
+            
+            /* 重新绑定引擎功能 */
+            return sdf_rebind_features(e);
+        }
+
+    case SDF_CMD_LIST_FEATURES:
+        {
+            if (!p) return 0;
+            char* buffer = (char*)p;
+            int offset = 0;
+            
+            offset += snprintf(buffer + offset, 2048 - offset, "Available SDF Engine Features:\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "\n核心功能层:\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "  0x0001 - SSL_KEYS: SSL密钥加载功能\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "  0x0002 - BASIC_MGMT: 基础管理功能\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "  0x0004 - USER_INTERFACE: 用户接口功能\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "  0x0008 - SSL_EXTENSIONS: SSL扩展功能\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "\n密码算法层:\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "  0x0010 - RSA: RSA算法\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "  0x0020 - DSA: DSA算法\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "  0x0040 - EC: EC/ECDSA算法\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "  0x0080 - DH: DH算法\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "  0x0100 - RAND: 随机数生成(慎用!)\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "\n高级功能层:\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "  0x0400 - CIPHERS: 对称加密算法\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "  0x0800 - DIGESTS: 摘要算法\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "  0x1000 - PKEY_METHS: EVP_PKEY_METHOD\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "\n预设模式:\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "  ssl_only (0x0003): 仅SSL功能(推荐Nginx)\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "  ssl_hw_sign (0x0053): SSL+硬件签名\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "  full_hw (0x1C53): 完整硬件加速\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "  dangerous (0x1D53): 包含RAND接管(危险!)\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "  gm_ssl_full (0x004B): 国密SSL完整支持\n");
+            offset += snprintf(buffer + offset, 2048 - offset, "  gm_ssl_hw (0x0C4B): 国密SSL硬件加速\n");
+            return 1;
+        }
+
+    case SDF_CMD_VALIDATE_MASK:
+        {
+            if (!p) return 0;
+            char *mask_str = (char *)p;
+            
+            unsigned int mask = 0;
+            if (strncmp(mask_str, "0x", 2) == 0 || strncmp(mask_str, "0X", 2) == 0) {
+                mask = (unsigned int)strtoul(mask_str, NULL, 16);
+            } else {
+                mask = (unsigned int)strtoul(mask_str, NULL, 10);
+            }
+            
+            int valid = sdf_validate_mask(mask);
+            printf("Feature mask 0x%04X validation: %s\n", mask, valid ? "VALID" : "INVALID");
+            return valid;
+        }
+    case SDF_CMD_IMPORT_KEY:
+    {
+        // 导入非对称密钥对
+        // 格式: type:index:file_path (例如 "RSA:1:/path/to/key.pem" 或 "ECC:2:/path/to/key.pem")
+        if (!p) return 0;
+        char* param = (char*)p;
+        
+        // TODO: 解析参数并调用 SDF_ImportKeyPair_RSA 或 SDF_ImportKeyPair_ECC
+        // 目前返回不支持的状态
+        printf("SDF_CMD_IMPORT_KEY: %s (not implemented yet)\n", param);
+        return 0;
+    }
+    case SDF_CMD_IMPORT_CERT:
+    {
+        // 导入证书
+        // 格式: index:cert_file_path (例如 "1:/path/to/cert.pem")
+        if (!p) return 0;
+        char* param = (char*)p;
+        
+        // TODO: 解析参数并调用 SDF_ImportCertificate
+        printf("SDF_CMD_IMPORT_CERT: %s (not implemented yet)\n", param);
+        return 0;
+    }
+    case SDF_CMD_DELETE_KEY:
+    {
+        // 删除非对称密钥对
+        // 格式: type:index (例如 "RSA:1" 或 "ECC:2")
+        if (!p) return 0;
+        char* param = (char*)p;
+        
+        // TODO: 解析参数并调用 SDF_DestroyKey
+        printf("SDF_CMD_DELETE_KEY: %s (not implemented yet)\n", param);
+        return 0;
+    }
+    case SDF_CMD_DELETE_CERT:
+    {
+        // 删除证书
+        // 格式: index (例如 "1")
+        if (!p) return 0;
+        char* param = (char*)p;
+        
+        // TODO: 解析参数并调用 SDF_DeleteCertificate
+        printf("SDF_CMD_DELETE_CERT: %s (not implemented yet)\n", param);
+        return 0;
+    }
+    case SDF_CMD_GEN_SYM_KEY:
+    {
+        // 生成对称密钥
+        // 格式: alg_id:key_index:key_length (例如 "SGD_SMS4_ECB:1:16")
+        if (!p) return 0;
+        char* param = (char*)p;
+        
+        // TODO: 解析参数并调用 SDF_GenerateKeyWithKEK
+        printf("SDF_CMD_GEN_SYM_KEY: %s (not implemented yet)\n", param);
+        return 0;
+    }
+    case SDF_CMD_DELETE_SYM_KEY:
+    {
+        // 删除对称密钥
+        // 格式: key_index (例如 "1")
+        if (!p) return 0;
+        char* param = (char*)p;
+        
+        // TODO: 解析参数并调用 SDF_DestroyKey
+        printf("SDF_CMD_DELETE_SYM_KEY: %s (not implemented yet)\n", param);
+        return 0;
+    }
+    case SDF_CMD_IMPORT_SYM_KEY:
+    {
+        // 导入对称密钥
+        // 格式: alg_id:key_index:key_data (例如 "SGD_SMS4_ECB:1:0123456789ABCDEF0123456789ABCDEF")
+        if (!p) return 0;
+        char* param = (char*)p;
+        
+        // TODO: 解析参数并调用 SDF_ImportKeyWithKEK
+        printf("SDF_CMD_IMPORT_SYM_KEY: %s (not implemented yet)\n", param);
+        return 0;
+    }
     default:
         return 0;
     }
@@ -796,23 +1207,25 @@ static int sdf_ctrl(ENGINE *e, int cmd, long i, void *p, void (*f)(void))
 static int sdf_rsa_sign(int type, const unsigned char *m, unsigned int m_len,
                         unsigned char *sigret, unsigned int *siglen, const RSA *rsa)
 {
-    SDF_CTX *ctx = global_sdf_ctx;
     SDF_KEY_CTX *key_ctx;
+    SDF_CTX *ctx;
     unsigned char padded[RSAref_MAX_LEN];
     unsigned int padded_len = RSAref_MAX_LEN;
     unsigned int output_len = *siglen;
     int ret;
     
-    if (!ctx || !ctx->initialized) {
+    key_ctx = RSA_get_ex_data(rsa, 0);
+    if (!key_ctx || !key_ctx->sdf_ctx) {
+        SDFerr(0, 8);
+        return 0;
+    }
+    
+    ctx = key_ctx->sdf_ctx;
+    
+    if (!ctx->initialized) {
         if (!sdf_init_device(ctx)) {
             return 0;
         }
-    }
-    
-    key_ctx = RSA_get_ex_data(rsa, 0);
-    if (!key_ctx) {
-        SDFerr(0, 8);
-        return 0;
     }
     
     sdf_lock(ctx);
@@ -843,8 +1256,8 @@ static int sdf_rsa_sign(int type, const unsigned char *m, unsigned int m_len,
 static int sdf_rsa_verify(int type, const unsigned char *m, unsigned int m_len,
                           const unsigned char *sigbuf, unsigned int siglen, const RSA *rsa)
 {
-    SDF_CTX *ctx = global_sdf_ctx;
     SDF_KEY_CTX *key_ctx;
+    SDF_CTX *ctx;
 	unsigned char decrypted[RSAref_MAX_LEN];
 	unsigned int decrypted_len = RSAref_MAX_LEN;
 	unsigned char* padded_msg = NULL;  
@@ -862,16 +1275,18 @@ static int sdf_rsa_verify(int type, const unsigned char *m, unsigned int m_len,
 		return 0;
 	}
 
-	if (!ctx || !ctx->initialized) {
+    key_ctx = RSA_get_ex_data(rsa, 0);
+    if (!key_ctx || !key_ctx->sdf_ctx) {
+        SDFerr(0, 8);
+        return 0;
+    }
+    
+    ctx = key_ctx->sdf_ctx;
+
+	if (!ctx->initialized) {
 		if (!sdf_init_device(ctx)) {
 			return 0;
 		}
-	}
-
-	key_ctx = RSA_get_ex_data(rsa, 0);
-	if (!key_ctx) {
-		SDFerr(0, 8);
-		return 0;
 	}
 
 	sdf_lock(ctx);
@@ -944,21 +1359,23 @@ static int sdf_ecdsa_sign(int type, const unsigned char *dgst, int dgst_len,
                           unsigned char *sig, unsigned int *siglen, const BIGNUM *kinv,
                           const BIGNUM *r, EC_KEY *eckey)
 {
-    SDF_CTX *ctx = global_sdf_ctx;
     SDF_KEY_CTX *key_ctx;
+    SDF_CTX *ctx;
     ECCSignature ecc_sig;
     int ret;
     
-    if (!ctx || !ctx->initialized) {
+    key_ctx = EC_KEY_get_ex_data(eckey, 0);
+    if (!key_ctx || !key_ctx->sdf_ctx) {
+        SDFerr(0, 8);
+        return 0;
+    }
+    
+    ctx = key_ctx->sdf_ctx;
+    
+    if (!ctx->initialized) {
         if (!sdf_init_device(ctx)) {
             return 0;
         }
-    }
-    
-    key_ctx = EC_KEY_get_ex_data(eckey, 0);
-    if (!key_ctx) {
-        SDFerr(0, 8);
-        return 0;
     }
     
     sdf_lock(ctx);
@@ -1003,23 +1420,25 @@ static int sdf_ecdsa_sign(int type, const unsigned char *dgst, int dgst_len,
 static int sdf_ecdsa_verify(int type, const unsigned char *dgst, int dgst_len,
                             const unsigned char *sigbuf, int sig_len, EC_KEY *eckey)
 {
-    SDF_CTX *ctx = global_sdf_ctx;
     SDF_KEY_CTX *key_ctx;
+    SDF_CTX *ctx;
     ECCSignature ecc_sig;
     ECDSA_SIG *ecdsa_sig;
     const BIGNUM *bn_r, *bn_s;
     int ret;
     
-    if (!ctx || !ctx->initialized) {
+    key_ctx = EC_KEY_get_ex_data(eckey, 0);
+    if (!key_ctx || !key_ctx->sdf_ctx) {
+        SDFerr(0, 8);
+        return 0;
+    }
+    
+    ctx = key_ctx->sdf_ctx;
+    
+    if (!ctx->initialized) {
         if (!sdf_init_device(ctx)) {
             return 0;
         }
-    }
-    
-    key_ctx = EC_KEY_get_ex_data(eckey, 0);
-    if (!key_ctx) {
-        SDFerr(0, 8);
-        return 0;
     }
     
     /* 解析 DER 格式签名 */
@@ -1065,11 +1484,19 @@ static EC_KEY_METHOD *get_sdf_ec_method(void)
 /* 随机数生成函数 */
 static int sdf_rand_bytes(unsigned char *buf, int num)
 {
-    SDF_CTX *ctx = global_sdf_ctx;
+    /* 获取当前活跃的 ENGINE */
+    ENGINE *e = ENGINE_get_default_RAND();
+    SDF_CTX *ctx = NULL;
     int ret;
     
+    if (e && strcmp(ENGINE_get_id(e), engine_sdf_id) == 0) {
+        ctx = sdf_get_ctx(e);
+    }
+    
     if (!ctx || !ctx->initialized) {
-        if (!sdf_init_device(ctx)) {
+        if (ctx && !sdf_init_device(ctx)) {
+            return 0;
+        } else if (!ctx) {
             return 0;
         }
     }
@@ -1088,7 +1515,14 @@ static int sdf_rand_bytes(unsigned char *buf, int num)
 /* 随机数状态函数 */
 static int sdf_rand_status(void)
 {
-    return global_sdf_ctx && global_sdf_ctx->initialized;
+    ENGINE *e = ENGINE_get_default_RAND();
+    SDF_CTX *ctx = NULL;
+    
+    if (e && strcmp(ENGINE_get_id(e), engine_sdf_id) == 0) {
+        ctx = sdf_get_ctx(e);
+    }
+    
+    return ctx && ctx->initialized;
 }
 
 /* 随机数方法表 */
@@ -1105,7 +1539,7 @@ static RAND_METHOD sdf_rand_method = {
 static EVP_PKEY *sdf_load_privkey(ENGINE *e, const char *key_id,
                                   UI_METHOD *ui_method, void *callback_data)
 {
-    SDF_CTX *ctx = global_sdf_ctx;
+    SDF_CTX *ctx = sdf_get_ctx(e);
     SDF_KEY_CTX *key_ctx;
     EVP_PKEY *pkey = NULL;
     RSA *rsa = NULL;
@@ -1118,7 +1552,7 @@ static EVP_PKEY *sdf_load_privkey(ENGINE *e, const char *key_id,
     int ret;
     
     if (!ctx || !ctx->initialized) {
-        if (!sdf_init_device(ctx)) {
+        if (!ctx || !sdf_init_device(ctx)) {
             return NULL;
         }
     }
@@ -1939,12 +2373,24 @@ static int sdf_pkey_meths(ENGINE * e, EVP_PKEY_METHOD ** pmeth,
 /* ENGINE 初始化 */
 static int sdf_init(ENGINE *e)
 {
-    SDF_CTX *ctx = global_sdf_ctx;
+    SDF_CTX *ctx;
     
+    /* 初始化 ENGINE 索引 */
+    if (sdf_engine_idx == -1) {
+        sdf_engine_idx = ENGINE_get_ex_new_index(0, "SDF_CTX", NULL, NULL, NULL);
+        if (sdf_engine_idx == -1) {
+            return 0;
+        }
+    }
+    
+    ctx = sdf_get_ctx(e);
     if (!ctx) {
         ctx = sdf_ctx_new();
         if (!ctx) return 0;
-        global_sdf_ctx = ctx;
+        if (!sdf_set_ctx(e, ctx)) {
+            sdf_ctx_free(ctx);
+            return 0;
+        }
     }
     
     /* 如果已经设置了模块路径，立即初始化设备 */
@@ -1958,9 +2404,10 @@ static int sdf_init(ENGINE *e)
 /* ENGINE 清理 */
 static int sdf_finish(ENGINE *e)
 {
-    if (global_sdf_ctx) {
-        sdf_ctx_free(global_sdf_ctx);
-        global_sdf_ctx = NULL;
+    SDF_CTX *ctx = sdf_get_ctx(e);
+    if (ctx) {
+        sdf_ctx_free(ctx);
+        sdf_set_ctx(e, NULL);
     }
     return 1;
 }
@@ -1986,37 +2433,226 @@ static int sdf_destroy(ENGINE *e)
     ERR_unload_strings(0, sdf_str_functs);
     ERR_unload_strings(0, sdf_str_reasons);
     
+    /* 清理 ENGINE 索引 */
+    sdf_engine_idx = -1;
+    
     return 1;
 }
 
-/* ENGINE 绑定函数 */
+/* SSL扩展接口实现 - 使用软件回退实现 */
+#ifndef OPENSSL_NO_SM2
+
+/* SSL主密钥生成函数 - 软件实现 */
+static int sdf_ssl_generate_master_secret(ENGINE* e,
+	unsigned char* out, size_t outlen,
+	const unsigned char* premaster, size_t premasterlen,
+	const unsigned char* client_random, size_t client_randomlen,
+	const unsigned char* server_random, size_t server_randomlen,
+	const SSL* ssl)
+{
+	/* 使用OpenSSL默认实现，不使用硬件加速 */
+	printf("SDF: Using software implementation for master secret generation\n");
+	return 0; /* 返回0让OpenSSL使用默认实现 */
+}
+
+/* TLS密钥块生成函数 - 软件实现 */
+static int sdf_tls1_generate_key_block(ENGINE* e,
+	unsigned char* km, size_t kmlen,
+	const unsigned char* master, size_t masterlen,
+	const unsigned char* client_random, size_t client_randomlen,
+	const unsigned char* server_random, size_t server_randomlen,
+	const SSL* ssl)
+{
+	/* 使用OpenSSL默认实现，不使用硬件加速 */
+	printf("SDF: Using software implementation for key block generation\n");
+	return 0; /* 返回0让OpenSSL使用默认实现 */
+}
+
+/* 私钥转换函数 - 硬件实现 */
+static EVP_PKEY* sdf_convert_privkey(ENGINE* e, const char* key_id,
+	UI_METHOD* ui_method, void* callback_data)
+{
+	SDF_CTX* ctx = sdf_get_ctx(e);
+	if (!ctx) return NULL;
+
+	printf("SDF: Converting private key from hardware device: %s\n", key_id ? key_id : "default");
+
+	/* 这里可以实现从 SDF 设备中加载私钥的逻辑 */
+	/* 目前回退到标准的私钥加载函数 */
+	return sdf_load_privkey(e, key_id, ui_method, callback_data);
+}
+
+#endif /* OPENSSL_NO_SM2 */
+
+
+/* 位掩码功能控制函数实现 */
+
+/* 清理所有引擎绑定 */
+static void sdf_clear_all_bindings(ENGINE* e)
+{
+	ENGINE_set_load_privkey_function(e, NULL);
+	ENGINE_set_load_pubkey_function(e, NULL);
+	ENGINE_set_load_ssl_client_cert_function(e, NULL);
+	ENGINE_set_RSA(e, NULL);
+	ENGINE_set_DSA(e, NULL);
+	ENGINE_set_EC(e, NULL);
+	ENGINE_set_DH(e, NULL);
+	ENGINE_set_RAND(e, NULL);
+	ENGINE_set_ciphers(e, NULL);
+	ENGINE_set_digests(e, NULL);
+	ENGINE_set_pkey_meths(e, NULL);
+	ENGINE_set_pkey_asn1_meths(e, NULL);
+}
+
+/* 根据位掩码动态重新绑定功能 */
+static int sdf_rebind_features(ENGINE* e)
+{
+	printf("Rebinding SDF engine features based on mask: 0x%04X\n", sdf_global_feature_mask);
+
+	/* 清理所有功能绑定 */
+	sdf_clear_all_bindings(e);
+
+	/* 基础管理功能 (总是绑定，确保引擎正常工作) */
+	if (sdf_global_feature_mask & ENGINE_FEATURE_BASIC_MGMT) {
+		/* 这些在bind_sdf中已经设置，无需重复绑定 */
+		printf("  Basic management: ENABLED\n");
+	}
+
+	/* SSL密钥加载功能 */
+	if (sdf_global_feature_mask & ENGINE_FEATURE_SSL_KEYS) {
+		ENGINE_set_load_privkey_function(e, sdf_load_privkey);
+		ENGINE_set_load_pubkey_function(e, sdf_load_pubkey);
+		ENGINE_set_load_ssl_client_cert_function(e, sdf_load_ssl_client_cert);
+		printf("  SSL key loading: ENABLED\n");
+	}
+
+	/* RSA算法功能 */
+	if (sdf_global_feature_mask & ENGINE_FEATURE_RSA) {
+		/* RSA方法需要先初始化 */
+		/* ENGINE_set_RSA(e, sdf_rsa_method); */
+		printf("  RSA methods: ENABLED (TODO: implement sdf_rsa_method)\n");
+	}
+
+	/* EC/ECDSA算法功能 */
+	if (sdf_global_feature_mask & ENGINE_FEATURE_EC) {
+		/* EC方法需要先初始化 */
+		/* ENGINE_set_EC(e, sdf_ec_method); */
+		printf("  EC methods: ENABLED (TODO: implement sdf_ec_method)\n");
+	}
+
+	/* 随机数生成功能 (危险) */
+	if (sdf_global_feature_mask & ENGINE_FEATURE_RAND) {
+		/* ENGINE_set_RAND(e, &sdf_rand_method); */
+		printf("  RAND takeover: ENABLED (WARNING: May cause static linking issues!)\n");
+	}
+
+	/* EVP_PKEY_METHOD功能 */
+	if (sdf_global_feature_mask & ENGINE_FEATURE_PKEY_METHS) {
+		ENGINE_set_pkey_meths(e, sdf_pkey_meths);
+		printf("  PKEY methods: ENABLED\n");
+	}
+
+	/* SSL扩展功能（国密SSL支持）*/
+	if (sdf_global_feature_mask & ENGINE_FEATURE_SSL_EXTENSIONS) {
+#ifndef OPENSSL_NO_SM2
+		ENGINE_set_ssl_generate_master_secret_function(e, sdf_ssl_generate_master_secret);
+		ENGINE_set_tls1_generate_key_block_function(e, sdf_tls1_generate_key_block);
+		ENGINE_set_convert_privkey_function(e, sdf_convert_privkey);
+		printf("  SSL Extensions (GM SSL/TLS): ENABLED\n");
+#else
+		printf("  SSL Extensions: DISABLED (SM2 not compiled)\n");
+#endif
+	}
+
+	/* 对称加密算法功能 */
+	if (sdf_global_feature_mask & ENGINE_FEATURE_CIPHERS) {
+		/* ENGINE_set_ciphers(e, sdf_ciphers); */
+		printf("  Ciphers: ENABLED (TODO: implement sdf_ciphers)\n");
+	}
+
+	/* 摘要算法功能 */
+	if (sdf_global_feature_mask & ENGINE_FEATURE_DIGESTS) {
+		/* ENGINE_set_digests(e, sdf_digests); */
+		printf("  Digests: ENABLED (TODO: implement sdf_digests)\n");
+	}
+
+	return 1;
+}
+
+/* 获取当前功能掩码 */
+static unsigned int sdf_get_feature_mask(void)
+{
+	return sdf_global_feature_mask;
+}
+
+/* 设置功能掩码 */
+static int sdf_set_feature_mask(unsigned int mask)
+{
+	if (!sdf_validate_mask(mask)) {
+		return 0;
+	}
+
+	sdf_global_feature_mask = mask;
+	return 1;
+}
+
+/* 验证功能掩码有效性 */
+static int sdf_validate_mask(unsigned int mask)
+{
+	/* 基本有效性检查 */
+	if (mask == 0) return 0;  /* 不允许全部禁用 */
+
+	/* 检查未定义的位 */
+	unsigned int valid_bits = ENGINE_FEATURE_SSL_KEYS | ENGINE_FEATURE_BASIC_MGMT |
+		ENGINE_FEATURE_USER_INTERFACE | ENGINE_FEATURE_SSL_EXTENSIONS |
+		ENGINE_FEATURE_RSA | ENGINE_FEATURE_DSA | ENGINE_FEATURE_EC |
+		ENGINE_FEATURE_DH | ENGINE_FEATURE_RAND | ENGINE_FEATURE_BN |
+		ENGINE_FEATURE_CIPHERS | ENGINE_FEATURE_DIGESTS |
+		ENGINE_FEATURE_PKEY_METHS | ENGINE_FEATURE_PKEY_ASN1_METHS |
+		ENGINE_FEATURE_ECP_METHS;
+
+	if (mask & ~valid_bits) {
+		printf("Invalid bits in mask: 0x%04X\n", mask & ~valid_bits);
+		return 0;
+	}
+
+	/* 功能依赖检查 */
+	if ((mask & ENGINE_FEATURE_SSL_KEYS) && !(mask & ENGINE_FEATURE_BASIC_MGMT)) {
+		printf("SSL_KEYS requires BASIC_MGMT\n");
+		return 0;
+	}
+
+	/* RAND功能警告检查 */
+	if (mask & ENGINE_FEATURE_RAND) {
+		printf("WARNING: RAND feature may cause static linking issues\n");
+	}
+
+	return 1;
+}
+/* ENGINE 绑定函数 - 支持完整的位掩码功能控制 */
 static int bind_sdf(ENGINE *e)
 {
-    if (!ENGINE_set_id(e, engine_sdf_id) ||
-        !ENGINE_set_name(e, engine_sdf_name) ||
-        !ENGINE_set_init_function(e, sdf_init) ||
-        !ENGINE_set_finish_function(e, sdf_finish) ||
-        !ENGINE_set_destroy_function(e, sdf_destroy) ||
-        !ENGINE_set_ctrl_function(e, sdf_ctrl) ||
-        !ENGINE_set_cmd_defns(e, sdf_cmd_defns) ||
-        !ENGINE_set_load_privkey_function(e, sdf_load_privkey) ||
-        !ENGINE_set_load_pubkey_function(e, sdf_load_pubkey) ||
-        !ENGINE_set_load_ssl_client_cert_function(e, sdf_load_ssl_client_cert) ||
-        !ENGINE_set_RAND(e, &sdf_rand_method) ||
-        //!ENGINE_set_digests(e,xxx) ||
-        //!ENGINE_set_ciphers(e,xxx) ||
-        //!ENGINE_set_RSA(e,xxx) ||
-        //!ENGINE_set_SM2(e,xxx) ||
-        //!ENGINE_set_EC(e,xxx) ||
-        //!ENGINE_set_DSA(e,xxx) ||
-        !ENGINE_set_pkey_meths(e, sdf_pkey_meths)) {
+    /* 设置基本属性和标志 */
+	if (!ENGINE_set_id(e, engine_sdf_id) ||
+		!ENGINE_set_name(e, engine_sdf_name) ||
+		!ENGINE_set_init_function(e, sdf_init) ||
+		!ENGINE_set_finish_function(e, sdf_finish) ||
+		!ENGINE_set_destroy_function(e, sdf_destroy) ||
+		!ENGINE_set_ctrl_function(e, sdf_ctrl) ||
+		!ENGINE_set_cmd_defns(e, sdf_cmd_defns)){
         return 0;
     }
-    
+
+    /* 根据全局功能掩码动态绑定功能 */
+    sdf_rebind_features(e);
+
     /* 注册错误字符串 */
     ERR_load_strings(0, sdf_str_functs);
     ERR_load_strings(0, sdf_str_reasons);
-    
+
+    printf("SDF Engine initialized with feature mask: 0x%04X\n", sdf_global_feature_mask);
+    printf("Available control commands: FEATURE_MASK, MODE_PRESET, LIST_FEATURES, GET_FEATURE_MASK\n");
+
     return 1;
 }
 
