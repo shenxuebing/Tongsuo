@@ -205,7 +205,6 @@ static EC_PRIVATEKEY *EC_PRIVATEKEY_INT2EC_PRIVATEKEY(EC_PRIVATEKEY_INT *intkey)
     BIGNUM *priv = NULL;
     unsigned char *priv_data = NULL;
     int priv_len = 0;
-    int data_set = 0;  /* Track if data was successfully set to avoid double-free */
     
     if (intkey == NULL) {
         ERR_raise(ERR_LIB_EC, ERR_R_PASSED_NULL_PARAMETER);
@@ -224,7 +223,11 @@ static EC_PRIVATEKEY *EC_PRIVATEKEY_INT2EC_PRIVATEKEY(EC_PRIVATEKEY_INT *intkey)
     
     /* Copy parameters if present */
     if (intkey->parameters != NULL) {
-        /* Create a new ECPKPARAMETERS */
+        /* Ensure no leak: free preallocated parameters if any, then allocate */
+        if (eckey->parameters != NULL) {
+            ECPKPARAMETERS_free(eckey->parameters);
+            eckey->parameters = NULL;
+        }
         eckey->parameters = ECPKPARAMETERS_new();
         if (eckey->parameters == NULL) {
             ERR_raise(ERR_LIB_EC, ERR_R_MALLOC_FAILURE);
@@ -256,20 +259,21 @@ static EC_PRIVATEKEY *EC_PRIVATEKEY_INT2EC_PRIVATEKEY(EC_PRIVATEKEY_INT *intkey)
     
     /* Copy publicKey if present */
     if (intkey->publicKey != NULL) {
-        /* Create a new ASN1_BIT_STRING */
-        eckey->publicKey = ASN1_BIT_STRING_new();
+        /* Reuse existing BIT STRING if present to avoid overwriting a preallocated member */
         if (eckey->publicKey == NULL) {
-            ERR_raise(ERR_LIB_EC, ERR_R_MALLOC_FAILURE);
-            goto err;
+            eckey->publicKey = ASN1_BIT_STRING_new();
+            if (eckey->publicKey == NULL) {
+                ERR_raise(ERR_LIB_EC, ERR_R_MALLOC_FAILURE);
+                goto err;
+            }
         }
-        
         /* Copy the data */
-        if (!ASN1_STRING_set(eckey->publicKey, ASN1_STRING_get0_data(intkey->publicKey),
-                            ASN1_STRING_length(intkey->publicKey))) {
+        if (!ASN1_STRING_set(eckey->publicKey,
+                             ASN1_STRING_get0_data(intkey->publicKey),
+                             ASN1_STRING_length(intkey->publicKey))) {
             ERR_raise(ERR_LIB_EC, ERR_R_ASN1_LIB);
             goto err;
         }
-        
         /* Copy the flags */
         eckey->publicKey->flags = intkey->publicKey->flags;
     }
@@ -300,38 +304,42 @@ static EC_PRIVATEKEY *EC_PRIVATEKEY_INT2EC_PRIVATEKEY(EC_PRIVATEKEY_INT *intkey)
         /* Convert BIGNUM to binary */
         if (BN_bn2bin(priv, priv_data) != priv_len) {
             ERR_raise(ERR_LIB_EC, ERR_R_BN_LIB);
+            OPENSSL_clear_free(priv_data, priv_len);
             goto err;
         }
         
-        /* Create OCTET STRING */
-        eckey->privateKey = ASN1_OCTET_STRING_new();
+        /* Ensure OCTET STRING exists; reuse if present to avoid leak */
         if (eckey->privateKey == NULL) {
-            ERR_raise(ERR_LIB_EC, ERR_R_MALLOC_FAILURE);
-            goto err;
+            eckey->privateKey = ASN1_OCTET_STRING_new();
+            if (eckey->privateKey == NULL) {
+                ERR_raise(ERR_LIB_EC, ERR_R_MALLOC_FAILURE);
+                OPENSSL_clear_free(priv_data, priv_len);
+                goto err;
+            }
         }
-        
-        /* Set OCTET STRING data - this transfers ownership of priv_data */
+        /* Set OCTET STRING data - ASN1_OCTET_STRING_set COPIES the buffer */
         if (!ASN1_OCTET_STRING_set(eckey->privateKey, priv_data, priv_len)) {
             ERR_raise(ERR_LIB_EC, ERR_R_ASN1_LIB);
+            /* ASN1_OCTET_STRING_set failed, we need to free priv_data manually */
+            OPENSSL_clear_free(priv_data, priv_len);
             goto err;
         }
-        data_set = 1;  /* Mark that data was successfully transferred */
+        /* Free temporary buffer after successful copy */
+        OPENSSL_clear_free(priv_data, priv_len);
+        priv_data = NULL;
     }
     
-    /* Clean up temporary data - only if not transferred to ASN1 structure */
-    if (!data_set && priv_data != NULL) {
-        OPENSSL_clear_free(priv_data, priv_len);
-    }
-    BN_free(priv);
+    /* Clean up temporary data */
+    BN_clear_free(priv);
     
     return eckey;
     
 err:
-    /* Clean up on error - only free priv_data if not transferred */
-    if (!data_set && priv_data != NULL) {
+    /* Clean up on error */
+    if (priv_data != NULL) {
         OPENSSL_clear_free(priv_data, priv_len);
     }
-    BN_free(priv);
+    BN_clear_free(priv);
     EC_PRIVATEKEY_free(eckey);
     return NULL;
 }
@@ -1213,33 +1221,25 @@ EC_KEY *d2i_ECPrivateKey(EC_KEY **a, const unsigned char **in, long len)
     const unsigned char *p = *in;
     const unsigned char *p_backup = *in;
 
+    /* Clear any accumulated errors at entry to avoid confusing retries */
+    ERR_clear_error();
+
     /* First try standard EC_PRIVATEKEY format (OCTET STRING private key) */
     priv_key = d2i_EC_PRIVATEKEY(NULL, &p, len);
-    
+
     /* If standard format fails, try INTEGER encoded private key format */
     if (priv_key == NULL) {
-        /* Clear any accumulated errors before attempting INTEGER format */
         ERR_clear_error();
-        
-        /* Try parsing with EC_PRIVATEKEY_INT format */
         p = p_backup;
         priv_key_int = d2i_EC_PRIVATEKEY_INT(NULL, &p, len);
-        
-        if (priv_key_int != NULL) {
-            /* Convert EC_PRIVATEKEY_INT to EC_PRIVATEKEY */
-            priv_key = EC_PRIVATEKEY_INT2EC_PRIVATEKEY(priv_key_int);
-            /* Free the intermediate structure immediately */
-            EC_PRIVATEKEY_INT_free(priv_key_int);
-            priv_key_int = NULL;  /* Prevent double-free */
-            
-            if (priv_key == NULL) {
-                ERR_raise(ERR_LIB_EC, EC_R_DECODE_ERROR);
-                return NULL;
-            }
-        } else {
-            /* Both formats failed */
+        if (priv_key_int == NULL)
+            goto err;
+        priv_key = EC_PRIVATEKEY_INT2EC_PRIVATEKEY(priv_key_int);
+        EC_PRIVATEKEY_INT_free(priv_key_int);
+        priv_key_int = NULL;
+        if (priv_key == NULL) {
             ERR_raise(ERR_LIB_EC, EC_R_DECODE_ERROR);
-            return NULL;
+            goto err;
         }
     }
 
@@ -1315,9 +1315,7 @@ EC_KEY *d2i_ECPrivateKey(EC_KEY **a, const unsigned char **in, long len)
     if (a == NULL || *a != ret)
         EC_KEY_free(ret);
     EC_PRIVATEKEY_free(priv_key);
-    if (priv_key_int != NULL)
-        EC_PRIVATEKEY_INT_free(priv_key_int);
-    
+    EC_PRIVATEKEY_INT_free(priv_key_int);
     return NULL;
 }
 
