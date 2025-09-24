@@ -1080,7 +1080,6 @@ pkcs7_sm2_keyAgreementInfo		1510
 sm2Signature		1511
 sm2Keyagreement		1512
 sm2Encrypt		1513
-sm2dh_mlkem768_hybrid		1514
 sm1_ecb		1515
 sm1_cbc		1516
 sm1_cfb		1517
