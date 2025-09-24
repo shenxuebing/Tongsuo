@@ -1062,6 +1062,10 @@ wbsm4_baiwu_ofb128		1277
 wbsm4_baiwu_cfb128		1278
 wbsm4_wsise_ofb128		1279
 wbsm4_wsise_cfb128		1280
+sm2dh_mlkem768_hybrid		1281
+ML_DSA_65		1282
+delegated_name_constraints		1298
+associated_information		1319
 sm_pkcs		1500
 sm_pkcs7		1501
 pkcs7_sm2_data		1502

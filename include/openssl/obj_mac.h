@@ -2602,6 +2602,11 @@
 #define NID_no_rev_avail                403
 #define OBJ_no_rev_avail                OBJ_id_ce,56L
 
+#define SN_associated_information               "associatedInformation"
+#define LN_associated_information               "X509v3 Associated Information"
+#define NID_associated_information              1319
+#define OBJ_associated_information              OBJ_id_ce,75L
+
 #define SN_anyExtendedKeyUsage          "anyExtendedKeyUsage"
 #define LN_anyExtendedKeyUsage          "Any Extended Key Usage"
 #define NID_anyExtendedKeyUsage         910
@@ -3130,6 +3135,11 @@
 #define LN_RSA_SHA3_512         "RSA-SHA3-512"
 #define NID_RSA_SHA3_512                1119
 #define OBJ_RSA_SHA3_512                OBJ_sigAlgs,16L
+
+#define SN_ML_DSA_65            "id-ml-dsa-65"
+#define LN_ML_DSA_65            "ML-DSA-65"
+#define NID_ML_DSA_65           1282
+#define OBJ_ML_DSA_65           OBJ_sigAlgs,18L
 
 #define SN_hold_instruction_code                "holdInstructionCode"
 #define LN_hold_instruction_code                "Hold Instruction Code"
