@@ -5,11 +5,17 @@ perl obj_dat.pl obj_mac.h obj_dat.h
 生成最新的后，需要将obj_dat.h拷贝靠include/openssl目录中
 
 ###编译Tongsuo
-perl Configure enable-ntls VC-WIN32  no-tests --debug   -march=native
-perl Configure VC-WIN64A no-shared no-asm no-tests  enable-ec_sm2p_64_gcc_128 enable-ntls  -march=native
+perl Configure enable-ntls VC-WIN32  no-tests --debug enable-rc2 -no-shared no-module enable-legacy -DSTATIC_LEGACY enable-skfeng enable-sdfeng 
+perl Configure enable-ntls VC-WIN32  no-tests --debug enable-rc2  no-module enable-legacy -DSTATIC_LEGACY
+
+ 
+./config --prefix=/usr/local/angie/tongsuo -Wl,-rpath,/usr/local/angie/tongsuo/lib64 enable-ec_sm2p_64_gcc_128 enable-ntls  -march=native -no-shared enable-rc2  no-module enable-legacy -DSTATIC_LEGACY
 
 
-./config --prefix=/usr/local/angie/tongsuo -Wl,-rpath,/usr/local/angie/tongsuo/lib64 enable-ec_sm2p_64_gcc_128 enable-ntls  -march=native
+perl Configure VC-WIN64A no-shared no-asm no-tests  enable-ec_sm2p_64_gcc_128 enable-ntls enable-rc2
+
+
+make generate 生成 obj_mac.h  obj_dat.h
 
 
 20250612

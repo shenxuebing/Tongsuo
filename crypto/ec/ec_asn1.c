@@ -205,14 +205,19 @@ static EC_PRIVATEKEY *EC_PRIVATEKEY_INT2EC_PRIVATEKEY(EC_PRIVATEKEY_INT *intkey)
     BIGNUM *priv = NULL;
     unsigned char *priv_data = NULL;
     int priv_len = 0;
+    int data_set = 0;  /* Track if data was successfully set to avoid double-free */
     
-    if (intkey == NULL)
+    if (intkey == NULL) {
+        ERR_raise(ERR_LIB_EC, ERR_R_PASSED_NULL_PARAMETER);
         return NULL;
+    }
     
     /* Create a new EC_PRIVATEKEY */
     eckey = EC_PRIVATEKEY_new();
-    if (eckey == NULL)
+    if (eckey == NULL) {
+        ERR_raise(ERR_LIB_EC, ERR_R_MALLOC_FAILURE);
         return NULL;
+    }
     
     /* Copy version */
     eckey->version = intkey->version;
@@ -221,8 +226,10 @@ static EC_PRIVATEKEY *EC_PRIVATEKEY_INT2EC_PRIVATEKEY(EC_PRIVATEKEY_INT *intkey)
     if (intkey->parameters != NULL) {
         /* Create a new ECPKPARAMETERS */
         eckey->parameters = ECPKPARAMETERS_new();
-        if (eckey->parameters == NULL)
+        if (eckey->parameters == NULL) {
+            ERR_raise(ERR_LIB_EC, ERR_R_MALLOC_FAILURE);
             goto err;
+        }
         
         /* Copy the type */
         eckey->parameters->type = intkey->parameters->type;
@@ -230,15 +237,20 @@ static EC_PRIVATEKEY *EC_PRIVATEKEY_INT2EC_PRIVATEKEY(EC_PRIVATEKEY_INT *intkey)
         /* Copy the value based on type */
         if (intkey->parameters->type == ECPKPARAMETERS_TYPE_NAMED) {
             eckey->parameters->value.named_curve = OBJ_dup(intkey->parameters->value.named_curve);
-            if (eckey->parameters->value.named_curve == NULL)
+            if (eckey->parameters->value.named_curve == NULL) {
+                ERR_raise(ERR_LIB_EC, ERR_R_MALLOC_FAILURE);
                 goto err;
+            }
         } else if (intkey->parameters->type == ECPKPARAMETERS_TYPE_EXPLICIT) {
             /* We don't support explicit parameters duplication */
+            ERR_raise(ERR_LIB_EC, EC_R_NOT_IMPLEMENTED);
             goto err;
         } else if (intkey->parameters->type == ECPKPARAMETERS_TYPE_IMPLICIT) {
             eckey->parameters->value.implicitlyCA = ASN1_NULL_new();
-            if (eckey->parameters->value.implicitlyCA == NULL)
+            if (eckey->parameters->value.implicitlyCA == NULL) {
+                ERR_raise(ERR_LIB_EC, ERR_R_MALLOC_FAILURE);
                 goto err;
+            }
         }
     }
     
@@ -246,13 +258,17 @@ static EC_PRIVATEKEY *EC_PRIVATEKEY_INT2EC_PRIVATEKEY(EC_PRIVATEKEY_INT *intkey)
     if (intkey->publicKey != NULL) {
         /* Create a new ASN1_BIT_STRING */
         eckey->publicKey = ASN1_BIT_STRING_new();
-        if (eckey->publicKey == NULL)
+        if (eckey->publicKey == NULL) {
+            ERR_raise(ERR_LIB_EC, ERR_R_MALLOC_FAILURE);
             goto err;
+        }
         
         /* Copy the data */
         if (!ASN1_STRING_set(eckey->publicKey, ASN1_STRING_get0_data(intkey->publicKey),
-                            ASN1_STRING_length(intkey->publicKey)))
+                            ASN1_STRING_length(intkey->publicKey))) {
+            ERR_raise(ERR_LIB_EC, ERR_R_ASN1_LIB);
             goto err;
+        }
         
         /* Copy the flags */
         eckey->publicKey->flags = intkey->publicKey->flags;
@@ -262,40 +278,59 @@ static EC_PRIVATEKEY *EC_PRIVATEKEY_INT2EC_PRIVATEKEY(EC_PRIVATEKEY_INT *intkey)
     if (intkey->privateKey != NULL) {
         /* Convert ASN1_INTEGER to BIGNUM */
         priv = ASN1_INTEGER_to_BN(intkey->privateKey, NULL);
-        if (priv == NULL)
+        if (priv == NULL) {
+            ERR_raise(ERR_LIB_EC, ERR_R_ASN1_LIB);
             goto err;
+        }
         
         /* Get required buffer size */
         priv_len = BN_num_bytes(priv);
-        if (priv_len <= 0)
+        if (priv_len <= 0) {
+            ERR_raise(ERR_LIB_EC, EC_R_INVALID_PRIVATE_KEY);
             goto err;
+        }
         
         /* Allocate buffer */
         priv_data = OPENSSL_malloc(priv_len);
-        if (priv_data == NULL)
+        if (priv_data == NULL) {
+            ERR_raise(ERR_LIB_EC, ERR_R_MALLOC_FAILURE);
             goto err;
+        }
         
         /* Convert BIGNUM to binary */
-        BN_bn2bin(priv, priv_data);
+        if (BN_bn2bin(priv, priv_data) != priv_len) {
+            ERR_raise(ERR_LIB_EC, ERR_R_BN_LIB);
+            goto err;
+        }
         
         /* Create OCTET STRING */
         eckey->privateKey = ASN1_OCTET_STRING_new();
-        if (eckey->privateKey == NULL)
+        if (eckey->privateKey == NULL) {
+            ERR_raise(ERR_LIB_EC, ERR_R_MALLOC_FAILURE);
             goto err;
+        }
         
-        /* Set OCTET STRING data */
-        if (!ASN1_OCTET_STRING_set(eckey->privateKey, priv_data, priv_len))
+        /* Set OCTET STRING data - this transfers ownership of priv_data */
+        if (!ASN1_OCTET_STRING_set(eckey->privateKey, priv_data, priv_len)) {
+            ERR_raise(ERR_LIB_EC, ERR_R_ASN1_LIB);
             goto err;
+        }
+        data_set = 1;  /* Mark that data was successfully transferred */
     }
     
-    /* Clean up */
-    OPENSSL_clear_free(priv_data, priv_len);
+    /* Clean up temporary data - only if not transferred to ASN1 structure */
+    if (!data_set && priv_data != NULL) {
+        OPENSSL_clear_free(priv_data, priv_len);
+    }
     BN_free(priv);
     
     return eckey;
     
 err:
-    OPENSSL_clear_free(priv_data, priv_len);
+    /* Clean up on error - only free priv_data if not transferred */
+    if (!data_set && priv_data != NULL) {
+        OPENSSL_clear_free(priv_data, priv_len);
+    }
     BN_free(priv);
     EC_PRIVATEKEY_free(eckey);
     return NULL;
@@ -1193,20 +1228,19 @@ EC_KEY *d2i_ECPrivateKey(EC_KEY **a, const unsigned char **in, long len)
         if (priv_key_int != NULL) {
             /* Convert EC_PRIVATEKEY_INT to EC_PRIVATEKEY */
             priv_key = EC_PRIVATEKEY_INT2EC_PRIVATEKEY(priv_key_int);
+            /* Free the intermediate structure immediately */
             EC_PRIVATEKEY_INT_free(priv_key_int);
+            priv_key_int = NULL;  /* Prevent double-free */
             
-            if (priv_key == NULL)
+            if (priv_key == NULL) {
+                ERR_raise(ERR_LIB_EC, EC_R_DECODE_ERROR);
                 return NULL;
-                
-            /* Update input pointer */
-            *in = p;
+            }
         } else {
             /* Both formats failed */
+            ERR_raise(ERR_LIB_EC, EC_R_DECODE_ERROR);
             return NULL;
         }
-    } else {
-        /* Standard format succeeded, update input pointer */
-        *in = p;
     }
 
     if (a == NULL || *a == NULL) {
@@ -1281,6 +1315,9 @@ EC_KEY *d2i_ECPrivateKey(EC_KEY **a, const unsigned char **in, long len)
     if (a == NULL || *a != ret)
         EC_KEY_free(ret);
     EC_PRIVATEKEY_free(priv_key);
+    if (priv_key_int != NULL)
+        EC_PRIVATEKEY_INT_free(priv_key_int);
+    
     return NULL;
 }
 
