@@ -33,6 +33,7 @@
 #include <openssl/ssl.h>
 #include <openssl/obj_mac.h>
 #include <openssl/kdf.h>
+#include "e_sdf.h"
 
 /* 定义缺失的宏 */
 #ifndef NID_sm_scheme  
@@ -131,170 +132,6 @@ static HMODULE sdf_load_library_win32(const char *filename)
 # define DLERROR() dlerror()
 #endif
 
-/* 标准 SDF 错误码 */
-#define SDR_OK                  0x0
-#define SDR_BASE                0x01000000
-#define SDR_UNKNOWNERR          (SDR_BASE + 0x00000001)
-#define SDR_NOTSUPPORT          (SDR_BASE + 0x00000002)
-#define SDR_COMMFAIL            (SDR_BASE + 0x00000003)
-#define SDR_HARDFAIL            (SDR_BASE + 0x00000004)
-#define SDR_OPENDEVICE          (SDR_BASE + 0x00000005)
-#define SDR_OPENSESSION         (SDR_BASE + 0x00000006)
-#define SDR_PARDENY             (SDR_BASE + 0x00000007)
-#define SDR_KEYNOTEXIST         (SDR_BASE + 0x00000008)
-#define SDR_ALGNOTSUPPORT       (SDR_BASE + 0x00000009)
-#define SDR_ALGMODNOTSUPPORT    (SDR_BASE + 0x0000000A)
-#define SDR_PKOPERR             (SDR_BASE + 0x0000000B)
-#define SDR_SKOPERR             (SDR_BASE + 0x0000000C)
-#define SDR_SIGNERR             (SDR_BASE + 0x0000000D)
-#define SDR_VERIFYERR           (SDR_BASE + 0x0000000E)
-#define SDR_SYMOPERR            (SDR_BASE + 0x0000000F)
-#define SDR_STEPERR             (SDR_BASE + 0x00000010)
-#define SDR_FILESIZEERR         (SDR_BASE + 0x00000011)
-#define SDR_FILENOEXIST         (SDR_BASE + 0x00000012)
-#define SDR_FILEOFSERR          (SDR_BASE + 0x00000013)
-#define SDR_KEYTYPEERR          (SDR_BASE + 0x00000014)
-#define SDR_KEYERR              (SDR_BASE + 0x00000015)
-
-/* 标准 SDF 算法标识 */
-#define SGD_SM1_ECB             0x00000101
-#define SGD_SM1_CBC             0x00000102
-#define SGD_SM1_CFB             0x00000104
-#define SGD_SM1_OFB             0x00000108
-#define SGD_SM1_MAC             0x00000110
-#define SGD_SMS4_ECB            0x00000401
-#define SGD_SMS4_CBC            0x00000402
-#define SGD_SMS4_CFB            0x00000404
-#define SGD_SMS4_OFB            0x00000408
-#define SGD_SMS4_MAC            0x00000410
-#define SGD_RSA                 0x00010000
-#define SGD_SM2_1               0x00020100
-#define SGD_SM2_2               0x00020200
-#define SGD_SM2_3               0x00020400
-#define SGD_SM3                 0x00000001
-#define SGD_SHA1                0x00000002
-#define SGD_SHA256              0x00000004
-
-/* 标准 SDF 数据结构 */
-#define RSAref_MAX_BITS         2048
-#define RSAref_MAX_LEN          ((RSAref_MAX_BITS + 7) / 8)
-#define RSAref_MAX_PBITS        ((RSAref_MAX_BITS + 1) / 2)
-#define RSAref_MAX_PLEN         ((RSAref_MAX_PBITS + 7) / 8)
-
-#define ECCref_MAX_BITS         256
-#define ECCref_MAX_LEN          ((ECCref_MAX_BITS + 7) / 8)
-
-typedef struct DeviceInfo_st {
-    unsigned char IssuerName[40];
-    unsigned char DeviceName[16];
-    unsigned char DeviceSerial[16];
-    unsigned int DeviceVersion;
-    unsigned int StandardVersion;
-    unsigned int AsymAlgAbility[2];
-    unsigned int SymAlgAbility;
-    unsigned int HashAlgAbility;
-    unsigned int BufferSize;
-} DEVICEINFO;
-
-typedef struct RSArefPublicKey_st {
-    unsigned int bits;
-    unsigned char m[RSAref_MAX_LEN];
-    unsigned char e[RSAref_MAX_LEN];
-} RSArefPublicKey;
-
-typedef struct RSArefPrivateKey_st {
-    unsigned int bits;
-    unsigned char m[RSAref_MAX_LEN];
-    unsigned char e[RSAref_MAX_LEN];
-    unsigned char d[RSAref_MAX_LEN];
-    unsigned char prime[2][RSAref_MAX_PLEN];
-    unsigned char pexp[2][RSAref_MAX_PLEN];
-    unsigned char coef[RSAref_MAX_PLEN];
-} RSArefPrivateKey;
-
-typedef struct ECCrefPublicKey_st {
-    unsigned int bits;
-    unsigned char x[ECCref_MAX_LEN];
-    unsigned char y[ECCref_MAX_LEN];
-} ECCrefPublicKey;
-
-typedef struct ECCrefPrivateKey_st {
-    unsigned int bits;
-    unsigned char K[ECCref_MAX_LEN];
-} ECCrefPrivateKey;
-
-typedef struct ECCSignature_st {
-    unsigned char r[ECCref_MAX_LEN];
-    unsigned char s[ECCref_MAX_LEN];
-} ECCSignature;
-
-typedef struct ECCCipher_st {
-    unsigned char x[ECCref_MAX_LEN];
-    unsigned char y[ECCref_MAX_LEN];
-    unsigned char M[32];
-    unsigned int L;
-    unsigned char C[1];
-} ECCCipher;
-
-/* SDF 函数指针类型定义 */
-typedef int (*SDF_OpenDevice_FuncPtr)(void **phDeviceHandle);
-typedef int (*SDF_CloseDevice_FuncPtr)(void *hDeviceHandle);
-typedef int (*SDF_OpenSession_FuncPtr)(void *hDeviceHandle, void **phSessionHandle);
-typedef int (*SDF_CloseSession_FuncPtr)(void *hSessionHandle);
-typedef int (*SDF_GetDeviceInfo_FuncPtr)(void *hSessionHandle, DEVICEINFO *pstDeviceInfo);
-typedef int (*SDF_GenerateRandom_FuncPtr)(void *hSessionHandle, unsigned int uiLength, unsigned char *pucRandom);
-typedef int (*SDF_GetPrivateKeyAccessRight_FuncPtr)(void *hSessionHandle, unsigned int uiKeyIndex, unsigned char *pucPassword, unsigned int uiPwdLength);
-typedef int (*SDF_ReleasePrivateKeyAccessRight_FuncPtr)(void *hSessionHandle, unsigned int uiKeyIndex);
-
-/* RSA 相关函数 */
-typedef int (*SDF_ExportSignPublicKey_RSA_FuncPtr)(void *hSessionHandle, unsigned int uiKeyIndex, RSArefPublicKey *pucPublicKey);
-typedef int (*SDF_ExportEncPublicKey_RSA_FuncPtr)(void *hSessionHandle, unsigned int uiKeyIndex, RSArefPublicKey *pucPublicKey);
-typedef int (*SDF_InternalPublicKeyOperation_RSA_FuncPtr)(void *hSessionHandle, unsigned int uiKeyIndex, unsigned char *pucDataInput, unsigned int uiInputLength, unsigned char *pucDataOutput, unsigned int *puiOutputLength);
-typedef int (*SDF_InternalPrivateKeyOperation_RSA_FuncPtr)(void *hSessionHandle, unsigned int uiKeyIndex, unsigned char *pucDataInput, unsigned int uiInputLength, unsigned char *pucDataOutput, unsigned int *puiOutputLength);
-typedef int (*SDF_ExternalPublicKeyOperation_RSA_FuncPtr)(void *hSessionHandle, RSArefPublicKey *pucPublicKey, unsigned char *pucDataInput, unsigned int uiInputLength, unsigned char *pucDataOutput, unsigned int *puiOutputLength);
-typedef int (*SDF_ExternalPrivateKeyOperation_RSA_FuncPtr)(void *hSessionHandle, RSArefPrivateKey *pucPrivateKey, unsigned char *pucDataInput, unsigned int uiInputLength, unsigned char *pucDataOutput, unsigned int *puiOutputLength);
-
-/* ECC 相关函数 */
-typedef int (*SDF_ExportSignPublicKey_ECC_FuncPtr)(void *hSessionHandle, unsigned int uiKeyIndex, ECCrefPublicKey *pucPublicKey);
-typedef int (*SDF_ExportEncPublicKey_ECC_FuncPtr)(void *hSessionHandle, unsigned int uiKeyIndex, ECCrefPublicKey *pucPublicKey);
-typedef int (*SDF_InternalSign_ECC_FuncPtr)(void *hSessionHandle, unsigned int uiISKIndex, unsigned char *pucData, unsigned int uiDataLength, ECCSignature *pucSignature);
-typedef int (*SDF_InternalVerify_ECC_FuncPtr)(void *hSessionHandle, unsigned int uiISKIndex, unsigned char *pucData, unsigned int uiDataLength, ECCSignature *pucSignature);
-typedef int (*SDF_ExternalSign_ECC_FuncPtr)(void *hSessionHandle, unsigned int uiAlgID, ECCrefPrivateKey *pucPrivateKey, unsigned char *pucData, unsigned int uiDataLength, ECCSignature *pucSignature);
-typedef int (*SDF_ExternalVerify_ECC_FuncPtr)(void *hSessionHandle, unsigned int uiAlgID, ECCrefPublicKey *pucPublicKey, unsigned char *pucDataInput, unsigned int uiInputLength, ECCSignature *pucSignature);
-typedef int (*SDF_ExternalEncrypt_ECC_FuncPtr)(void *hSessionHandle, unsigned int uiAlgID, ECCrefPublicKey *pucPublicKey, unsigned char *pucData, unsigned int uiDataLength, ECCCipher *pucEncData);
-typedef int (*SDF_ExternalDecrypt_ECC_FuncPtr)(void *hSessionHandle, unsigned int uiAlgID, ECCrefPrivateKey *pucPrivateKey, ECCCipher *pucEncData, unsigned char *pucData, unsigned int *puiDataLength);
-
-/* 对称密码运算函数 */
-typedef int (*SDF_Encrypt_FuncPtr)(void *hSessionHandle, void *hKeyHandle, unsigned int uiAlgID, unsigned char *pucIV, unsigned char *pucData, unsigned int uiDataLength, unsigned char *pucEncData, unsigned int *puiEncDataLength);
-typedef int (*SDF_Decrypt_FuncPtr)(void *hSessionHandle, void *hKeyHandle, unsigned int uiAlgID, unsigned char *pucIV, unsigned char *pucEncData, unsigned int uiEncDataLength, unsigned char *pucData, unsigned int *puiDataLength);
-
-/* 杂凑运算函数 */
-typedef int (*SDF_HashInit_FuncPtr)(void *hSessionHandle, unsigned int uiAlgID, ECCrefPublicKey *pucPublicKey, unsigned char *pucID, unsigned int uiIDLength);
-typedef int (*SDF_HashUpdate_FuncPtr)(void *hSessionHandle, unsigned char *pucData, unsigned int uiDataLength);
-typedef int (*SDF_HashFinal_FuncPtr)(void *hSessionHandle, unsigned char *pucHash, unsigned int *puiHashLength);
-
-
-/* 其他函数 */
-typedef int (*BYCSM_LoadModule_FuncPtr)(const char* pwd);
-typedef int (*BYCSM_UninstallModule_FuncPtr)(const char* pwd);
-
-/* 密钥管理函数 */
-typedef int (*SDF_ImportKeyPair_RSA_FuncPtr)(void *hSessionHandle, unsigned int uiKeyIndex, RSArefPublicKey *pucPublicKey, RSArefPrivateKey *pucPrivateKey);
-typedef int (*SDF_ImportKeyPair_ECC_FuncPtr)(void *hSessionHandle, unsigned int uiKeyIndex, ECCrefPublicKey *pucPublicKey, ECCrefPrivateKey *pucPrivateKey);
-typedef int (*SDF_DestroyKey_FuncPtr)(void *hSessionHandle, unsigned int uiKeyIndex);
-typedef int (*SDF_GenerateKeyPair_RSA_FuncPtr)(void *hSessionHandle, unsigned int uiKeyBits, RSArefPublicKey *pucPublicKey, RSArefPrivateKey *pucPrivateKey);
-typedef int (*SDF_GenerateKeyPair_ECC_FuncPtr)(void *hSessionHandle, unsigned int uiAlgID, unsigned int uiKeyBits, ECCrefPublicKey *pucPublicKey, ECCrefPrivateKey *pucPrivateKey);
-
-/* 证书管理函数 */
-typedef int (*SDF_ImportCertificate_FuncPtr)(void *hSessionHandle, unsigned int uiCertIndex, unsigned char *pucCertificate, unsigned int uiCertificateLength);
-typedef int (*SDF_DeleteCertificate_FuncPtr)(void *hSessionHandle, unsigned int uiCertIndex);
-typedef int (*SDF_ExportCertificate_FuncPtr)(void *hSessionHandle, unsigned int uiCertIndex, unsigned char *pucCertificate, unsigned int *puiCertificateLength);
-
-/* 对称密钥管理函数 */
-typedef int (*SDF_GenerateKeyWithKEK_FuncPtr)(void *hSessionHandle, unsigned int uiKeyBits, unsigned int uiAlgID, unsigned int uiKEKIndex, unsigned char *pucKey, unsigned int *puiKeyLength, void **phKeyHandle);
-typedef int (*SDF_ImportKeyWithKEK_FuncPtr)(void *hSessionHandle, unsigned int uiAlgID, unsigned int uiKEKIndex, unsigned char *pucKey, unsigned int uiKeyLength, void **phKeyHandle);
-typedef int (*SDF_DestroyKeyWithKEK_FuncPtr)(void *hSessionHandle, void *hKeyHandle);
-
 /* 厂商配置结构 */ 
 typedef struct vendor_config {
 	const char* name;
@@ -316,28 +153,29 @@ static vendor_config_t vendor_configs[] = {
 static int vendor_count = 6;
 /* ENGINE 控制命令 */
 #define SDF_CMD_MODULE_PATH     ENGINE_CMD_BASE
+#define SDF_CMD_MODULE_TYPE     ENGINE_CMD_BASE + 1
 #define SDF_CMD_DEVICE_NAME     (ENGINE_CMD_BASE + 1)
-#define SDF_CMD_KEY_INDEX       (ENGINE_CMD_BASE + 2)
-#define SDF_CMD_PASSWORD        (ENGINE_CMD_BASE + 3)
-#define SDF_CMD_START_PASSWORD  (ENGINE_CMD_BASE + 4)
-#define SDF_CMD_LIST_VENDORS     (ENGINE_CMD_BASE + 5)
-#define SDF_CMD_SWITCH_VENDOR    (ENGINE_CMD_BASE + 6)
-#define SDF_CMD_GET_CURRENT      (ENGINE_CMD_BASE + 7)
-#define SDF_CMD_AUTO_SELECT      (ENGINE_CMD_BASE + 8)
-#define SDF_CMD_HELP             (ENGINE_CMD_BASE + 9)
-#define SDF_CMD_IMPORT_KEY       (ENGINE_CMD_BASE + 10)
-#define SDF_CMD_IMPORT_CERT      (ENGINE_CMD_BASE + 11)
-#define SDF_CMD_DELETE_KEY       (ENGINE_CMD_BASE + 12)
-#define SDF_CMD_DELETE_CERT      (ENGINE_CMD_BASE + 13)
-#define SDF_CMD_GEN_SYM_KEY      (ENGINE_CMD_BASE + 14)
-#define SDF_CMD_DELETE_SYM_KEY   (ENGINE_CMD_BASE + 15)
-#define SDF_CMD_IMPORT_SYM_KEY   (ENGINE_CMD_BASE + 16)
+#define SDF_CMD_KEY_INDEX       (ENGINE_CMD_BASE + 3)
+#define SDF_CMD_PASSWORD        (ENGINE_CMD_BASE + 4)
+#define SDF_CMD_START_PASSWORD  (ENGINE_CMD_BASE + 5)
+#define SDF_CMD_LIST_VENDORS     (ENGINE_CMD_BASE + 6)
+#define SDF_CMD_SWITCH_VENDOR    (ENGINE_CMD_BASE + 7)
+#define SDF_CMD_GET_CURRENT      (ENGINE_CMD_BASE + 8)
+#define SDF_CMD_AUTO_SELECT      (ENGINE_CMD_BASE + 9)
+#define SDF_CMD_HELP             (ENGINE_CMD_BASE + 10)
+#define SDF_CMD_IMPORT_KEY       (ENGINE_CMD_BASE + 11)
+#define SDF_CMD_IMPORT_CERT      (ENGINE_CMD_BASE + 12)
+#define SDF_CMD_DELETE_KEY       (ENGINE_CMD_BASE + 13)
+#define SDF_CMD_DELETE_CERT      (ENGINE_CMD_BASE + 14)
+#define SDF_CMD_GEN_SYM_KEY      (ENGINE_CMD_BASE + 15)
+#define SDF_CMD_DELETE_SYM_KEY   (ENGINE_CMD_BASE + 16)
+#define SDF_CMD_IMPORT_SYM_KEY   (ENGINE_CMD_BASE + 17)
 /* 完整的位掩码功能控制命令 */
-#define SDF_CMD_SET_FEATURE_MASK (ENGINE_CMD_BASE + 17)
-#define SDF_CMD_GET_FEATURE_MASK (ENGINE_CMD_BASE + 18)
-#define SDF_CMD_SET_MODE_PRESET  (ENGINE_CMD_BASE + 19)
-#define SDF_CMD_LIST_FEATURES    (ENGINE_CMD_BASE + 20)
-#define SDF_CMD_VALIDATE_MASK    (ENGINE_CMD_BASE + 21)
+#define SDF_CMD_SET_FEATURE_MASK (ENGINE_CMD_BASE + 18)
+#define SDF_CMD_GET_FEATURE_MASK (ENGINE_CMD_BASE + 19)
+#define SDF_CMD_SET_MODE_PRESET  (ENGINE_CMD_BASE + 20)
+#define SDF_CMD_LIST_FEATURES    (ENGINE_CMD_BASE + 21)
+#define SDF_CMD_VALIDATE_MASK    (ENGINE_CMD_BASE + 22)
 
 /* ENGINE 控制命令定义 */
 static const ENGINE_CMD_DEFN sdf_cmd_defns[] = {
@@ -377,6 +215,7 @@ static const ENGINE_CMD_DEFN sdf_cmd_defns[] = {
 typedef struct {
     void *dll_handle;
     char *module_path;
+    int module_type;
     char *device_name;
     char *password;
     char* start_password;
@@ -391,62 +230,7 @@ typedef struct {
     DEVICEINFO device_info;
     
     /* SDF 函数指针 */
-    SDF_OpenDevice_FuncPtr p_SDF_OpenDevice;
-    SDF_CloseDevice_FuncPtr p_SDF_CloseDevice;
-    SDF_OpenSession_FuncPtr p_SDF_OpenSession;
-    SDF_CloseSession_FuncPtr p_SDF_CloseSession;
-    SDF_GetDeviceInfo_FuncPtr p_SDF_GetDeviceInfo;
-    SDF_GenerateRandom_FuncPtr p_SDF_GenerateRandom;
-    SDF_GetPrivateKeyAccessRight_FuncPtr p_SDF_GetPrivateKeyAccessRight;
-    SDF_ReleasePrivateKeyAccessRight_FuncPtr p_SDF_ReleasePrivateKeyAccessRight;
-    
-    /* RSA 函数指针 */
-    SDF_ExportSignPublicKey_RSA_FuncPtr p_SDF_ExportSignPublicKey_RSA;
-    SDF_ExportEncPublicKey_RSA_FuncPtr p_SDF_ExportEncPublicKey_RSA;
-    SDF_InternalPublicKeyOperation_RSA_FuncPtr p_SDF_InternalPublicKeyOperation_RSA;
-    SDF_InternalPrivateKeyOperation_RSA_FuncPtr p_SDF_InternalPrivateKeyOperation_RSA;
-    SDF_ExternalPublicKeyOperation_RSA_FuncPtr p_SDF_ExternalPublicKeyOperation_RSA;
-    SDF_ExternalPrivateKeyOperation_RSA_FuncPtr p_SDF_ExternalPrivateKeyOperation_RSA;
-    
-    /* ECC 函数指针 */
-    SDF_ExportSignPublicKey_ECC_FuncPtr p_SDF_ExportSignPublicKey_ECC;
-    SDF_ExportEncPublicKey_ECC_FuncPtr p_SDF_ExportEncPublicKey_ECC;
-    SDF_InternalSign_ECC_FuncPtr p_SDF_InternalSign_ECC;
-    SDF_InternalVerify_ECC_FuncPtr p_SDF_InternalVerify_ECC;
-    SDF_ExternalSign_ECC_FuncPtr p_SDF_ExternalSign_ECC;
-    SDF_ExternalVerify_ECC_FuncPtr p_SDF_ExternalVerify_ECC;
-    SDF_ExternalEncrypt_ECC_FuncPtr p_SDF_ExternalEncrypt_ECC;
-    SDF_ExternalDecrypt_ECC_FuncPtr p_SDF_ExternalDecrypt_ECC;
-    
-    /* 杂凑函数指针 */
-    SDF_HashInit_FuncPtr p_SDF_HashInit;
-    SDF_HashUpdate_FuncPtr p_SDF_HashUpdate;
-    SDF_HashFinal_FuncPtr p_SDF_HashFinal;
-    
-    /* 对称加密函数指针 */
-    SDF_Encrypt_FuncPtr p_SDF_Encrypt;
-    SDF_Decrypt_FuncPtr p_SDF_Decrypt;
-
-    /* 其他函数指针 */
-    BYCSM_LoadModule_FuncPtr p_BYCSM_LoadModule;
-	BYCSM_UninstallModule_FuncPtr p_BYCSM_UninstallModule;
-    
-    /* 密钥管理函数指针 */
-    SDF_ImportKeyPair_RSA_FuncPtr p_SDF_ImportKeyPair_RSA;
-    SDF_ImportKeyPair_ECC_FuncPtr p_SDF_ImportKeyPair_ECC;
-    SDF_DestroyKey_FuncPtr p_SDF_DestroyKey;
-    SDF_GenerateKeyPair_RSA_FuncPtr p_SDF_GenerateKeyPair_RSA;
-    SDF_GenerateKeyPair_ECC_FuncPtr p_SDF_GenerateKeyPair_ECC;
-    
-    /* 证书管理函数指针 */
-    SDF_ImportCertificate_FuncPtr p_SDF_ImportCertificate;
-    SDF_DeleteCertificate_FuncPtr p_SDF_DeleteCertificate;
-    SDF_ExportCertificate_FuncPtr p_SDF_ExportCertificate;
-    
-    /* 对称密钥管理函数指针 */
-    SDF_GenerateKeyWithKEK_FuncPtr p_SDF_GenerateKeyWithKEK;
-    SDF_ImportKeyWithKEK_FuncPtr p_SDF_ImportKeyWithKEK;
-    SDF_DestroyKeyWithKEK_FuncPtr p_SDF_DestroyKeyWithKEK;
+    SD_FUNCTION_LIST sdfList;
     
 #ifdef _WIN32
     CRITICAL_SECTION lock;
@@ -551,6 +335,96 @@ static int sdf_load_ssl_client_cert(ENGINE *e, SSL *ssl, STACK_OF(X509_NAME) *ca
 static SDF_CTX *sdf_get_ctx(ENGINE *e);
 static int sdf_set_ctx(ENGINE *e, SDF_CTX *ctx);
 
+/* 获取SDF函数指针 */
+static void setFunctionList(void* hCT32, SD_FUNCTION_LIST_PTR pList, SGD_UINT32 iGetProcAddressID)
+{
+	//=====================================设备管理============================================//
+	pList->SDF_OpenDevice = (_CP_SDF_OpenDevice*)DLSYM(hCT32, "SDF_OpenDevice");
+	pList->SDF_CloseDevice = (_CP_SDF_CloseDevice*)DLSYM(hCT32, "SDF_CloseDevice");
+	pList->SDF_OpenSession = (_CP_SDF_OpenSession*)DLSYM(hCT32, "SDF_OpenSession");
+	pList->SDF_CloseSession = (_CP_SDF_CloseSession*)DLSYM(hCT32, "SDF_CloseSession");
+	pList->SDF_GetDeviceInfo = (_CP_SDF_GetDeviceInfo*)DLSYM(hCT32, "SDF_GetDeviceInfo");
+	pList->SDF_GenerateRandom = (_CP_SDF_GenerateRandom*)DLSYM(hCT32, "SDF_GenerateRandom");
+	pList->SDF_GetPrivateKeyAccessRight = (_CP_SDF_GetPrivateKeyAccessRight*)DLSYM(hCT32, "SDF_GetPrivateKeyAccessRight");
+	pList->SDF_ReleasePrivateKeyAccessRight = (_CP_SDF_ReleasePrivateKeyAccessRight*)DLSYM(hCT32, "SDF_ReleasePrivateKeyAccessRight");
+	//=====================================密钥管理============================================//
+	pList->SDF_GenerateKeyPair_RSA = (_CP_SDF_GenerateKeyPair_RSA*)DLSYM(hCT32, "SDF_GenerateKeyPair_RSA");
+	pList->SDF_GenerateKeyPair_RSAEx = (_CP_SDF_GenerateKeyPair_RSAEx*)DLSYM(hCT32, "SDF_GenerateKeyPair_RSAEx");
+	pList->SDF_ExportSignPublicKey_RSA = (_CP_SDF_ExportSignPublicKey_RSA*)DLSYM(hCT32, "SDF_ExportSignPublicKey_RSA");
+	pList->SDF_ExportSignPublicKey_RSAEx = (_CP_SDF_ExportSignPublicKey_RSAEx*)DLSYM(hCT32, "SDF_ExportSignPublicKey_RSAEx");
+	pList->SDF_ExportEncPublicKey_RSA = (_CP_SDF_ExportEncPublicKey_RSA*)DLSYM(hCT32, "SDF_ExportEncPublicKey_RSA");
+	pList->SDF_ExportEncPublicKey_RSAEx = (_CP_SDF_ExportEncPublicKey_RSAEx*)DLSYM(hCT32, "SDF_ExportEncPublicKey_RSAEx");
+	pList->SDF_GenerateKeyWithIPK_RSA = (_CP_SDF_GenerateKeyWithIPK_RSA*)DLSYM(hCT32, "SDF_GenerateKeyWithIPK_RSA");
+	pList->SDF_GenerateKeyWithEPK_RSA = (_CP_SDF_GenerateKeyWithEPK_RSA*)DLSYM(hCT32, "SDF_GenerateKeyWithEPK_RSA");
+	pList->SDF_GenerateKeyWithEPK_RSAEx = (_CP_SDF_GenerateKeyWithEPK_RSAEx*)DLSYM(hCT32, "SDF_GenerateKeyWithEPK_RSAEx");
+	pList->SDF_ImportKeyWithISK_RSA = (_CP_SDF_ImportKeyWithISK_RSA*)DLSYM(hCT32, "SDF_ImportKeyWithISK_RSA");
+	pList->SDF_ExchangeDigitEnvelopeBaseOnRSA = (_CP_SDF_ExchangeDigitEnvelopeBaseOnRSA*)DLSYM(hCT32, "SDF_ExchangeDigitEnvelopeBaseOnRSA");
+	pList->SDF_ExchangeDigitEnvelopeBaseOnRSAEx = (_CP_SDF_ExchangeDigitEnvelopeBaseOnRSAEx*)DLSYM(hCT32, "SDF_ExchangeDigitEnvelopeBaseOnRSAEx");
+	
+	pList->SDF_ImportKey = (_CP_SDF_ImportKey*)DLSYM(hCT32, "SDF_ImportKey");
+	pList->SDF_DestroyKey = (_CP_SDF_DestroyKey*)DLSYM(hCT32, "SDF_DestroyKey");
+	pList->SDF_GetSymmKeyHandle = (_CP_SDF_GetSymmKeyHandle*)DLSYM(hCT32, "SDF_GetSymmKeyHandle");
+	pList->SDF_GenerateKeyWithKEK = (_CP_SDF_GenerateKeyWithKEK*)DLSYM(hCT32, "SDF_GenerateKeyWithKEK");
+	pList->SDF_ImportKeyWithKEK = (_CP_SDF_ImportKeyWithKEK*)DLSYM(hCT32, "SDF_ImportKeyWithKEK");
+	
+	pList->SDF_GenerateKeyPair_ECC = (_CP_SDF_GenerateKeyPair_ECC*)DLSYM(hCT32, "SDF_GenerateKeyPair_ECC");
+	pList->SDF_ExportSignPublicKey_ECC = (_CP_SDF_ExportSignPublicKey_ECC*)DLSYM(hCT32, "SDF_ExportSignPublicKey_ECC");
+	pList->SDF_ExportEncPublicKey_ECC = (_CP_SDF_ExportEncPublicKey_ECC*)DLSYM(hCT32, "SDF_ExportEncPublicKey_ECC");
+	pList->SDF_GenerateAgreementDataWithECC = (_CP_SDF_GenerateAgreementDataWithECC*)DLSYM(hCT32, "SDF_GenerateAgreementDataWithECC");
+	pList->SDF_GenerateKeyWithECC = (_CP_SDF_GenerateKeyWithECC*)DLSYM(hCT32, "SDF_GenerateKeyWithECC");
+	pList->SDF_GenerateAgreementDataAndKeyWithECC = (_CP_SDF_GenerateAgreementDataAndKeyWithECC*)DLSYM(hCT32, "SDF_GenerateAgreementDataAndKeyWithECC");
+	pList->SDF_GenerateKeyWithIPK_ECC = (_CP_SDF_GenerateKeyWithIPK_ECC*)DLSYM(hCT32, "SDF_GenerateKeyWithIPK_ECC");
+	pList->SDF_GenerateKeyWithEPK_ECC = (_CP_SDF_GenerateKeyWithEPK_ECC*)DLSYM(hCT32, "SDF_GenerateKeyWithEPK_ECC");
+	pList->SDF_ImportKeyWithISK_ECC = (_CP_SDF_ImportKeyWithISK_ECC*)DLSYM(hCT32, "SDF_ImportKeyWithISK_ECC");
+	pList->SDF_ExchangeDigitEnvelopeBaseOnECC = (_CP_SDF_ExchangeDigitEnvelopeBaseOnECC*)DLSYM(hCT32, "SDF_ExchangeDigitEnvelopeBaseOnECC");
+	//=====================================非对称密码运算============================================//
+	pList->SDF_ExternalPublicKeyOperation_RSA = (_CP_SDF_ExternalPublicKeyOperation_RSA*)DLSYM(hCT32, "SDF_ExternalPublicKeyOperation_RSA");
+	pList->SDF_ExternalPublicKeyOperation_RSAEx = (_CP_SDF_ExternalPublicKeyOperation_RSAEx*)DLSYM(hCT32, "SDF_ExternalPublicKeyOperation_RSAEx");
+	pList->SDF_ExternalPrivateKeyOperation_RSA = (_CP_SDF_ExternalPrivateKeyOperation_RSA*)DLSYM(hCT32, "SDF_ExternalPrivateKeyOperation_RSA");
+	pList->SDF_ExternalPrivateKeyOperation_RSAEx = (_CP_SDF_ExternalPrivateKeyOperation_RSAEx*)DLSYM(hCT32, "SDF_ExternalPrivateKeyOperation_RSAEx");
+	pList->SDF_InternalPublicKeyOperation_RSA = (_CP_SDF_InternalPublicKeyOperation_RSA*)DLSYM(hCT32, "SDF_InternalPublicKeyOperation_RSA");
+	pList->SDF_InternalPrivateKeyOperation_RSA = (_CP_SDF_InternalPrivateKeyOperation_RSA*)DLSYM(hCT32, "SDF_InternalPrivateKeyOperation_RSA");
+	pList->SDF_InternalPublicKeyOperation_RSA_Ex = (_CP_SDF_InternalPublicKeyOperation_RSA_Ex*)DLSYM(hCT32, "SDF_InternalPublicKeyOperation_RSA_Ex");
+	pList->SDF_InternalPrivateKeyOperation_RSA_Ex = (_CP_SDF_InternalPrivateKeyOperation_RSA_Ex*)DLSYM(hCT32, "SDF_InternalPrivateKeyOperation_RSA_Ex");
+	
+	pList->SDF_ExternalSign_ECC = (_CP_SDF_ExternalSign_ECC*)DLSYM(hCT32, "SDF_ExternalSign_ECC");
+	pList->SDF_ExternalVerify_ECC = (_CP_SDF_ExternalVerify_ECC*)DLSYM(hCT32, "SDF_ExternalVerify_ECC");
+	pList->SDF_InternalSign_ECC = (_CP_SDF_InternalSign_ECC*)DLSYM(hCT32, "SDF_InternalSign_ECC");
+	pList->SDF_InternalVerify_ECC = (_CP_SDF_InternalVerify_ECC*)DLSYM(hCT32, "SDF_InternalVerify_ECC");
+	pList->SDF_ExternalEncrypt_ECC = (_CP_SDF_ExternalEncrypt_ECC*)DLSYM(hCT32, "SDF_ExternalEncrypt_ECC");
+	pList->SDF_ExternalDecrypt_ECC = (_CP_SDF_ExternalDecrypt_ECC*)DLSYM(hCT32, "SDF_ExternalDecrypt_ECC");
+	pList->SDF_InternalEncrypt_ECC = (_CP_SDF_InternalEncrypt_ECC*)DLSYM(hCT32, "SDF_InternalEncrypt_ECC");
+	pList->SDF_InternalDecrypt_ECC = (_CP_SDF_InternalDecrypt_ECC*)DLSYM(hCT32, "SDF_InternalDecrypt_ECC");
+	
+	//=====================================对称密码运算============================================//
+	pList->SDF_Encrypt = (_CP_SDF_Encrypt*)DLSYM(hCT32, "SDF_Encrypt");
+	pList->SDF_Decrypt = (_CP_SDF_Decrypt*)DLSYM(hCT32, "SDF_Decrypt");
+	pList->SDF_CalculateMAC = (_CP_SDF_CalculateMAC*)DLSYM(hCT32, "SDF_CalculateMAC");
+	
+	//=====================================杂凑运算============================================//
+	pList->SDF_HashInit = (_CP_SDF_HashInit*)DLSYM(hCT32, "SDF_HashInit");
+	pList->SDF_HashUpdate = (_CP_SDF_HashUpdate*)DLSYM(hCT32, "SDF_HashUpdate");
+	pList->SDF_HashFinal = (_CP_SDF_HashFinal*)DLSYM(hCT32, "SDF_HashFinal");
+	
+	//=====================================用户文件操作============================================//
+	pList->SDF_CreateFile = (_CP_SDF_CreateFile*)DLSYM(hCT32, "SDF_CreateFile");
+	pList->SDF_ReadFile = (_CP_SDF_ReadFile*)DLSYM(hCT32, "SDF_ReadFile");
+	pList->SDF_WriteFile = (_CP_SDF_WriteFile*)DLSYM(hCT32, "SDF_WriteFile");
+	pList->SDF_DeleteFile = (_CP_SDF_DeleteFile*)DLSYM(hCT32, "SDF_DeleteFile");
+	//=====================================扩展接口============================================//
+	pList->SDF_InputRSAKeyPair = (_CP_SDF_InputRSAKeyPair*)DLSYM(hCT32, "SDF_InputRSAKeyPair");
+	pList->SDF_InputRSAKeyPairEx = (_CP_SDF_InputRSAKeyPairEx*)DLSYM(hCT32, "SDF_InputRSAKeyPairEx");
+	pList->SDF_ImportKeyPair_ECC = (_CP_SDF_ImportKeyPair_ECC*)DLSYM(hCT32, "SDF_ImportKeyPair_ECC");
+	pList->SDF_GetErrMsg = (_CP_SDF_GetErrMsg*)DLSYM(hCT32, "SDF_GetErrMsg");
+	pList->SDF_GetKekAccessRight = (_CP_SDF_GetKekAccessRight*)DLSYM(hCT32, "SDF_GetKekAccessRight");
+	pList->SDF_ReleaseKekAccessRight = (_CP_SDF_ReleaseKekAccessRight*)DLSYM(hCT32, "SDF_ReleaseKekAccessRight");
+	
+	//=====================================管理接口============================================//
+	pList->BYCSM_LoadModule = (_CP_BYCSM_LoadModule*)DLSYM(hCT32, "BYCSM_LoadModule");
+	pList->BYCSM_UninstallModule = (_CP_BYCSM_UninstallModule*)DLSYM(hCT32, "BYCSM_UninstallModule");
+
+}
+
 /* 辅助函数 */
 static void sdf_lock(SDF_CTX *ctx)
 {
@@ -593,24 +467,24 @@ static void sdf_ctx_free(SDF_CTX *ctx)
     if (!ctx) return;
     
     /* 释放私钥访问权限 */
-    if (ctx->hSession && ctx->p_SDF_ReleasePrivateKeyAccessRight) {
-        ctx->p_SDF_ReleasePrivateKeyAccessRight(ctx->hSession, ctx->key_index);
+    if (ctx->hSession && ctx->sdfList.SDF_ReleasePrivateKeyAccessRight) {
+        ctx->sdfList.SDF_ReleasePrivateKeyAccessRight(ctx->hSession, ctx->key_index);
     }
     
     /* 关闭会话和设备 */
-    if (ctx->hSession && ctx->p_SDF_CloseSession) {
-        ctx->p_SDF_CloseSession(ctx->hSession);
+    if (ctx->hSession && ctx->sdfList.SDF_CloseSession) {
+        ctx->sdfList.SDF_CloseSession(ctx->hSession);
     }
-    if (ctx->hDevice && ctx->p_SDF_CloseDevice) {
-        ctx->p_SDF_CloseDevice(ctx->hDevice);
+    if (ctx->hDevice && ctx->sdfList.SDF_CloseDevice) {
+        ctx->sdfList.SDF_CloseDevice(ctx->hDevice);
     }
 
     /* 卸载模块 */
-    if (ctx->p_BYCSM_UninstallModule)
+    if (ctx->sdfList.BYCSM_UninstallModule)
     {
         if (ctx->start_password)
         {
-            ctx->p_BYCSM_UninstallModule(ctx->start_password);
+            ctx->sdfList.BYCSM_UninstallModule(ctx->start_password);
         }   
     }
 
@@ -714,71 +588,13 @@ static int sdf_load_library(SDF_CTX *ctx)
         return 0;
     }
     
-    /* 加载基础函数 */
-    ctx->p_SDF_OpenDevice = (SDF_OpenDevice_FuncPtr)DLSYM(ctx->dll_handle, "SDF_OpenDevice");
-    ctx->p_SDF_CloseDevice = (SDF_CloseDevice_FuncPtr)DLSYM(ctx->dll_handle, "SDF_CloseDevice");
-    ctx->p_SDF_OpenSession = (SDF_OpenSession_FuncPtr)DLSYM(ctx->dll_handle, "SDF_OpenSession");
-    ctx->p_SDF_CloseSession = (SDF_CloseSession_FuncPtr)DLSYM(ctx->dll_handle, "SDF_CloseSession");
-    ctx->p_SDF_GetDeviceInfo = (SDF_GetDeviceInfo_FuncPtr)DLSYM(ctx->dll_handle, "SDF_GetDeviceInfo");
-    ctx->p_SDF_GenerateRandom = (SDF_GenerateRandom_FuncPtr)DLSYM(ctx->dll_handle, "SDF_GenerateRandom");
-    ctx->p_SDF_GetPrivateKeyAccessRight = (SDF_GetPrivateKeyAccessRight_FuncPtr)DLSYM(ctx->dll_handle, "SDF_GetPrivateKeyAccessRight");
-    ctx->p_SDF_ReleasePrivateKeyAccessRight = (SDF_ReleasePrivateKeyAccessRight_FuncPtr)DLSYM(ctx->dll_handle, "SDF_ReleasePrivateKeyAccessRight");
-    
-    /* 加载 RSA 函数 */
-    ctx->p_SDF_ExportSignPublicKey_RSA = (SDF_ExportSignPublicKey_RSA_FuncPtr)DLSYM(ctx->dll_handle, "SDF_ExportSignPublicKey_RSA");
-    ctx->p_SDF_ExportEncPublicKey_RSA = (SDF_ExportEncPublicKey_RSA_FuncPtr)DLSYM(ctx->dll_handle, "SDF_ExportEncPublicKey_RSA");
-    ctx->p_SDF_InternalPublicKeyOperation_RSA = (SDF_InternalPublicKeyOperation_RSA_FuncPtr)DLSYM(ctx->dll_handle, "SDF_InternalPublicKeyOperation_RSA");
-    ctx->p_SDF_InternalPrivateKeyOperation_RSA = (SDF_InternalPrivateKeyOperation_RSA_FuncPtr)DLSYM(ctx->dll_handle, "SDF_InternalPrivateKeyOperation_RSA");
-    ctx->p_SDF_ExternalPublicKeyOperation_RSA = (SDF_ExternalPublicKeyOperation_RSA_FuncPtr)DLSYM(ctx->dll_handle, "SDF_ExternalPublicKeyOperation_RSA");
-    ctx->p_SDF_ExternalPrivateKeyOperation_RSA = (SDF_ExternalPrivateKeyOperation_RSA_FuncPtr)DLSYM(ctx->dll_handle, "SDF_ExternalPrivateKeyOperation_RSA");
-    
-    /* 加载 ECC 函数 */
-    ctx->p_SDF_ExportSignPublicKey_ECC = (SDF_ExportSignPublicKey_ECC_FuncPtr)DLSYM(ctx->dll_handle, "SDF_ExportSignPublicKey_ECC");
-    ctx->p_SDF_ExportEncPublicKey_ECC = (SDF_ExportEncPublicKey_ECC_FuncPtr)DLSYM(ctx->dll_handle, "SDF_ExportEncPublicKey_ECC");
-    ctx->p_SDF_InternalSign_ECC = (SDF_InternalSign_ECC_FuncPtr)DLSYM(ctx->dll_handle, "SDF_InternalSign_ECC");
-    ctx->p_SDF_InternalVerify_ECC = (SDF_InternalVerify_ECC_FuncPtr)DLSYM(ctx->dll_handle, "SDF_InternalVerify_ECC");
-    ctx->p_SDF_ExternalSign_ECC = (SDF_ExternalSign_ECC_FuncPtr)DLSYM(ctx->dll_handle, "SDF_ExternalSign_ECC");
-    ctx->p_SDF_ExternalVerify_ECC = (SDF_ExternalVerify_ECC_FuncPtr)DLSYM(ctx->dll_handle, "SDF_ExternalVerify_ECC");
-    ctx->p_SDF_ExternalEncrypt_ECC = (SDF_ExternalEncrypt_ECC_FuncPtr)DLSYM(ctx->dll_handle, "SDF_ExternalEncrypt_ECC");
-    ctx->p_SDF_ExternalDecrypt_ECC = (SDF_ExternalDecrypt_ECC_FuncPtr)DLSYM(ctx->dll_handle, "SDF_ExternalDecrypt_ECC");
-    
-    /* 加载杂凑函数 */
-    ctx->p_SDF_HashInit = (SDF_HashInit_FuncPtr)DLSYM(ctx->dll_handle, "SDF_HashInit");
-    ctx->p_SDF_HashUpdate = (SDF_HashUpdate_FuncPtr)DLSYM(ctx->dll_handle, "SDF_HashUpdate");
-    ctx->p_SDF_HashFinal = (SDF_HashFinal_FuncPtr)DLSYM(ctx->dll_handle, "SDF_HashFinal");
-    
-    /* 加载对称加密函数 */
-    ctx->p_SDF_Encrypt = (SDF_Encrypt_FuncPtr)DLSYM(ctx->dll_handle, "SDF_Encrypt");
-    ctx->p_SDF_Decrypt = (SDF_Decrypt_FuncPtr)DLSYM(ctx->dll_handle, "SDF_Decrypt");
-    
-    /* 其他函数 */
-    ctx->p_BYCSM_LoadModule = (BYCSM_LoadModule_FuncPtr)DLSYM(ctx->dll_handle, "BYCSM_LoadModule");
-    ctx->p_BYCSM_UninstallModule = (BYCSM_UninstallModule_FuncPtr)DLSYM(ctx->dll_handle, "BYCSM_UninstallModule");
-
-    /* 密钥管理函数 */
-    ctx->p_SDF_ImportKeyPair_RSA = (SDF_ImportKeyPair_RSA_FuncPtr)DLSYM(ctx->dll_handle, "SDF_ImportKeyPair_RSA");
-    ctx->p_SDF_ImportKeyPair_ECC = (SDF_ImportKeyPair_ECC_FuncPtr)DLSYM(ctx->dll_handle, "SDF_ImportKeyPair_ECC");
-    ctx->p_SDF_DestroyKey = (SDF_DestroyKey_FuncPtr)DLSYM(ctx->dll_handle, "SDF_DestroyKey");
-    ctx->p_SDF_GenerateKeyPair_RSA = (SDF_GenerateKeyPair_RSA_FuncPtr)DLSYM(ctx->dll_handle, "SDF_GenerateKeyPair_RSA");
-    ctx->p_SDF_GenerateKeyPair_ECC = (SDF_GenerateKeyPair_ECC_FuncPtr)DLSYM(ctx->dll_handle, "SDF_GenerateKeyPair_ECC");
-    
-    /* 证书管理函数 */
-    ctx->p_SDF_ImportCertificate = (SDF_ImportCertificate_FuncPtr)DLSYM(ctx->dll_handle, "SDF_ImportCertificate");
-    ctx->p_SDF_DeleteCertificate = (SDF_DeleteCertificate_FuncPtr)DLSYM(ctx->dll_handle, "SDF_DeleteCertificate");
-    ctx->p_SDF_ExportCertificate = (SDF_ExportCertificate_FuncPtr)DLSYM(ctx->dll_handle, "SDF_ExportCertificate");
-    
-    /* 对称密钥管理函数 */
-    ctx->p_SDF_GenerateKeyWithKEK = (SDF_GenerateKeyWithKEK_FuncPtr)DLSYM(ctx->dll_handle, "SDF_GenerateKeyWithKEK");
-    ctx->p_SDF_ImportKeyWithKEK = (SDF_ImportKeyWithKEK_FuncPtr)DLSYM(ctx->dll_handle, "SDF_ImportKeyWithKEK");
-    ctx->p_SDF_DestroyKeyWithKEK = (SDF_DestroyKeyWithKEK_FuncPtr)DLSYM(ctx->dll_handle, "SDF_DestroyKeyWithKEK");
-
-    //ctx->p_SDF_GenerateKeyPair_ECC = (SDF_GenerateKeyPair_ECC_FuncPtr)DLSYM(ctx->dll_handle, "SDF_GenerateKeyPair_ECC");
-    //ctx->p_SDF_GenerateKeyPair_RSA = (SDF_GenerateKeyPair_RSA_FuncPtr)DLSYM(ctx->dll_handle, "SDF_GenerateKeyPair_RSA");
+	/* 加载函数指针 */
+	setFunctionList(ctx->dll_handle, &ctx->sdfList, ctx->module_type);
     
 
     /* 检查必要函数是否加载成功 */
-    if (!ctx->p_SDF_OpenDevice || !ctx->p_SDF_CloseDevice ||
-        !ctx->p_SDF_OpenSession || !ctx->p_SDF_CloseSession) {
+    if (!ctx->sdfList.SDF_OpenDevice || !ctx->sdfList.SDF_CloseDevice ||
+        !ctx->sdfList.SDF_OpenSession || !ctx->sdfList.SDF_CloseSession) {
         SDFerr(0, 2);
         DLCLOSE(ctx->dll_handle);
         ctx->dll_handle = NULL;
@@ -802,11 +618,11 @@ static int sdf_init_device(SDF_CTX *ctx)
     }
 
     /* 加载模块 */
-    if (ctx->p_BYCSM_LoadModule)
+    if (ctx->sdfList.BYCSM_LoadModule)
     {
        if (ctx->start_password)
        {
-		   ret = ctx->p_BYCSM_LoadModule(ctx->start_password);
+		   ret = ctx->sdfList.BYCSM_LoadModule(ctx->start_password);
 		   if (ret != SDR_OK) {
 			   SDFerr(0, 9);
 			   return 0;
@@ -814,32 +630,32 @@ static int sdf_init_device(SDF_CTX *ctx)
        }       
     }
     /* 打开设备 */
-    ret = ctx->p_SDF_OpenDevice(&ctx->hDevice);
+    ret = ctx->sdfList.SDF_OpenDevice(&ctx->hDevice);
     if (ret != SDR_OK) {
         SDFerr(0, 5);
         return 0;
     }
     
     /* 打开会话 */
-    ret = ctx->p_SDF_OpenSession(ctx->hDevice, &ctx->hSession);
+    ret = ctx->sdfList.SDF_OpenSession(ctx->hDevice, &ctx->hSession);
     if (ret != SDR_OK) {
         SDFerr(0, 6);
-        ctx->p_SDF_CloseDevice(ctx->hDevice);
+        ctx->sdfList.SDF_CloseDevice(ctx->hDevice);
         ctx->hDevice = NULL;
         return 0;
     }
     
     /* 获取设备信息 */
-    if (ctx->p_SDF_GetDeviceInfo) {
-        ret = ctx->p_SDF_GetDeviceInfo(ctx->hSession, &ctx->device_info);
+    if (ctx->sdfList.SDF_GetDeviceInfo) {
+        ret = ctx->sdfList.SDF_GetDeviceInfo(ctx->hSession, &ctx->device_info);
         if (ret != SDR_OK) {
             /* 获取设备信息失败不影响继续使用 */
         }
     }
     
     /* 获取密钥访问权限 */
-    if (ctx->password && ctx->p_SDF_GetPrivateKeyAccessRight) {
-        ret = ctx->p_SDF_GetPrivateKeyAccessRight(ctx->hSession, ctx->key_index,
+    if (ctx->password && ctx->sdfList.SDF_GetPrivateKeyAccessRight) {
+        ret = ctx->sdfList.SDF_GetPrivateKeyAccessRight(ctx->hSession, ctx->key_index,
                                                   (unsigned char *)ctx->password,
                                                   strlen(ctx->password));
         if (ret != SDR_OK) {
@@ -1237,7 +1053,7 @@ static int sdf_rsa_sign(int type, const unsigned char *m, unsigned int m_len,
     }
     
     /* 调用 SDF 内部私钥运算 */
-    ret = ctx->p_SDF_InternalPrivateKeyOperation_RSA(ctx->hSession, key_ctx->key_index,
+    ret = ctx->sdfList.SDF_InternalPrivateKeyOperation_RSA(ctx->hSession, key_ctx->key_index,
                                                      padded, padded_len,
                                                      sigret, &output_len);
     
@@ -1292,7 +1108,7 @@ static int sdf_rsa_verify(int type, const unsigned char *m, unsigned int m_len,
 	sdf_lock(ctx);
 
     /* 调用 SDF 内部公钥运算 */
-	ret = ctx->p_SDF_InternalPublicKeyOperation_RSA(ctx->hSession, key_ctx->key_index,
+	ret = ctx->sdfList.SDF_InternalPublicKeyOperation_RSA(ctx->hSession, key_ctx->key_index,
                                                     (unsigned char *)sigbuf, siglen,
 		decrypted, &decrypted_len);
 
@@ -1381,7 +1197,7 @@ static int sdf_ecdsa_sign(int type, const unsigned char *dgst, int dgst_len,
     sdf_lock(ctx);
     
     /* 调用 SDF ECC 内部签名 */
-    ret = ctx->p_SDF_InternalSign_ECC(ctx->hSession, key_ctx->key_index,
+    ret = ctx->sdfList.SDF_InternalSign_ECC(ctx->hSession, key_ctx->key_index,
                                       (unsigned char *)dgst, dgst_len, &ecc_sig);
     
     sdf_unlock(ctx);
@@ -1457,7 +1273,7 @@ static int sdf_ecdsa_verify(int type, const unsigned char *dgst, int dgst_len,
     sdf_lock(ctx);
     
     /* 调用 SDF ECC 内部验证 */
-    ret = ctx->p_SDF_InternalVerify_ECC(ctx->hSession, key_ctx->key_index,
+    ret = ctx->sdfList.SDF_InternalVerify_ECC(ctx->hSession, key_ctx->key_index,
                                         (unsigned char *)dgst, dgst_len, &ecc_sig);
     
     sdf_unlock(ctx);
@@ -1501,12 +1317,12 @@ static int sdf_rand_bytes(unsigned char *buf, int num)
         }
     }
     
-    if (!ctx->p_SDF_GenerateRandom) {
+    if (!ctx->sdfList.SDF_GenerateRandom) {
         return 0;
     }
     
     sdf_lock(ctx);
-    ret = ctx->p_SDF_GenerateRandom(ctx->hSession, num, buf);
+    ret = ctx->sdfList.SDF_GenerateRandom(ctx->hSession, num, buf);
     sdf_unlock(ctx);
     
     return (ret == SDR_OK) ? 1 : 0;
@@ -1588,9 +1404,9 @@ static EVP_PKEY *sdf_load_privkey(ENGINE *e, const char *key_id,
     if (key_type == 0) {  /* RSA */
         /* 导出 RSA 公钥 */
         if (is_sign_key) {
-            ret = ctx->p_SDF_ExportSignPublicKey_RSA(ctx->hSession, key_index, &rsa_pub);
+            ret = ctx->sdfList.SDF_ExportSignPublicKey_RSA(ctx->hSession, key_index, &rsa_pub);
         } else {
-            ret = ctx->p_SDF_ExportEncPublicKey_RSA(ctx->hSession, key_index, &rsa_pub);
+            ret = ctx->sdfList.SDF_ExportEncPublicKey_RSA(ctx->hSession, key_index, &rsa_pub);
         }
         
         if (ret != SDR_OK) {
@@ -1637,9 +1453,9 @@ static EVP_PKEY *sdf_load_privkey(ENGINE *e, const char *key_id,
     } else {  /* ECC/SM2 */
         /* 导出 ECC 公钥 */
         if (is_sign_key) {
-            ret = ctx->p_SDF_ExportSignPublicKey_ECC(ctx->hSession, key_index, &ecc_pub);
+            ret = ctx->sdfList.SDF_ExportSignPublicKey_ECC(ctx->hSession, key_index, &ecc_pub);
         } else {
-            ret = ctx->p_SDF_ExportEncPublicKey_ECC(ctx->hSession, key_index, &ecc_pub);
+            ret = ctx->sdfList.SDF_ExportEncPublicKey_ECC(ctx->hSession, key_index, &ecc_pub);
         }
         
         if (ret != SDR_OK) {
