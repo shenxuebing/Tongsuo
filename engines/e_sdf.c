@@ -154,7 +154,7 @@ static int vendor_count = 6;
 /* ENGINE 控制命令 */
 #define SDF_CMD_MODULE_PATH     ENGINE_CMD_BASE
 #define SDF_CMD_MODULE_TYPE     ENGINE_CMD_BASE + 1
-#define SDF_CMD_DEVICE_NAME     (ENGINE_CMD_BASE + 1)
+#define SDF_CMD_DEVICE_NAME     (ENGINE_CMD_BASE + 2)
 #define SDF_CMD_KEY_INDEX       (ENGINE_CMD_BASE + 3)
 #define SDF_CMD_PASSWORD        (ENGINE_CMD_BASE + 4)
 #define SDF_CMD_START_PASSWORD  (ENGINE_CMD_BASE + 5)
@@ -180,6 +180,7 @@ static int vendor_count = 6;
 /* ENGINE 控制命令定义 */
 static const ENGINE_CMD_DEFN sdf_cmd_defns[] = {
     {SDF_CMD_MODULE_PATH, "MODULE_PATH", "SDF library path", ENGINE_CMD_FLAG_STRING},
+    {SDF_CMD_MODULE_TYPE, "MODULE_TYPE", "SDF library type", ENGINE_CMD_FLAG_NUMERIC},
     {SDF_CMD_DEVICE_NAME, "DEVICE_NAME", "Device name", ENGINE_CMD_FLAG_STRING},
     {SDF_CMD_KEY_INDEX, "KEY_INDEX", "Key index", ENGINE_CMD_FLAG_NUMERIC},
     {SDF_CMD_PASSWORD, "PASSWORD", "Password", ENGINE_CMD_FLAG_STRING},
@@ -688,7 +689,9 @@ static int sdf_ctrl(ENGINE *e, int cmd, long i, void *p, void (*f)(void))
         OPENSSL_free(ctx->module_path);
         ctx->module_path = OPENSSL_strdup((char *)p);
         return ctx->module_path ? 1 : 0;
-        
+	case SDF_CMD_MODULE_TYPE:
+		ctx->module_type = (unsigned int)i;
+		return 1;
     case SDF_CMD_DEVICE_NAME:
         if (!p) return 0;
         OPENSSL_free(ctx->device_name);

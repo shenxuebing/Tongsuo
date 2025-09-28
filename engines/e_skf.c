@@ -112,7 +112,7 @@ static const char* engine_skf_name = "SKF Engine";
 static const ENGINE_CMD_DEFN skf_cmd_defns[] = {
 	/* 基本配置命令 */
 	{SKF_CMD_MODULE_PATH, "MODULE_PATH", "SKF module path", ENGINE_CMD_FLAG_STRING},
-	{SKF_CMD_MODULE_TYPE, "MODULE_TYPE", "SKF module type,1:sw 2:ydx defaule:0", ENGINE_CMD_FLAG_STRING},
+	{SKF_CMD_MODULE_TYPE, "MODULE_TYPE", "SKF module type,1:sw 2:ydx defaule:0", ENGINE_CMD_FLAG_NUMERIC},
 	{SKF_CMD_DEVICE_NAME, "DEVICE_NAME", "SKF device name", ENGINE_CMD_FLAG_STRING},
 	{SKF_CMD_APP_NAME, "APP_NAME", "SKF application name", ENGINE_CMD_FLAG_STRING},
 	{SKF_CMD_CONTAINER_NAME, "CONTAINER_NAME", "SKF container name", ENGINE_CMD_FLAG_STRING},
@@ -569,7 +569,7 @@ static int skf_init_device(SKF_CTX* ctx)
 		ret = ctx->skfList.SKF_ConnectDev(ctx->device_name, &ctx->hDev);
 		if (ret != SAR_OK) {
 			SKFerr(0, ret);
-			return ret;
+			return 0;
 		}
 	}
 	else {
@@ -579,13 +579,19 @@ static int skf_init_device(SKF_CTX* ctx)
 		ret = ctx->skfList.SKF_EnumDev(TRUE, pDevName, &count);
 		if (ret != SAR_OK) {
 			SKFerr(0, ret);
-			return ret;
+			return 0;
 		}
-		//暂时只支持一个设备，如果有多个设备，需要用户选择
-		ret = ctx->skfList.SKF_ConnectDev(pDevName, &ctx->hDev);
-		if (ret != SAR_OK) {
-			SKFerr(0, ret);
-			return ret;
+		if (count > 0 && strlen(pDevName) > 0){
+			//暂时只支持一个设备，如果有多个设备，需要用户选择
+			ret = ctx->skfList.SKF_ConnectDev(pDevName, &ctx->hDev);
+			if (ret != SAR_OK) {
+				SKFerr(0, ret);
+				return 0;
+			}
+		}
+		else{
+			SKFerr(0, 5);
+			return 0;
 		}
 	}
 
@@ -648,14 +654,7 @@ static int skf_ctrl(ENGINE* e, int cmd, long i, void* p, void (*f)(void))
 		ctx->module_path = OPENSSL_strdup((char*)p);
 		return ctx->module_path ? 1 : 0;
 	case SKF_CMD_MODULE_TYPE:
-		if (!p)
-		{
-			ctx->module_type = 0;
-		}
-		else
-		{
-			ctx->module_type = atoi((char*)p);
-		}
+		ctx->module_type = (unsigned int)i;		
 		return 1;
 	case SKF_CMD_DEVICE_NAME:
 		if (!p) return 0;
