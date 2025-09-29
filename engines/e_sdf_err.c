@@ -12,10 +12,7 @@
  * Any changes made to this file will be overwritten when the script is next run
  */
 
-#include <openssl/opensslconf.h>
 #include <openssl/err.h>
-#include <openssl/symhacks.h>
-#include <openssl/crypto.h>
 #include <stdlib.h>
 #include "e_sdf_err.h"
 
@@ -23,19 +20,6 @@
 
 # define ERR_FUNC(func) ERR_PACK(0,func,0)
 # define ERR_REASON(reason) ERR_PACK(0,0,reason)
-
-/* 添加缺少的函数定义 */
-# define SDF_F_BIND_SDF                                   122
-# define SDF_F_CIPHER_SM4_CBC_CIPHER                      123
-# define SDF_F_CIPHER_SM4_ECB_CIPHER                      124
-# define SDF_F_LOAD_KEY                                   125
-
-/* 添加缺少的错误原因定义 */
-# define SDF_R_EXPORT_KEY_FAILED                          155
-# define SDF_R_INIT_FAILED                                156
-# define SDF_R_NOT_INITIALIZED                            157
-# define SDF_R_OPEN_DEVICE_FAILED                         158
-# define SDF_R_OPEN_SESSION_FAILED                        159
 
 static ERR_STRING_DATA SDF_str_functs[] = {
     {ERR_FUNC(SDF_F_SDF_INIT), "sdf_init"},
@@ -162,9 +146,10 @@ static void ERR_unload_SDF_strings(void)
     }
 }
 
-static void ERR_SDF_error(int function, int reason, char *file, int line)
+static void ERR_SDF_error(int function, int reason, const char *file, int line)
 {
     if (lib_code == 0)
         lib_code = ERR_get_next_error_library();
-    ERR_PUT_error(lib_code, function, reason, file, line);
+    ERR_raise(lib_code, reason);
+    ERR_set_debug(file, line, NULL);
 }

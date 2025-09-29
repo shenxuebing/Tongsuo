@@ -19,6 +19,41 @@
 #include <openssl/engine.h>
 #include <openssl/ssl.h>
 
+# if defined(__GNUC__) && __GNUC__ >= 4 && \
+     (!defined(__STDC_VERSION__) || __STDC_VERSION__ < 199901L)
+#  pragma GCC diagnostic ignored "-Wvariadic-macros"
+# endif
+
+# ifdef _MSC_VER
+#  define SKF_LOG(level, fmt, ...) \
+                fprintf(stderr, level ": %s:%d: " fmt "\n", __FILE__, __LINE__, __VA_ARGS__)
+# else
+#  define SKF_LOG(level, fmt, ...) \
+                fprintf(stderr, level ": %s:%d: " fmt "\n", __FILE__, __LINE__, ##__VA_ARGS__)
+# endif
+
+# ifdef SKF_DEBUG
+#  define SKF_DGB(fmt, ...)  SKF_LOG("SKF_DBG", fmt, __VA_ARGS__)
+#  define SKF_INFO(fmt, ...) SKF_LOG("SKF_INFO", fmt, __VA_ARGS__)
+#  define SKF_WARN(fmt, ...) SKF_LOG("SKF_WARN", fmt, __VA_ARGS__)
+# else
+#  define SKF_DGB(fmt, ...)
+#  define SKF_INFO(fmt, ...)
+#  define SKF_WARN(fmt, ...)
+# endif
+
+# define SKF_ERR(fmt, ...)  SKF_LOG("SKF_ERR", fmt, __VA_ARGS__)
+# define SKF_PERR(fmt, ...) \
+                do { \
+                    SKF_LOG("SKF_PERR", fmt, __VA_ARGS__); \
+                    perror(NULL); \
+                } while(0)
+# define SKF_PWARN(fmt, ...) \
+                do { \
+                    SKF_LOG("SKF_PWARN", fmt, __VA_ARGS__); \
+                    perror(NULL); \
+                } while(0)
+
 #ifdef __cplusplus
 extern "C" {
 #endif

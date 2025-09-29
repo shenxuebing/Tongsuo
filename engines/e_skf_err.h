@@ -11,11 +11,13 @@
 # define HEADER_SKF_ERR_H
 
 # include <openssl/opensslconf.h>
+# include <openssl/symhacks.h>
 
 # ifdef  __cplusplus
-extern "C"
+extern "C" {
 # endif
-int ERR_load_SKF_strings(void);
+
+# define SKFerr(f, r) ERR_SKF_error(0, (r), OPENSSL_FILE, OPENSSL_LINE)
 
 /*
  * SKF function codes.
@@ -37,6 +39,24 @@ int ERR_load_SKF_strings(void);
 # define SKF_F_SKF_ENUM_APPLICATIONS                      114
 # define SKF_F_SKF_ENUM_CONTAINERS                        115
 # define SKF_F_BIND_SKF                                   116
+/* EVP_PKEY EC method function codes */
+# define SKF_F_SKF_PKEY_EC_INIT                           117
+# define SKF_F_SKF_PKEY_EC_COPY                           118
+# define SKF_F_SKF_PKEY_EC_PARAMGEN                       119
+# define SKF_F_SKF_PKEY_EC_KEYGEN                         120
+# define SKF_F_SKF_PKEY_EC_SIGN                           121
+# define SKF_F_SKF_PKEY_EC_VERIFY                         122
+# define SKF_F_SKF_PKEY_EC_ENCRYPT                        123
+# define SKF_F_SKF_PKEY_EC_DECRYPT                        124
+# define SKF_F_SKF_PKEY_EC_DERIVE                         125
+# define SKF_F_SKF_PKEY_EC_KDF_DERIVE                     126
+# define SKF_F_SKF_PKEY_EC_CTRL                           127
+# define SKF_F_SKF_PKEY_EC_CTRL_STR                       128
+/* Misc helper function codes */
+# define SKF_F_SKF_SET_FEATURE_MASK                       129
+# define SKF_F_SKF_VALIDATE_MASK                          130
+# define SKF_F_SKF_SSL_GENERATE_MASTER_SECRET             131
+# define SKF_F_SKF_TLS1_GENERATE_KEY_BLOCK                132
 
 /*
  * SKF reason codes.
@@ -95,5 +115,9 @@ int ERR_load_SKF_strings(void);
 # define SKF_R_APPLICATION_NAME_REQUIRED                  151
 # define SKF_R_CONTAINER_NAME_REQUIRED                    152
 # define SKF_R_MODULE_PATH_REQUIRED                       153
+# define SKF_R_NOT_SUPPORTED                              160
 
+# ifdef  __cplusplus
+}
+# endif
 #endif

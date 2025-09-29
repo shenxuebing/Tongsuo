@@ -19,6 +19,41 @@
 #include <openssl/engine.h>
 #include <openssl/ssl.h>
 
+# if defined(__GNUC__) && __GNUC__ >= 4 && \
+     (!defined(__STDC_VERSION__) || __STDC_VERSION__ < 199901L)
+#  pragma GCC diagnostic ignored "-Wvariadic-macros"
+# endif
+
+# ifdef _MSC_VER
+#  define SDF_LOG(level, fmt, ...) \
+                fprintf(stderr, level ": %s:%d: " fmt "\n", __FILE__, __LINE__, __VA_ARGS__)
+# else
+#  define SDF_LOG(level, fmt, ...) \
+                fprintf(stderr, level ": %s:%d: " fmt "\n", __FILE__, __LINE__, ##__VA_ARGS__)
+# endif
+
+# ifdef SDF_DEBUG
+#  define SDF_DGB(fmt, ...)  SDF_LOG("SDF_DBG", fmt, __VA_ARGS__)
+#  define SDF_INFO(fmt, ...) SDF_LOG("SDF_INFO", fmt, __VA_ARGS__)
+#  define SDF_WARN(fmt, ...) SDF_LOG("SDF_WARN", fmt, __VA_ARGS__)
+# else
+#  define SDF_DGB(fmt, ...)
+#  define SDF_INFO(fmt, ...)
+#  define SDF_WARN(fmt, ...)
+# endif
+
+# define SDF_ERR(fmt, ...)  SDF_LOG("SDF_ERR", fmt, __VA_ARGS__)
+# define SDF_PERR(fmt, ...) \
+                do { \
+                    SDF_LOG("SDF_PERR", fmt, __VA_ARGS__); \
+                    perror(NULL); \
+                } while(0)
+# define SDF_PWARN(fmt, ...) \
+                do { \
+                    SDF_LOG("SDF_PWARN", fmt, __VA_ARGS__); \
+                    perror(NULL); \
+                } while(0)
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -59,9 +94,9 @@ extern "C" {
 		unsigned char DeviceSerial[16];
 		unsigned int  DeviceVersion;
 		unsigned int  StandardVersion;
-		unsigned int  AsymAlgAbility[2];
-		unsigned int  SymAlgAbility;
-		unsigned int  HashAlgAbility;
+		unsigned int  AsymSDFAbility[2];
+		unsigned int  SymSDFAbility;
+		unsigned int  HashSDFAbility;
 		unsigned int  BufferSize;
 	} DEVICEINFO;
 
@@ -207,7 +242,7 @@ extern "C" {
 	typedef struct SDF_ENVELOPEDKEYBLOB
 	{
 		unsigned int Version;
-		unsigned int ulSymmAlgID;
+		unsigned int ulSymmSDFID;
 		unsigned int ulBits;
 		unsigned char cbEncryptedPriKey[64];
 		ECCPUBLICKEYBLOB PubKey;
@@ -517,8 +552,8 @@ extern "C" {
 #define SDR_OPENSESSION			(SDR_BASE + 0x00000006)    /*打开会话句柄错误*/
 #define SDR_PARDENY				(SDR_BASE + 0x00000007)    /*权限不满足*/
 #define SDR_KEYNOTEXIST			(SDR_BASE + 0x00000008)    /*密钥不存在*/
-#define SDR_ALGNOTSUPPORT		(SDR_BASE + 0x00000009)    /*不支持的算法*/
-#define SDR_ALGMODNOTSUPPORT	(SDR_BASE + 0x0000000A)    /*不支持的算法模式*/
+#define SDR_SDFNOTSUPPORT		(SDR_BASE + 0x00000009)    /*不支持的算法*/
+#define SDR_SDFMODNOTSUPPORT	(SDR_BASE + 0x0000000A)    /*不支持的算法模式*/
 #define SDR_PKOPERR				(SDR_BASE + 0x0000000B)    /*公钥运算错误*/
 #define SDR_SKOPERR				(SDR_BASE + 0x0000000C)    /*私钥运算错误*/
 #define SDR_SIGNERR				(SDR_BASE + 0x0000000D)    /*签名错误*/
@@ -585,19 +620,19 @@ extern "C" {
 	typedef SGD_RV DEVAPI _CP_SDF_ImportKey(SGD_HANDLE hSessionHandle, SGD_UCHAR* pucKey, SGD_UINT32 uiKeyLength, SGD_HANDLE* phKeyHandle);
 	typedef SGD_RV DEVAPI _CP_SDF_DestroyKey(SGD_HANDLE hSessionHandle, SGD_HANDLE hKeyHandle);
 	typedef SGD_RV DEVAPI _CP_SDF_GetSymmKeyHandle(SGD_HANDLE hSessionHandle, SGD_UINT32 uiKeyIndex, SGD_HANDLE* phKeyHandle);
-	typedef SGD_RV DEVAPI _CP_SDF_GenerateKeyWithKEK(SGD_HANDLE hSessionHandle, SGD_UINT32 uiKeyBits, SGD_UINT32 uiAlgID, SGD_UINT32 uiKEKIndex, SGD_UCHAR* pucKey, SGD_UINT32* puiKeyLength, SGD_HANDLE* phKeyHandle);
-	typedef SGD_RV DEVAPI _CP_SDF_ImportKeyWithKEK(SGD_HANDLE hSessionHandle, SGD_UINT32 uiAlgID, SGD_UINT32 uiKEKIndex, SGD_UCHAR* pucKey, SGD_UINT32 uiKeyLength, SGD_HANDLE* phKeyHandle);
+	typedef SGD_RV DEVAPI _CP_SDF_GenerateKeyWithKEK(SGD_HANDLE hSessionHandle, SGD_UINT32 uiKeyBits, SGD_UINT32 uiSDFID, SGD_UINT32 uiKEKIndex, SGD_UCHAR* pucKey, SGD_UINT32* puiKeyLength, SGD_HANDLE* phKeyHandle);
+	typedef SGD_RV DEVAPI _CP_SDF_ImportKeyWithKEK(SGD_HANDLE hSessionHandle, SGD_UINT32 uiSDFID, SGD_UINT32 uiKEKIndex, SGD_UCHAR* pucKey, SGD_UINT32 uiKeyLength, SGD_HANDLE* phKeyHandle);
 
-	typedef SGD_RV DEVAPI _CP_SDF_GenerateKeyPair_ECC(SGD_HANDLE hSessionHandle, SGD_UINT32 uiAlgID, SGD_UINT32 uiKeyBits, ECCrefPublicKey* pucPublicKey, ECCrefPrivateKey* pucPrivateKey);
+	typedef SGD_RV DEVAPI _CP_SDF_GenerateKeyPair_ECC(SGD_HANDLE hSessionHandle, SGD_UINT32 uiSDFID, SGD_UINT32 uiKeyBits, ECCrefPublicKey* pucPublicKey, ECCrefPrivateKey* pucPrivateKey);
 	typedef SGD_RV DEVAPI _CP_SDF_ExportSignPublicKey_ECC(SGD_HANDLE hSessionHandle, SGD_UINT32 uiKeyIndex, ECCrefPublicKey* pucPublicKey);
 	typedef SGD_RV DEVAPI _CP_SDF_ExportEncPublicKey_ECC(SGD_HANDLE hSessionHandle, SGD_UINT32 uiKeyIndex, ECCrefPublicKey* pucPublicKey);
 	typedef SGD_RV DEVAPI _CP_SDF_GenerateAgreementDataWithECC(SGD_HANDLE hSessionHandle, SGD_UINT32 uiISKIndex, SGD_UINT32 uiKeyBits, SGD_UCHAR* pucSponsorID, SGD_UINT32 uiSponsorIDLength, ECCrefPublicKey* pucSponsorPublicKey, ECCrefPublicKey* pucSponsorTmpPublicKey, SGD_HANDLE* phAgreementHandle);
 	typedef SGD_RV DEVAPI _CP_SDF_GenerateKeyWithECC(SGD_HANDLE hSessionHandle, SGD_UCHAR* pucResponseID, SGD_UINT32 uiResponseIDLength, ECCrefPublicKey* pucResponsePublicKey, ECCrefPublicKey* pucResponseTmpPublicKey, SGD_HANDLE hAgreementHandle, SGD_HANDLE* phKeyHandle);
 	typedef SGD_RV DEVAPI _CP_SDF_GenerateAgreementDataAndKeyWithECC(SGD_HANDLE hSessionHandle, SGD_UINT32 uiISKIndex, SGD_UINT32 uiKeyBits, SGD_UCHAR* pucResponseID, SGD_UINT32 uiResponseIDLength, SGD_UCHAR* pucSponsorID, SGD_UINT32 uiSponsorIDLength, ECCrefPublicKey* pucSponsorPublicKey, ECCrefPublicKey* pucSponsorTmpPublicKey, ECCrefPublicKey* pucResponsePublicKey, ECCrefPublicKey* pucResponseTmpPublicKey, SGD_HANDLE* phKeyHandle);
 	typedef SGD_RV DEVAPI _CP_SDF_GenerateKeyWithIPK_ECC(SGD_HANDLE hSessionHandle, SGD_UINT32 uiIPKIndex, SGD_UINT32 uiKeyBits, ECCCipher* pucKey, SGD_HANDLE* phKeyHandle);
-	typedef SGD_RV DEVAPI _CP_SDF_GenerateKeyWithEPK_ECC(SGD_HANDLE hSessionHandle, SGD_UINT32 uiKeyBits, SGD_UINT32 uiAlgID, ECCrefPublicKey* pucPublicKey, ECCCipher* pucKey, SGD_HANDLE* phKeyHandle);
+	typedef SGD_RV DEVAPI _CP_SDF_GenerateKeyWithEPK_ECC(SGD_HANDLE hSessionHandle, SGD_UINT32 uiKeyBits, SGD_UINT32 uiSDFID, ECCrefPublicKey* pucPublicKey, ECCCipher* pucKey, SGD_HANDLE* phKeyHandle);
 	typedef SGD_RV DEVAPI _CP_SDF_ImportKeyWithISK_ECC(SGD_HANDLE hSessionHandle, SGD_UINT32 uiISKIndex, ECCCipher* pucKey, SGD_HANDLE* phKeyHandle);
-	typedef SGD_RV DEVAPI _CP_SDF_ExchangeDigitEnvelopeBaseOnECC(SGD_HANDLE hSessionHandle, SGD_UINT32 uiKeyIndex, SGD_UINT32 uiAlgID, ECCrefPublicKey* pucPublicKey, ECCCipher* pucEncDataIn, ECCCipher* pucEncDataOut);
+	typedef SGD_RV DEVAPI _CP_SDF_ExchangeDigitEnvelopeBaseOnECC(SGD_HANDLE hSessionHandle, SGD_UINT32 uiKeyIndex, SGD_UINT32 uiSDFID, ECCrefPublicKey* pucPublicKey, ECCCipher* pucEncDataIn, ECCCipher* pucEncDataOut);
 
 	//非对称密码运算函数
 	typedef SGD_RV DEVAPI _CP_SDF_ExternalPublicKeyOperation_RSA(SGD_HANDLE hSessionHandle, RSArefPublicKey* pucPublicKey, SGD_UCHAR* pucDataInput, SGD_UINT32 uiInputLength, SGD_UCHAR* pucDataOutput, SGD_UINT32* puiOutputLength);
@@ -609,22 +644,22 @@ extern "C" {
 	typedef SGD_RV DEVAPI _CP_SDF_InternalPublicKeyOperation_RSA_Ex(SGD_HANDLE hSessionHandle, SGD_UINT32 uiKeyIndex, SGD_UINT32 uiKeyUsage, SGD_UCHAR* pucDataInput, SGD_UINT32 uiInputLength, SGD_UCHAR* pucDataOutput, SGD_UINT32* puiOutputLength);
 	typedef SGD_RV DEVAPI _CP_SDF_InternalPrivateKeyOperation_RSA_Ex(SGD_HANDLE hSessionHandle, SGD_UINT32 uiKeyIndex, SGD_UINT32 uiKeyUsage, SGD_UCHAR* pucDataInput, SGD_UINT32 uiInputLength, SGD_UCHAR* pucDataOutput, SGD_UINT32* puiOutputLength);
 
-	typedef SGD_RV DEVAPI _CP_SDF_ExternalSign_ECC(SGD_HANDLE hSessionHandle, SGD_UINT32 uiAlgID, ECCrefPrivateKey* pucPrivateKey, SGD_UCHAR* pucData, SGD_UINT32 uiDataLength, ECCSignature* pucSignature);
-	typedef SGD_RV DEVAPI _CP_SDF_ExternalVerify_ECC(SGD_HANDLE hSessionHandle, SGD_UINT32 uiAlgID, ECCrefPublicKey* pucPublicKey, SGD_UCHAR* pucDataInput, SGD_UINT32 uiInputLength, ECCSignature* pucSignature);
+	typedef SGD_RV DEVAPI _CP_SDF_ExternalSign_ECC(SGD_HANDLE hSessionHandle, SGD_UINT32 uiSDFID, ECCrefPrivateKey* pucPrivateKey, SGD_UCHAR* pucData, SGD_UINT32 uiDataLength, ECCSignature* pucSignature);
+	typedef SGD_RV DEVAPI _CP_SDF_ExternalVerify_ECC(SGD_HANDLE hSessionHandle, SGD_UINT32 uiSDFID, ECCrefPublicKey* pucPublicKey, SGD_UCHAR* pucDataInput, SGD_UINT32 uiInputLength, ECCSignature* pucSignature);
 	typedef SGD_RV DEVAPI _CP_SDF_InternalSign_ECC(SGD_HANDLE hSessionHandle, SGD_UINT32 uiISKIndex, SGD_UCHAR* pucData, SGD_UINT32 uiDataLength, ECCSignature* pucSignature);
 	typedef SGD_RV DEVAPI _CP_SDF_InternalVerify_ECC(SGD_HANDLE hSessionHandle, SGD_UINT32 uiISKIndex, SGD_UCHAR* pucData, SGD_UINT32 uiDataLength, ECCSignature* pucSignature);
-	typedef SGD_RV DEVAPI _CP_SDF_ExternalEncrypt_ECC(SGD_HANDLE hSessionHandle, SGD_UINT32 uiAlgID, ECCrefPublicKey* pucPublicKey, SGD_UCHAR* pucData, SGD_UINT32 uiDataLength, ECCCipher* pucEncData);
-	typedef SGD_RV DEVAPI _CP_SDF_ExternalDecrypt_ECC(SGD_HANDLE hSessionHandle, SGD_UINT32 uiAlgID, ECCrefPrivateKey* pucPrivateKey, ECCCipher* pucEncData, SGD_UCHAR* pucData, SGD_UINT32* puiDataLength);
-	typedef SGD_RV DEVAPI _CP_SDF_InternalEncrypt_ECC(SGD_HANDLE hSessionHandle, SGD_UINT32 uiIPKIndex, SGD_UINT32 uiAlgID, SGD_UCHAR* pucData, SGD_UINT32 uiDataLength, ECCCipher* pucEncData);
-	typedef SGD_RV DEVAPI _CP_SDF_InternalDecrypt_ECC(SGD_HANDLE hSessionHandle, SGD_UINT32 uiISKIndex, SGD_UINT32 uiAlgID, ECCCipher* pucEncData, SGD_UCHAR* pucData, SGD_UINT32* puiDataLength);
+	typedef SGD_RV DEVAPI _CP_SDF_ExternalEncrypt_ECC(SGD_HANDLE hSessionHandle, SGD_UINT32 uiSDFID, ECCrefPublicKey* pucPublicKey, SGD_UCHAR* pucData, SGD_UINT32 uiDataLength, ECCCipher* pucEncData);
+	typedef SGD_RV DEVAPI _CP_SDF_ExternalDecrypt_ECC(SGD_HANDLE hSessionHandle, SGD_UINT32 uiSDFID, ECCrefPrivateKey* pucPrivateKey, ECCCipher* pucEncData, SGD_UCHAR* pucData, SGD_UINT32* puiDataLength);
+	typedef SGD_RV DEVAPI _CP_SDF_InternalEncrypt_ECC(SGD_HANDLE hSessionHandle, SGD_UINT32 uiIPKIndex, SGD_UINT32 uiSDFID, SGD_UCHAR* pucData, SGD_UINT32 uiDataLength, ECCCipher* pucEncData);
+	typedef SGD_RV DEVAPI _CP_SDF_InternalDecrypt_ECC(SGD_HANDLE hSessionHandle, SGD_UINT32 uiISKIndex, SGD_UINT32 uiSDFID, ECCCipher* pucEncData, SGD_UCHAR* pucData, SGD_UINT32* puiDataLength);
 
 	//对称密码运算函数
-	typedef SGD_RV DEVAPI _CP_SDF_Encrypt(SGD_HANDLE hSessionHandle, SGD_HANDLE hKeyHandle, SGD_UINT32 uiAlgID, SGD_UCHAR* pucIV, SGD_UCHAR* pucData, SGD_UINT32 uiDataLength, SGD_UCHAR* pucEncData, SGD_UINT32* puiEncDataLength);
-	typedef SGD_RV DEVAPI _CP_SDF_Decrypt(SGD_HANDLE hSessionHandle, SGD_HANDLE hKeyHandle, SGD_UINT32 uiAlgID, SGD_UCHAR* pucIV, SGD_UCHAR* pucEncData, SGD_UINT32 uiEncDataLength, SGD_UCHAR* pucData, SGD_UINT32* puiDataLength);
-	typedef SGD_RV DEVAPI _CP_SDF_CalculateMAC(SGD_HANDLE hSessionHandle, SGD_HANDLE hKeyHandle, SGD_UINT32 uiAlgID, SGD_UCHAR* pucIV, SGD_UCHAR* pucData, SGD_UINT32 uiDataLength, SGD_UCHAR* pucMAC, SGD_UINT32* puiMACLength);
+	typedef SGD_RV DEVAPI _CP_SDF_Encrypt(SGD_HANDLE hSessionHandle, SGD_HANDLE hKeyHandle, SGD_UINT32 uiSDFID, SGD_UCHAR* pucIV, SGD_UCHAR* pucData, SGD_UINT32 uiDataLength, SGD_UCHAR* pucEncData, SGD_UINT32* puiEncDataLength);
+	typedef SGD_RV DEVAPI _CP_SDF_Decrypt(SGD_HANDLE hSessionHandle, SGD_HANDLE hKeyHandle, SGD_UINT32 uiSDFID, SGD_UCHAR* pucIV, SGD_UCHAR* pucEncData, SGD_UINT32 uiEncDataLength, SGD_UCHAR* pucData, SGD_UINT32* puiDataLength);
+	typedef SGD_RV DEVAPI _CP_SDF_CalculateMAC(SGD_HANDLE hSessionHandle, SGD_HANDLE hKeyHandle, SGD_UINT32 uiSDFID, SGD_UCHAR* pucIV, SGD_UCHAR* pucData, SGD_UINT32 uiDataLength, SGD_UCHAR* pucMAC, SGD_UINT32* puiMACLength);
 
 	//杂凑运算函数
-	typedef SGD_RV DEVAPI _CP_SDF_HashInit(SGD_HANDLE hSessionHandle, SGD_UINT32 uiAlgID, ECCrefPublicKey* pucPublicKey, SGD_UCHAR* pucID, SGD_UINT32 uiIDLength);
+	typedef SGD_RV DEVAPI _CP_SDF_HashInit(SGD_HANDLE hSessionHandle, SGD_UINT32 uiSDFID, ECCrefPublicKey* pucPublicKey, SGD_UCHAR* pucID, SGD_UINT32 uiIDLength);
 	typedef SGD_RV DEVAPI _CP_SDF_HashUpdate(SGD_HANDLE hSessionHandle, SGD_UCHAR* pucData, SGD_UINT32 uiDataLength);
 	typedef SGD_RV DEVAPI _CP_SDF_HashFinal(SGD_HANDLE hSessionHandle, SGD_UCHAR* pucHash, SGD_UINT32* puiHashLength);
 
@@ -637,7 +672,7 @@ extern "C" {
 	//扩展接口
 	typedef SGD_RV DEVAPI _CP_SDF_InputRSAKeyPair(SGD_HANDLE hSessionHandle, SGD_UINT32 uiKeyNumber, RSArefPublicKey* pucPublicKey, RSArefPrivateKey* pucPrivateKey);
 	typedef SGD_RV DEVAPI _CP_SDF_InputRSAKeyPairEx(SGD_HANDLE hSessionHandle, SGD_UINT32 uiKeyNumber, RSArefPublicKeyEx* pucPublicKey, RSArefPrivateKeyEx* pucPrivateKey);
-	typedef SGD_RV DEVAPI _CP_SDF_ImportKeyPair_ECC(SGD_HANDLE hSessionHandle, SGD_UINT32 uiKeyIndex, SGD_UINT32 uiAlgID, SGD_UINT32 uiKeyBits, ENVELOPEDKEYBLOB* pucEncedKeyPair);
+	typedef SGD_RV DEVAPI _CP_SDF_ImportKeyPair_ECC(SGD_HANDLE hSessionHandle, SGD_UINT32 uiKeyIndex, SGD_UINT32 uiSDFID, SGD_UINT32 uiKeyBits, ENVELOPEDKEYBLOB* pucEncedKeyPair);
 	typedef const SGD_CHAR* DEVAPI _CP_SDF_GetErrMsg(SGD_UINT32 code);
 	typedef SGD_RV DEVAPI _CP_SDF_GetKekAccessRight(SGD_HANDLE hSessionHandle, SGD_UINT32 uiKeyNumber, SGD_UCHAR* pucPassword, SGD_UINT32 uiPwdLength);
 	typedef SGD_RV DEVAPI _CP_SDF_ReleaseKekAccessRight(SGD_HANDLE hSessionHandle, SGD_UINT32 uiKeyIndex);

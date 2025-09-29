@@ -42,6 +42,24 @@
 # define SKF_F_SKF_ENUM_APPLICATIONS                      114
 # define SKF_F_SKF_ENUM_CONTAINERS                        115
 # define SKF_F_BIND_SKF                                   116
+/* EVP_PKEY EC method function codes */
+# define SKF_F_SKF_PKEY_EC_INIT                           117
+# define SKF_F_SKF_PKEY_EC_COPY                           118
+# define SKF_F_SKF_PKEY_EC_PARAMGEN                       119
+# define SKF_F_SKF_PKEY_EC_KEYGEN                         120
+# define SKF_F_SKF_PKEY_EC_SIGN                           121
+# define SKF_F_SKF_PKEY_EC_VERIFY                         122
+# define SKF_F_SKF_PKEY_EC_ENCRYPT                        123
+# define SKF_F_SKF_PKEY_EC_DECRYPT                        124
+# define SKF_F_SKF_PKEY_EC_DERIVE                         125
+# define SKF_F_SKF_PKEY_EC_KDF_DERIVE                     126
+# define SKF_F_SKF_PKEY_EC_CTRL                           127
+# define SKF_F_SKF_PKEY_EC_CTRL_STR                       128
+/* Misc helper function codes */
+# define SKF_F_SKF_SET_FEATURE_MASK                       129
+# define SKF_F_SKF_VALIDATE_MASK                          130
+# define SKF_F_SKF_SSL_GENERATE_MASTER_SECRET             131
+# define SKF_F_SKF_TLS1_GENERATE_KEY_BLOCK                132
 
 /* SKF 错误原因定义 */
 # define SKF_R_ALREADY_LOADED                             100
@@ -98,6 +116,7 @@
 # define SKF_R_APPLICATION_NAME_REQUIRED                  151
 # define SKF_R_CONTAINER_NAME_REQUIRED                    152
 # define SKF_R_MODULE_PATH_REQUIRED                       153
+# define SKF_R_NOT_SUPPORTED                              160
 
 static ERR_STRING_DATA SKF_str_functs[] = {
     {ERR_FUNC(SKF_F_SKF_INIT), "skf_init"},
@@ -117,6 +136,22 @@ static ERR_STRING_DATA SKF_str_functs[] = {
     {ERR_FUNC(SKF_F_SKF_ENUM_APPLICATIONS), "skf_enum_applications"},
     {ERR_FUNC(SKF_F_SKF_ENUM_CONTAINERS), "skf_enum_containers"},
     {ERR_FUNC(SKF_F_BIND_SKF), "bind_skf"},
+    {ERR_FUNC(SKF_F_SKF_PKEY_EC_INIT), "skf_pkey_ec_init"},
+    {ERR_FUNC(SKF_F_SKF_PKEY_EC_COPY), "skf_pkey_ec_copy"},
+    {ERR_FUNC(SKF_F_SKF_PKEY_EC_PARAMGEN), "skf_pkey_ec_paramgen"},
+    {ERR_FUNC(SKF_F_SKF_PKEY_EC_KEYGEN), "skf_pkey_ec_keygen"},
+    {ERR_FUNC(SKF_F_SKF_PKEY_EC_SIGN), "skf_pkey_ec_sign"},
+    {ERR_FUNC(SKF_F_SKF_PKEY_EC_VERIFY), "skf_pkey_ec_verify"},
+    {ERR_FUNC(SKF_F_SKF_PKEY_EC_ENCRYPT), "skf_pkey_ec_encrypt"},
+    {ERR_FUNC(SKF_F_SKF_PKEY_EC_DECRYPT), "skf_pkey_ec_decrypt"},
+    {ERR_FUNC(SKF_F_SKF_PKEY_EC_DERIVE), "skf_pkey_ec_derive"},
+    {ERR_FUNC(SKF_F_SKF_PKEY_EC_KDF_DERIVE), "skf_pkey_ec_kdf_derive"},
+    {ERR_FUNC(SKF_F_SKF_PKEY_EC_CTRL), "skf_pkey_ec_ctrl"},
+    {ERR_FUNC(SKF_F_SKF_PKEY_EC_CTRL_STR), "skf_pkey_ec_ctrl_str"},
+    {ERR_FUNC(SKF_F_SKF_SET_FEATURE_MASK), "skf_set_feature_mask"},
+    {ERR_FUNC(SKF_F_SKF_VALIDATE_MASK), "skf_validate_mask"},
+    {ERR_FUNC(SKF_F_SKF_SSL_GENERATE_MASTER_SECRET), "skf_ssl_generate_master_secret"},
+    {ERR_FUNC(SKF_F_SKF_TLS1_GENERATE_KEY_BLOCK), "skf_tls1_generate_key_block"},
     {0, (const char *)0}
 };
 
@@ -175,6 +210,7 @@ static ERR_STRING_DATA SKF_str_reasons[] = {
     {ERR_REASON(SKF_R_APPLICATION_NAME_REQUIRED), "application name required"},
     {ERR_REASON(SKF_R_CONTAINER_NAME_REQUIRED), "container name required"},
     {ERR_REASON(SKF_R_MODULE_PATH_REQUIRED), "module path required"},
+    {ERR_REASON(SKF_R_NOT_SUPPORTED), "not supported"},
     {0, (const char *)0}
 };
 
