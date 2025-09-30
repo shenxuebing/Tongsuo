@@ -13,6 +13,9 @@
  * 支持 SSL 相关功能，支持 openssl.cnf 加载和代码加载
  */
 
+/* We need to use some deprecated APIs */
+#define OPENSSL_SUPPRESS_DEPRECATED
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

@@ -11,6 +11,9 @@
  * SKF Engine for GMT 0016-2012 Smart Key Interface
  */
 
+/* We need to use some deprecated APIs */
+#define OPENSSL_SUPPRESS_DEPRECATED
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

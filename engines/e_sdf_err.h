@@ -9,7 +9,6 @@
 
 #ifndef OSSL_E_SDF_ERR_H
 # define OSSL_E_SDF_ERR_H
-# pragma once
 
 # include <openssl/opensslconf.h>
 # include <openssl/symhacks.h>
@@ -17,11 +16,6 @@
 # ifdef  __cplusplus
 extern "C" {
 # endif
-
-/* Exported error API for SDF engine */
-int ERR_load_SDF_strings(void);
-void ERR_unload_SDF_strings(void);
-void ERR_SDF_error(int function, int reason, const char *file, int line);
 
 # define SDFerr(f, r) ERR_SDF_error(0, (r), OPENSSL_FILE, OPENSSL_LINE)
 

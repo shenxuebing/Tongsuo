@@ -33,26 +33,46 @@
 # endif
 
 # ifdef SDF_DEBUG
-#  define SDF_DGB(fmt, ...)  SDF_LOG("SDF_DBG", fmt, __VA_ARGS__)
-#  define SDF_INFO(fmt, ...) SDF_LOG("SDF_INFO", fmt, __VA_ARGS__)
-#  define SDF_WARN(fmt, ...) SDF_LOG("SDF_WARN", fmt, __VA_ARGS__)
+#  ifdef _MSC_VER
+#   define SDF_DGB(fmt, ...)  SDF_LOG("SDF_DBG", fmt, __VA_ARGS__)
+#   define SDF_INFO(fmt, ...) SDF_LOG("SDF_INFO", fmt, __VA_ARGS__)
+#   define SDF_WARN(fmt, ...) SDF_LOG("SDF_WARN", fmt, __VA_ARGS__)
+#  else
+#   define SDF_DGB(fmt, ...)  SDF_LOG("SDF_DBG", fmt, ##__VA_ARGS__)
+#   define SDF_INFO(fmt, ...) SDF_LOG("SDF_INFO", fmt, ##__VA_ARGS__)
+#   define SDF_WARN(fmt, ...) SDF_LOG("SDF_WARN", fmt, ##__VA_ARGS__)
+#  endif
 # else
 #  define SDF_DGB(fmt, ...)
 #  define SDF_INFO(fmt, ...)
 #  define SDF_WARN(fmt, ...)
 # endif
 
-# define SDF_ERR(fmt, ...)  SDF_LOG("SDF_ERR", fmt, __VA_ARGS__)
-# define SDF_PERR(fmt, ...) \
+# ifdef _MSC_VER
+#  define SDF_ERR(fmt, ...)  SDF_LOG("SDF_ERR", fmt, __VA_ARGS__)
+#  define SDF_PERR(fmt, ...) \
                 do { \
                     SDF_LOG("SDF_PERR", fmt, __VA_ARGS__); \
                     perror(NULL); \
                 } while(0)
-# define SDF_PWARN(fmt, ...) \
+#  define SDF_PWARN(fmt, ...) \
                 do { \
                     SDF_LOG("SDF_PWARN", fmt, __VA_ARGS__); \
                     perror(NULL); \
                 } while(0)
+# else
+#  define SDF_ERR(fmt, ...)  SDF_LOG("SDF_ERR", fmt, ##__VA_ARGS__)
+#  define SDF_PERR(fmt, ...) \
+                do { \
+                    SDF_LOG("SDF_PERR", fmt, ##__VA_ARGS__); \
+                    perror(NULL); \
+                } while(0)
+#  define SDF_PWARN(fmt, ...) \
+                do { \
+                    SDF_LOG("SDF_PWARN", fmt, ##__VA_ARGS__); \
+                    perror(NULL); \
+                } while(0)
+# endif
 
 #ifdef __cplusplus
 extern "C" {
