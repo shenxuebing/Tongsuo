@@ -28,10 +28,10 @@ IF[{- !$disabled{"engine"} -}]
       SOURCE[../libcrypto]=e_devcrypto.c
     ENDIF
     IF[{- !$disabled{"sdfeng"} -}]
-      SOURCE[../libcrypto]=e_sdf.c e_sdf_err.c
+      SOURCE[../libcrypto]=e_sdf.c
     ENDIF
     IF[{- !$disabled{"skfeng"} -}]
-      SOURCE[../libcrypto]=e_skf.c e_skf_err.c
+      SOURCE[../libcrypto]=e_skf.c
     ENDIF
   ELSE
     IF[{- !$disabled{padlockeng} -}]
