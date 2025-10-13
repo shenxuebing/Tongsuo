@@ -20,6 +20,7 @@
 #include <openssl/x509v3.h>
 #include <openssl/core_names.h>
 #include "internal/cryptlib.h"
+#include "internal/tlsgroups.h"
 
 #define TLS13_NUM_CIPHERS       OSSL_NELEM(tls13_ciphers)
 #define SSL3_NUM_CIPHERS        OSSL_NELEM(ssl3_ciphers)
@@ -3998,29 +3999,48 @@ EVP_PKEY *ssl_generate_pkey_group(SSL *s, uint16_t id)
         goto err;
     }
 
-    if (!SSL_is_server(s) && id == TLSEXT_curve_SM2)
-        pctx = EVP_PKEY_CTX_new_from_name(s->ctx->libctx, "EC",
-                                          s->ctx->propq);
-    else
-        pctx = EVP_PKEY_CTX_new_from_name(s->ctx->libctx, ginf->algorithm,
-                                          s->ctx->propq);
+    // /* SM2 需要特殊处理：直接使用 SM2 算法创建密钥，不使用 set_group_name */
+    // if (id == tls1_nid2group_id(NID_sm2) || (!SSL_is_server(s) && id == TLSEXT_curve_SM2)) {
+    //     pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_SM2, NULL);
+    //     if (pctx == NULL) {
+    //         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_MALLOC_FAILURE);
+    //         goto err;
+    //     }
+    //     if (EVP_PKEY_keygen_init(pctx) <= 0) {
+    //         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_EVP_LIB);
+    //         goto err;
+    //     }
+    //     if (EVP_PKEY_keygen(pctx, &pkey) <= 0) {
+    //         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_EVP_LIB);
+    //         EVP_PKEY_free(pkey);
+    //         pkey = NULL;
+    //     }
+    // } else
+     {
+        if (!SSL_is_server(s) && id == TLSEXT_curve_SM2)
+            pctx = EVP_PKEY_CTX_new_from_name(s->ctx->libctx, "EC",
+                                              s->ctx->propq);
+        else
+            pctx = EVP_PKEY_CTX_new_from_name(s->ctx->libctx, ginf->algorithm,
+                                              s->ctx->propq);
 
-    if (pctx == NULL) {
-        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_MALLOC_FAILURE);
-        goto err;
-    }
-    if (EVP_PKEY_keygen_init(pctx) <= 0) {
-        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_EVP_LIB);
-        goto err;
-    }
-    if (!EVP_PKEY_CTX_set_group_name(pctx, ginf->realname)) {
-        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_EVP_LIB);
-        goto err;
-    }
-    if (EVP_PKEY_keygen(pctx, &pkey) <= 0) {
-        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_EVP_LIB);
-        EVP_PKEY_free(pkey);
-        pkey = NULL;
+        if (pctx == NULL) {
+            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_MALLOC_FAILURE);
+            goto err;
+        }
+        if (EVP_PKEY_keygen_init(pctx) <= 0) {
+            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_EVP_LIB);
+            goto err;
+        }
+        if (!EVP_PKEY_CTX_set_group_name(pctx, ginf->realname)) {
+            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_EVP_LIB);
+            goto err;
+        }
+        if (EVP_PKEY_keygen(pctx, &pkey) <= 0) {
+            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_EVP_LIB);
+            EVP_PKEY_free(pkey);
+            pkey = NULL;
+        }
     }
 
  err:
@@ -4039,6 +4059,20 @@ EVP_PKEY *ssl_generate_param_group(SSL *s, uint16_t id)
 
     if (ginf == NULL)
         goto err;
+
+    // /* SM2 参数生成走 provider 路径（不调用 set_group_name） */
+    // if (id == tls1_nid2group_id(NID_sm2)) {
+    //     pctx = EVP_PKEY_CTX_new_from_name(s->ctx->libctx, "SM2", s->ctx->propq);
+    //     if (pctx == NULL)
+    //         goto err;
+    //     if (EVP_PKEY_paramgen_init(pctx) <= 0)
+    //         goto err;
+    //     if (EVP_PKEY_paramgen(pctx, &pkey) <= 0) {
+    //         EVP_PKEY_free(pkey);
+    //         pkey = NULL;
+    //     }
+    //     goto done;
+    // }
 
     if (SSL_IS_TLS13(s) && id == TLSEXT_curve_SM2)
         pctx = EVP_PKEY_CTX_new_from_name(s->ctx->libctx, "EC",
@@ -4060,6 +4094,7 @@ EVP_PKEY *ssl_generate_param_group(SSL *s, uint16_t id)
         pkey = NULL;
     }
 
+done:
  err:
     EVP_PKEY_CTX_free(pctx);
     return pkey;

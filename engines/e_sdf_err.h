@@ -33,22 +33,25 @@ extern "C" {
 # define SDF_F_SDF_RSA_PUB_DEC                            108
 # define SDF_F_SDF_ECC_SIGN                               109
 # define SDF_F_SDF_ECC_VERIFY                             110
-# define SDF_F_SDF_SM2_SIGN                               111
-# define SDF_F_SDF_SM2_VERIFY                             112
-# define SDF_F_SDF_SM2_ENCRYPT                            113
-# define SDF_F_SDF_SM2_DECRYPT                            114
-# define SDF_F_SDF_RAND_BYTES                             115
-# define SDF_F_SDF_DIGEST_INIT                            116
-# define SDF_F_SDF_DIGEST_UPDATE                          117
-# define SDF_F_SDF_DIGEST_FINAL                           118
-# define SDF_F_SDF_CIPHER_INIT                            119
-# define SDF_F_SDF_CIPHER_UPDATE                          120
-# define SDF_F_SDF_CIPHER_FINAL                           121
+# define SDF_F_SDF_ECC_KEYGEN                             111
+# define SDF_F_SDF_SM2_SIGN                               112
+# define SDF_F_SDF_SM2_VERIFY                             113
+# define SDF_F_SDF_SM2_ENCRYPT                            114
+# define SDF_F_SDF_SM2_DECRYPT                            115
+# define SDF_F_SDF_RAND_BYTES                             116
+# define SDF_F_SDF_DIGEST_INIT                            117
+# define SDF_F_SDF_DIGEST_UPDATE                          118
+# define SDF_F_SDF_DIGEST_FINAL                           119
+# define SDF_F_SDF_CIPHER_INIT                            120
+# define SDF_F_SDF_CIPHER_UPDATE                          121
+# define SDF_F_SDF_CIPHER_FINAL                           122
 /* Additional function codes used by implementation */
-# define SDF_F_BIND_SDF                                   122
-# define SDF_F_CIPHER_SM4_CBC_CIPHER                      123
-# define SDF_F_CIPHER_SM4_ECB_CIPHER                      124
-# define SDF_F_LOAD_KEY                                   125
+# define SDF_F_BIND_SDF                                   123
+# define SDF_F_CIPHER_SM4_CBC_CIPHER                      124
+# define SDF_F_CIPHER_SM4_ECB_CIPHER                      125
+# define SDF_F_LOAD_KEY                                   126
+# define SDF_F_SDF_D2I_ECCCIPHER                           127
+# define SDF_F_SDF_SM2CIPHERTEXTVALUE_GET_ECCCIPHER        128
 
 /*
  * SDF reason codes.
@@ -116,6 +119,7 @@ extern "C" {
 # define SDF_R_OPEN_SESSION_FAILED                        159
 /* Not supported operation */
 # define SDF_R_NOT_SUPPORTED                               160
+# define SDF_R_KEY_SET_FAILED                              161
 
 # ifdef  __cplusplus
 }

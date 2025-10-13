@@ -48,6 +48,8 @@ static ERR_STRING_DATA SDF_str_functs[] = {
     {ERR_FUNC(SDF_F_CIPHER_SM4_CBC_CIPHER), "cipher_sm4_cbc_cipher"},
     {ERR_FUNC(SDF_F_CIPHER_SM4_ECB_CIPHER), "cipher_sm4_ecb_cipher"},
     {ERR_FUNC(SDF_F_LOAD_KEY), "load_key"},
+    {ERR_FUNC(SDF_F_SDF_D2I_ECCCIPHER), "sdf_d2i_ecccipher"},
+    {ERR_FUNC(SDF_F_SDF_SM2CIPHERTEXTVALUE_GET_ECCCIPHER), "sdf_sm2ciphertextvalue_get_ecccipher"},
     {0, (const char *)0}
 };
 

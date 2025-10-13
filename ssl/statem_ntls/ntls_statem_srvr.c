@@ -1723,6 +1723,20 @@ int tls_construct_server_key_exchange_ntls(SSL *s, WPACKET *pkt)
             goto err;
         }
 
+        /* DEBUG: 输出 TBS 数据用于调试 */
+        {
+            size_t i;
+            fprintf(stderr, "SERVER: TBS data for signing (%zu bytes):\n", tbslen);
+            fprintf(stderr, "  client_random (32 bytes): ");
+            for (i = 0; i < 32; i++) fprintf(stderr, "%02X ", tbs[i]);
+            fprintf(stderr, "\n  server_random (32 bytes): ");
+            for (i = 32; i < 64; i++) fprintf(stderr, "%02X ", tbs[i]);
+            fprintf(stderr, "\n  params (%zu bytes): ", tbslen - 64);
+            for (i = 64; i < tbslen && i < 128; i++) fprintf(stderr, "%02X ", tbs[i]);
+            if (tbslen > 128) fprintf(stderr, "...");
+            fprintf(stderr, "\n");
+        }
+
         OPENSSL_free(buf);
 
         if (EVP_DigestSign(md_ctx, NULL, &siglen, tbs, tbslen) <=0

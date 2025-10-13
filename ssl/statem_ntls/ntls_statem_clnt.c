@@ -1564,11 +1564,32 @@ MSG_PROCESS_RETURN tls_process_key_exchange_ntls(SSL *s, PACKET *pkt)
             /* SSLfatal_ntls() already called */
             goto err;
         }
+        
+        /* DEBUG: 输出客户端 TBS 数据用于调试 */
+        {
+            size_t i;
+            fprintf(stderr, "CLIENT: TBS data for verification (%zu bytes):\n", tbslen);
+            fprintf(stderr, "  client_random (32 bytes): ");
+            for (i = 0; i < 32; i++) fprintf(stderr, "%02X ", tbs[i]);
+            fprintf(stderr, "\n  server_random (32 bytes): ");
+            for (i = 32; i < 64; i++) fprintf(stderr, "%02X ", tbs[i]);
+            fprintf(stderr, "\n  params (%zu bytes): ", tbslen - 64);
+            for (i = 64; i < tbslen && i < 128; i++) fprintf(stderr, "%02X ", tbs[i]);
+            if (tbslen > 128) fprintf(stderr, "...");
+            fprintf(stderr, "\n  signature (%zu bytes): ", PACKET_remaining(&signature));
+            for (i = 0; i < PACKET_remaining(&signature) && i < 80; i++) 
+                fprintf(stderr, "%02X ", PACKET_data(&signature)[i]);
+            fprintf(stderr, "\n");
+        }
+        
         OPENSSL_free(buf);
         buf = NULL;
 
         rv = EVP_DigestVerify(md_ctx, PACKET_data(&signature),
                               PACKET_remaining(&signature), tbs, tbslen);
+        
+        fprintf(stderr, "CLIENT: EVP_DigestVerify result=%d\n", rv);
+        
         OPENSSL_free(tbs);
         if (rv <= 0) {
             SSLfatal_ntls(s, SSL_AD_DECRYPT_ERROR, SSL_R_BAD_SIGNATURE);
