@@ -25,6 +25,32 @@
 #include "internal/cryptlib.h"
 #include "internal/tlsgroups.h"
 
+/* 
+ * Global variable to store SDF-generated ephemeral public key.
+ * This is set by ssl_derive_ntls when SDF ENGINE generates a new ephemeral key pair,
+ * and used by tls_construct_cke_sm2dhe_ntls to construct ClientKeyExchange.
+ */
+static unsigned char *g_sdf_generated_eph_pub = NULL;
+static size_t g_sdf_generated_eph_pub_len = 0;
+
+/* Function to set SDF-generated ephemeral public key (called from ssl_derive_ntls) */
+void ssl_set_sdf_generated_eph_pub(const unsigned char *pub, size_t pub_len)
+{
+    if (g_sdf_generated_eph_pub) {
+        OPENSSL_free(g_sdf_generated_eph_pub);
+        g_sdf_generated_eph_pub = NULL;
+        g_sdf_generated_eph_pub_len = 0;
+    }
+    
+    if (pub && pub_len > 0) {
+        g_sdf_generated_eph_pub = OPENSSL_malloc(pub_len);
+        if (g_sdf_generated_eph_pub) {
+            memcpy(g_sdf_generated_eph_pub, pub, pub_len);
+            g_sdf_generated_eph_pub_len = pub_len;
+        }
+    }
+}
+
 static MSG_PROCESS_RETURN tls_process_as_hello_retry_request(SSL *s, PACKET *pkt);
 
 static ossl_inline int cert_req_allowed(SSL *s);
@@ -2012,11 +2038,36 @@ static int tls_construct_cke_sm2dhe_ntls(SSL *s, WPACKET *pkt)
         goto err;
     }
 
-    /* Generate encoding of client key */
-    encoded_pt_len = EVP_PKEY_get1_encoded_public_key(ckey, &encodedPoint);
-    if (encoded_pt_len == 0) {
-        SSLfatal_ntls(s, SSL_AD_INTERNAL_ERROR, ERR_R_EC_LIB);
-        goto err;
+    /*
+     * Check if SDF ENGINE generated a new ephemeral key pair during derive.
+     * If so, use the SDF-generated public key instead of the software-generated one.
+     * The SDF-generated public key is saved in global variable by ssl_derive_ntls.
+     */
+    if (g_sdf_generated_eph_pub != NULL && g_sdf_generated_eph_pub_len > 0) {
+        /* Use SDF-generated ephemeral public key */
+        encoded_pt_len = g_sdf_generated_eph_pub_len;
+        encodedPoint = OPENSSL_malloc(encoded_pt_len);
+        if (encodedPoint == NULL) {
+            SSLfatal_ntls(s, SSL_AD_INTERNAL_ERROR, ERR_R_MALLOC_FAILURE);
+            goto err;
+        }
+        memcpy(encodedPoint, g_sdf_generated_eph_pub, encoded_pt_len);
+        
+        /* Log the usage of SDF-generated key */
+        fprintf(stderr, "DEBUG tls_construct_cke_sm2dhe_ntls: Using SDF-generated ephemeral public key, len=%zu\n", encoded_pt_len);
+        
+        /* Clear the global variable after use */
+        OPENSSL_free(g_sdf_generated_eph_pub);
+        g_sdf_generated_eph_pub = NULL;
+        g_sdf_generated_eph_pub_len = 0;
+    } else {
+        /* Generate encoding of client key (software path) */
+        encoded_pt_len = EVP_PKEY_get1_encoded_public_key(ckey, &encodedPoint);
+        if (encoded_pt_len == 0) {
+            SSLfatal_ntls(s, SSL_AD_INTERNAL_ERROR, ERR_R_EC_LIB);
+            goto err;
+        }
+        fprintf(stderr, "DEBUG tls_construct_cke_sm2dhe_ntls: Using software-generated ephemeral public key, len=%zu\n", encoded_pt_len);
     }
 
     curve_id = tls1_shared_group(s, -2);

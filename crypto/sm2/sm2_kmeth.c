@@ -72,6 +72,36 @@ int SM2_compute_key(void *out, size_t outlen, int initiator,
         goto err;
     }
 
+    /* Debug: Print the keys being used for SM2DHE */
+    printf("DEBUG SM2_compute_key: initiator=%d\n", initiator);
+    printf("  self_ecdhe_key (Rs, r)=%p, peer_ecdhe_key (Rp)=%p\n", self_ecdhe_key, peer_ecdhe_key);
+    printf("  self_eckey (long term)=%p, peer_pub_key (long term)=%p\n", self_eckey, peer_pub_key);
+
+    /* Print public key coordinates */
+    BIGNUM *x = BN_new(), *y = BN_new();
+    if (EC_POINT_get_affine_coordinates(EC_KEY_get0_group(self_ecdhe_key), Rs, x, y, ctx)) {
+        unsigned char xbuf[32], ybuf[32];
+        BN_bn2binpad(x, xbuf, 32);
+        BN_bn2binpad(y, ybuf, 32);
+        printf("  Rs (self temp pub) X: ");
+        for (int i = 0; i < 32; i++) printf("%02X ", xbuf[i]);
+        printf("\n  Rs (self temp pub) Y: ");
+        for (int i = 0; i < 32; i++) printf("%02X ", ybuf[i]);
+        printf("\n");
+    }
+    if (EC_POINT_get_affine_coordinates(EC_KEY_get0_group(peer_ecdhe_key), Rp, x, y, ctx)) {
+        unsigned char xbuf[32], ybuf[32];
+        BN_bn2binpad(x, xbuf, 32);
+        BN_bn2binpad(y, ybuf, 32);
+        printf("  Rp (peer temp pub) X: ");
+        for (int i = 0; i < 32; i++) printf("%02X ", xbuf[i]);
+        printf("\n  Rp (peer temp pub) Y: ");
+        for (int i = 0; i < 32; i++) printf("%02X ", ybuf[i]);
+        printf("\n");
+    }
+    BN_free(x);
+    BN_free(y);
+
     BN_CTX_start(ctx);
     Xuv = BN_CTX_get(ctx);
     Yuv = BN_CTX_get(ctx);
@@ -236,11 +266,41 @@ int SM2_compute_key(void *out, size_t outlen, int initiator,
         idx += md_len;
     }
 
+    /* Debug: Print KDF input for comparison */
+    printf("DEBUG: Tongsuo software SM2DHE KDF input (%zu bytes):\n", idx);
+    printf("  Vx (32 bytes): ");
+    for (int i = 0; i < 32; i++) printf("%02X ", buf[i]);
+    printf("\n");
+    printf("  Vy (32 bytes): ");
+    for (int i = 32; i < 64; i++) printf("%02X ", buf[i]);
+    printf("\n");
+    if (initiator) {
+        printf("  ZA (32 bytes): ");
+        for (int i = 64; i < 96; i++) printf("%02X ", buf[i]);
+        printf("\n");
+        printf("  ZB (32 bytes): ");
+        for (int i = 96; i < 128; i++) printf("%02X ", buf[i]);
+        printf("\n");
+    } else {
+        printf("  ZB (32 bytes): ");
+        for (int i = 64; i < 96; i++) printf("%02X ", buf[i]);
+        printf("\n");
+        printf("  ZA (32 bytes): ");
+        for (int i = 96; i < 128; i++) printf("%02X ", buf[i]);
+        printf("\n");
+    }
+    printf("DEBUG: Role: %s\n", initiator ? "initiator" : "responder");
+
     if (!ossl_ecdh_kdf_X9_63(out, outlen, buf, idx, NULL, 0, md, libctx,
                              propq)) {
         ERR_raise(ERR_LIB_SM2, ERR_R_INTERNAL_ERROR);
         goto err;
     }
+    
+    /* Debug: Print output */
+    printf("DEBUG: Tongsuo software SM2DHE output (%zu bytes): ", outlen);
+    for (size_t i = 0; i < outlen; i++) printf("%02X ", ((unsigned char*)out)[i]);
+    printf("\n");
 
     ret = outlen;
 

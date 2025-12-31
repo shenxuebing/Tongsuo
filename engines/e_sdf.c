@@ -9,8 +9,8 @@
 
  /*
   * SDF Engine Implementation for GMT 0018-2012
-  * 支持 RSA 和 ECC/SM2 算法，签名、验证、加密、解密操作，随机数生成
-  * 支持 SSL 相关功能，支持 openssl.cnf 加载和代码加载
+   * 支持 RSA 和 ECC/SM2 算法，签名、验证、加密、解密操作，随机数生成
+   * 支持 SSL 相关功能，支持 openssl.cnf 加载和代码加载
   */
 
   /* We need to use some deprecated APIs */
@@ -42,6 +42,32 @@
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 
+/* 确保标准椭圆曲线 NID 可用 */
+#ifndef NID_secp256r1
+#define NID_secp256r1 NID_X9_62_prime256v1
+#endif
+#ifndef NID_secp384r1
+#define NID_secp384r1 NID_X9_62_prime384v1
+#endif
+#ifndef NID_secp521r1
+#define NID_secp521r1 NID_X9_62_prime521v1
+#endif
+
+/* 确保 brainpool 曲线 NID 可用 */
+#ifndef NID_brainpoolP256t1
+#define NID_brainpoolP256t1 NID_brainpoolP256t1
+#endif
+#ifndef NID_brainpoolP384r1
+#define NID_brainpoolP384r1 NID_brainpoolP384r1
+#endif
+
+/* 添加更多可能的曲线 ID 支持 */
+#ifndef NID_sect571k1
+#define NID_sect571k1 NID_sect571k1
+#endif
+#ifndef NID_sect283k1
+#define NID_sect283k1 NID_sect283k1
+#endif
 
 #ifndef EVP_PKEY_CTRL_EC_SCHEME
 #define EVP_PKEY_CTRL_EC_SCHEME (EVP_PKEY_ALG_CTRL + 20)
@@ -62,6 +88,14 @@
 #ifndef EVP_PKEY_CTRL_EC_ENCRYPT_PARAM
 #define EVP_PKEY_CTRL_EC_ENCRYPT_PARAM (EVP_PKEY_ALG_CTRL + 24)
 #endif
+
+/* SM2DHE 控制命令 */
+/* 使用一个较大的值作为自定义控制命令，避免与标准控制命令冲突 */
+#ifndef EVP_PKEY_CTRL_USER
+#define EVP_PKEY_CTRL_USER (EVP_PKEY_ALG_CTRL + 100)
+#endif
+#define SDF_PKEY_CTRL_SET_SM2DHE_PARAMS 65537
+#define SDF_PKEY_CTRL_GET_SDF_GENERATED_EPH_PUB 65538
 
 /* 兼容性宏定义 */
 #define EVP_PKEY_CTX_set_ec_scheme(ctx, scheme)                                \
@@ -115,6 +149,22 @@ ASN1_SEQUENCE(SM2CiphertextValue) = {
 
 IMPLEMENT_ASN1_FUNCTIONS(SM2CiphertextValue)
 
+typedef struct SM2_CiphertextEx_st {
+	BIGNUM* C1x;
+	BIGNUM* C1y;
+	ASN1_OCTET_STRING* C2;
+	ASN1_OCTET_STRING* C3;
+}SM2_CiphertextEx;
+
+//ASN1_SEQUENCE(SM2_CiphertextEx) = {
+//	ASN1_SIMPLE(SM2_CiphertextEx, C1x, BIGNUM),
+//	ASN1_SIMPLE(SM2_CiphertextEx, C1y, BIGNUM),
+//	ASN1_SIMPLE(SM2_CiphertextEx, C2, ASN1_OCTET_STRING),
+//	ASN1_SIMPLE(SM2_CiphertextEx, C3, ASN1_OCTET_STRING),
+//} ASN1_SEQUENCE_END(SM2_CiphertextEx)
+//
+//IMPLEMENT_ASN1_FUNCTIONS(SM2_CiphertextEx)
+
 /* 辅助函数：将二进制数据转换为十六进制字符串（用于调试日志）
  * data: 二进制数据指针
  * len: 数据长度
@@ -157,8 +207,48 @@ IMPLEMENT_ASN1_FUNCTIONS(SM2CiphertextValue)
 
 #ifdef _WIN32
 #include <windows.h>
+ /**
+  * @brief 获取Windows系统错误描述字符串
+  * @param dwError [in] 错误码（传0则自动获取GetLastError()的结果）
+  * @param pszBuffer [out] 接收错误描述的缓冲区
+  * @param dwBufferSize [in] 缓冲区大小（建议至少256字节）
+  * @return BOOL 成功返回TRUE，失败返回FALSE
+  */
+BOOL getWindowsErrorString(DWORD dwError, char* pszBuffer, DWORD dwBufferSize)
+{
+	// 入参校验
+	if (pszBuffer == NULL || dwBufferSize == 0)
+	{
+		return FALSE;
+	}
 
- /* Windows 加载动态库 */
+	// 清空缓冲区
+	memset(pszBuffer, 0, dwBufferSize);
+
+	// 若传入0，自动获取最后一次的系统错误码
+	DWORD dwRealError = (dwError == 0) ? GetLastError() : dwError;
+
+	// 将错误码转换为可读字符串
+	DWORD dwRet = FormatMessageA(
+		FORMAT_MESSAGE_FROM_SYSTEM |  // 从系统获取错误描述
+		FORMAT_MESSAGE_IGNORE_INSERTS, // 忽略插入符
+		NULL,
+		dwRealError,
+		MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), // 系统默认语言
+		pszBuffer,
+		dwBufferSize - 1, // 预留结束符位置
+		NULL
+	);
+
+	// 若系统无对应描述，手动拼接错误码
+	if (dwRet == 0)
+	{
+		snprintf(pszBuffer, dwBufferSize, "未知错误 (错误码: %lu)", dwRealError);
+	}
+
+	return TRUE;
+}
+/* Windows 加载动态库 */
 static FARPROC win32_getproc_multi(HMODULE h, const char* name) {
 	FARPROC fp;
 	char buf[256];
@@ -233,6 +323,14 @@ static HMODULE sdf_load_library_win32(const char* filename) {
 	handle = LoadLibraryA(filename);
 	if (handle)
 		return handle;
+	else {
+		/* 获取错误描述 */
+		char err_buf[256];
+		getWindowsErrorString(0, err_buf, sizeof(err_buf));
+		SDF_ERR("LoadLibraryA err,%s", err_buf);
+	}
+
+
 
 	/* 如果失败，尝试 UTF-8 到 UTF-16 转换 */
 	wlen = MultiByteToWideChar(CP_UTF8, 0, filename, -1, NULL, 0);
@@ -250,21 +348,29 @@ static HMODULE sdf_load_library_win32(const char* filename) {
 					if (last_slash) {
 						size_t dir_len = (size_t)(last_slash - wfilename);
 						wdir = (WCHAR*)OPENSSL_malloc((dir_len + 1) * sizeof(WCHAR));
-						if (wdir) {
-							wcsncpy(wdir, wfilename, dir_len);
+						if (wdir != NULL) {
+							wcsncpy_s(wdir, dir_len + 1, wfilename, dir_len);
 							wdir[dir_len] = L'\0';
 							/* 可用则切换到默认安全目录集，避免不必要目录参与搜索 */
-							if (pSetDefaultDllDirectories) {
+							if (pSetDefaultDllDirectories != NULL) {
 								pSetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
 							}
-							add_cookie = pAddDllDirectory(wdir);
+							if (pAddDllDirectory != NULL) {
+								add_cookie = pAddDllDirectory(wdir);
+							}
 						}
 					}
 				}
 				handle = LoadLibraryExW(wfilename, NULL,
 					LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR |
 					LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
-				if (add_cookie && pRemoveDllDirectory) {
+				if (!handle) {
+					/* 获取错误描述 */
+					char err_buf[256];
+					getWindowsErrorString(0, err_buf, sizeof(err_buf));
+					SDF_ERR("LoadLibraryExW err,%s", err_buf);
+				}
+				if (add_cookie != NULL && pRemoveDllDirectory != NULL) {
 					pRemoveDllDirectory(add_cookie);
 					add_cookie = NULL;
 				}
@@ -293,20 +399,28 @@ static HMODULE sdf_load_library_win32(const char* filename) {
 						if (last_slash) {
 							size_t dir_len = (size_t)(last_slash - wfilename);
 							wdir = (WCHAR*)OPENSSL_malloc((dir_len + 1) * sizeof(WCHAR));
-							if (wdir) {
-								wcsncpy(wdir, wfilename, dir_len);
+							if (wdir != NULL) {
+								wcsncpy_s(wdir, dir_len + 1, wfilename, dir_len);
 								wdir[dir_len] = L'\0';
-								if (pSetDefaultDllDirectories) {
+								if (pSetDefaultDllDirectories != NULL) {
 									pSetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
 								}
-								add_cookie = pAddDllDirectory(wdir);
+								if (pAddDllDirectory != NULL) {
+									add_cookie = pAddDllDirectory(wdir);
+								}
 							}
 						}
 					}
 					handle = LoadLibraryExW(wfilename, NULL,
 						LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR |
 						LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
-					if (add_cookie && pRemoveDllDirectory) {
+					if (!handle) {
+						/* 获取错误描述 */
+						char err_buf[256];
+						getWindowsErrorString(0, err_buf, sizeof(err_buf));
+						SDF_ERR("LoadLibraryExW err,%s", err_buf);
+					}
+					if (add_cookie != NULL && pRemoveDllDirectory != NULL) {
 						pRemoveDllDirectory(add_cookie);
 						add_cookie = NULL;
 					}
@@ -455,6 +569,13 @@ typedef struct {
 	int key_type; /* 0: RSA, 1: ECC/SM2 */
 	int is_sign_key;
 	EVP_PKEY* pkey;
+
+	/* 公钥缓存（用于 ENGINE 密钥的 SM2DHE 密钥协商） */
+	int is_engine_key;              /* 标记是否为 ENGINE 密钥 */
+	int has_public_key;             /* 是否有缓存的公钥 */
+	unsigned int pub_key_bits;      /* 公钥位数 */
+	unsigned char pub_key_x[ECCref_MAX_LEN];  /* 公钥 X 坐标 */
+	unsigned char pub_key_y[ECCref_MAX_LEN];  /* 公钥 Y 坐标 */
 } SDF_KEY_CTX;
 
 /* 全局 ENGINE index，用于存储 SDF 上下文 */
@@ -507,8 +628,7 @@ static ENGINE* sdf_engine = NULL;
   (ENGINE_MODE_GM_SSL_FULL | ENGINE_FEATURE_CIPHERS |                          \
    ENGINE_FEATURE_DIGESTS) /* 0x0C4B: GM SSL HW */
 
-static unsigned int sdf_global_feature_mask =
-ENGINE_MODE_SSL_ONLY | ENGINE_FEATURE_PKEY_METHS | ENGINE_FEATURE_SSL_EXTENSIONS | ENGINE_FEATURE_EC | ENGINE_FEATURE_CIPHERS | ENGINE_FEATURE_DIGESTS; /* 默认SSL模式 */
+static unsigned int sdf_global_feature_mask = 0;// ENGINE_MODE_SSL_ONLY | ENGINE_FEATURE_PKEY_METHS | ENGINE_FEATURE_SSL_EXTENSIONS | ENGINE_FEATURE_EC | ENGINE_FEATURE_CIPHERS | ENGINE_FEATURE_DIGESTS; /* 默认SSL模式 */
 
 /* 位掩码功能控制函数声明 */
 static int sdf_rebind_features(ENGINE* e);
@@ -613,9 +733,20 @@ static void setFunctionList(void* hCT32, SD_FUNCTION_LIST_PTR pList,
 			hCT32, "SDF_GenerateAgreementDataWithECC");
 	pList->SDF_GenerateKeyWithECC =
 		(_CP_SDF_GenerateKeyWithECC*)DLSYM(hCT32, "SDF_GenerateKeyWithECC");
+	//发起方（服务端）
 	pList->SDF_GenerateAgreementDataAndKeyWithECC =
 		(_CP_SDF_GenerateAgreementDataAndKeyWithECC*)DLSYM(
 			hCT32, "SDF_GenerateAgreementDataAndKeyWithECC");
+	// 扩展接口：发起方（服务端）
+	pList->SDF_GenerateAgreementDataWithECCEx =
+		(_CP_SDF_GenerateAgreementDataWithECCEx*)DLSYM(
+			hCT32, "SDF_GenerateAgreementDataWithECCEx");
+	pList->SDF_GenerateKeyWithECCEx =
+		(_CP_SDF_GenerateKeyWithECCEx*)DLSYM(hCT32, "SDF_GenerateKeyWithECCEx");
+	// 扩展接口：响应方（客户端）
+	pList->SDF_GenerateAgreementDataAndKeyWithECCEx =
+		(_CP_SDF_GenerateAgreementDataAndKeyWithECCEx*)DLSYM(
+			hCT32, "SDF_GenerateAgreementDataAndKeyWithECCEx");
 	pList->SDF_GenerateKeyWithIPK_ECC = (_CP_SDF_GenerateKeyWithIPK_ECC*)DLSYM(
 		hCT32, "SDF_GenerateKeyWithIPK_ECC");
 	pList->SDF_GenerateKeyWithEPK_ECC = (_CP_SDF_GenerateKeyWithEPK_ECC*)DLSYM(
@@ -799,7 +930,7 @@ static void sdf_ctx_free(SDF_CTX* ctx) {
 	}
 
 #ifdef _WIN32
-	/* 防护：DeleteCriticalSection 在极端错误路径中可能未被初始化，使用 SEH 防护 */
+	// 防护：DeleteCriticalSection 在极端错误路径中可能未被初始化，使用 SEH 防护 
 	__try {
 		DeleteCriticalSection(&ctx->lock);
 	}
@@ -1177,7 +1308,7 @@ static int sdf_ctrl(ENGINE* e, int cmd, long i, void* p, void (*f)(void)) {
 
 		sdf_global_feature_mask = new_mask;
 
-		SDF_INFO("SDF Feature mask set to: 0x%04X", new_mask);
+		SDF_INFO("SDF Feature mask set to: 0x%04X (from openssl.cnf)", new_mask);
 		SDF_INFO("  SSL Keys: %s",
 			(new_mask & ENGINE_FEATURE_SSL_KEYS) ? "ON" : "OFF");
 		SDF_INFO("  Basic Mgmt: %s",
@@ -1760,8 +1891,36 @@ static int sdf_ecdsa_sign(int type, const unsigned char* dgst, int dgst_len,
 	}
 
 	/* SM2 签名 r 和 s 都是 32 字节（256 位） */
-	BIGNUM* bn_r = BN_bin2bn(ecc_sig.r + 32, 32, NULL);
-	BIGNUM* bn_s = BN_bin2bn(ecc_sig.s + 32, 32, NULL);
+	/*
+	 * 处理两种 SDF 规范版本：
+	 * - 2008版: ECCSignature.r/s 是 32 字节（无填充）
+	 * - 2012版: ECCSignature.r/s 是 64 字节（前 32 字节填充）
+	 *
+	 * 检测方法：如果前 32 字节全为 0，则是 2012 版（有填充）；否则是 2008 版
+	 */
+	unsigned char* r_ptr = ecc_sig.r;
+	unsigned char* s_ptr = ecc_sig.s;
+
+	/* 检查是否有填充（2012版） */
+	int has_padding = 1;
+	for (int i = 0; i < 32; i++) {
+		if (ecc_sig.r[i] != 0 || ecc_sig.s[i] != 0) {
+			has_padding = 0;
+			break;
+		}
+	}
+
+	if (has_padding) {
+		SDF_INFO("ecdsa sign: detected 2012 spec (64-byte with padding), skipping first 32 bytes");
+		r_ptr = ecc_sig.r + 32;
+		s_ptr = ecc_sig.s + 32;
+	}
+	else {
+		SDF_INFO("ecdsa sign: detected 2008 spec (32-byte, no padding)");
+	}
+
+	BIGNUM* bn_r = BN_bin2bn(r_ptr, 32, NULL);
+	BIGNUM* bn_s = BN_bin2bn(s_ptr, 32, NULL);
 
 	if (!bn_r || !bn_s) {
 		BN_free(bn_r);
@@ -2171,7 +2330,7 @@ static EVP_PKEY* sdf_load_privkey(ENGINE* e, const char* key_id,
 		/* 验证公钥是否正确设置 */
 		BIGNUM* x_check = BN_new();
 		BIGNUM* y_check = BN_new();
-		if (EC_POINT_get_affine_coordinates_GFp(group, pub_point, x_check, y_check, NULL)) {
+		if (x_check && y_check && EC_POINT_get_affine_coordinates_GFp(group, pub_point, x_check, y_check, NULL)) {
 			unsigned char x_buf[32], y_buf[32];
 			int x_len = BN_bn2bin(x_check, x_buf);
 			int y_len = BN_bn2bin(y_check, y_buf);
@@ -2179,8 +2338,8 @@ static EVP_PKEY* sdf_load_privkey(ENGINE* e, const char* key_id,
 			SDF_HEX_DUMP("load_privkey: verified pub X", x_buf, x_len);
 			SDF_HEX_DUMP("load_privkey: verified pub Y", y_buf, y_len);
 		}
-		BN_free(x_check);
-		BN_free(y_check);
+		if (x_check) BN_free(x_check);
+		if (y_check) BN_free(y_check);
 
 		EC_POINT_free(pub_point);
 		BN_free(x);
@@ -2189,6 +2348,14 @@ static EVP_PKEY* sdf_load_privkey(ENGINE* e, const char* key_id,
 		/* 设置 EC 方法和上下文 */
 		EC_KEY_set_method(ec_key, get_sdf_ec_method());
 		EC_KEY_set_ex_data(ec_key, 0, key_ctx);
+
+		/* **缓存公钥数据，用于 SM2DHE 密钥协商** */
+		key_ctx->is_engine_key = 1;
+		key_ctx->has_public_key = 1;
+		key_ctx->pub_key_bits = ecc_pub.bits;
+		memcpy(key_ctx->pub_key_x, ecc_pub.x, ECCref_MAX_LEN);
+		memcpy(key_ctx->pub_key_y, ecc_pub.y, ECCref_MAX_LEN);
+		SDF_INFO("load_privkey: cached public key for SM2DHE, bits=%d", key_ctx->pub_key_bits);
 
 		/* 创建 EVP_PKEY */
 		pkey = EVP_PKEY_new();
@@ -2209,8 +2376,8 @@ static EVP_PKEY* sdf_load_privkey(ENGINE* e, const char* key_id,
 		SDF_INFO("sdf_load_privkey: EVP_PKEY_id=%d", EVP_PKEY_id(pkey));
 
 		/* 输出完整的公钥坐标用于验证 */
-		SDF_HEX_DUMP("pub_key x (64 bytes)", ecc_pub.x, ECCref_MAX_LEN);
-		SDF_HEX_DUMP("pub_key y (64 bytes)", ecc_pub.y, ECCref_MAX_LEN);
+		//SDF_HEX_DUMP("pub_key x (64 bytes)", ecc_pub.x, ECCref_MAX_LEN);
+		//SDF_HEX_DUMP("pub_key y (64 bytes)", ecc_pub.y, ECCref_MAX_LEN);
 	}
 
 	sdf_unlock(ctx);
@@ -2267,10 +2434,30 @@ typedef struct {
 	/* SM2 ID */
 	unsigned char* id;
 	size_t id_len;
+
+	/* SM2DHE 参数 */
+	struct {
+		EVP_PKEY* self_eph_priv;        /* 本端临时私钥 */
+		EVP_PKEY* peer_eph_pub;         /* 对端临时公钥 */
+		EVP_PKEY* self_cert_priv;       /* 本端证书私钥 */
+		EVP_PKEY* peer_cert_pub;        /* 对端证书公钥 */
+		EVP_PKEY* self_cert_pub;        /* 本端证书公钥 */
+		EVP_PKEY* self_eph_pub;         /* 本端临时公钥 */
+		const unsigned char* self_id;   /* 本端ID */
+		size_t self_id_len;             /* 本端ID长度 */
+		const unsigned char* peer_id;   /* 对端ID */
+		size_t peer_id_len;             /* 对端ID长度 */
+		int initiator;                  /* 是否为发起方 */
+		SGD_HANDLE agreement_handle;    /* SDF协商句柄，在pkey_ec_ctrl中生成，在pkey_ec_derive中使用 */
+		int deferred_keygen;            /* 是否延迟生成密钥（在derive阶段生成） */
+		unsigned char* sdf_generated_eph_pub;  /* SDF生成的临时公钥（编码格式） */
+		size_t sdf_generated_eph_pub_len;     /* SDF生成的临时公钥长度 */
+	} sm2dhe;
 #endif
 } SDF_EC_PKEY_CTX;
 
 static int sdf_pkey_ec_init(EVP_PKEY_CTX* ctx) {
+	//return -2;
 	SDF_EC_PKEY_CTX* dctx;
 
 	SDF_INFO("pkey_ec_init: initializing EC PKEY context");
@@ -2283,18 +2470,28 @@ static int sdf_pkey_ec_init(EVP_PKEY_CTX* ctx) {
 
 	dctx->cofactor_mode = -1;
 	dctx->kdf_type = EVP_PKEY_ECDH_KDF_NONE;
+	/* 立即创建 SM2 曲线的 EC_GROUP，确保 gen_group 不为 NULL */
+	dctx->gen_group = EC_GROUP_new_by_curve_name(NID_sm2);
+	if (!dctx->gen_group) {
+		SDF_ERR("pkey_ec_init: failed to create SM2 group");
+		SDFerr(SDF_F_SDF_PKEY_EC_INIT, SDF_R_MEMORY_ALLOCATION_FAILED);
+		OPENSSL_free(dctx);
+		return 0;
+	}
+	SDF_INFO("pkey_ec_init: created SM2 group successfully, gen_group=%p", dctx->gen_group);
 #ifndef OPENSSL_NO_SM2
 	/* 根据密钥类型判断是否为 SM2 */
 	EVP_PKEY* pkey = EVP_PKEY_CTX_get0_pkey(ctx);
 	int pkey_id = pkey ? EVP_PKEY_id(pkey) : EVP_PKEY_EC;
+	int is_sm2_ctx = EVP_PKEY_CTX_is_a(ctx, "SM2");
 
-	if (pkey_id == EVP_PKEY_SM2 || EVP_PKEY_CTX_is_a(ctx, "SM2")) {
-		dctx->ec_scheme = NID_sm2;
-	}
-	else {
-		dctx->ec_scheme = NID_X9_62_prime256v1;
-	}
-	SDF_INFO("pkey_ec_init: pkey_id=%d, ec_scheme=%d", pkey_id, dctx->ec_scheme);
+	SDF_INFO("pkey_ec_init: pkey=%p, pkey_id=%d, is_sm2_ctx=%d, EVP_PKEY_SM2=%d, EVP_PKEY_EC=%d",
+		pkey, pkey_id, is_sm2_ctx, EVP_PKEY_SM2, EVP_PKEY_EC);
+
+	/* 无论如何，强制使用 SM2 曲线，因为这是用于 ECDHE SM2 */
+	dctx->ec_scheme = NID_sm2;
+	SDF_INFO("pkey_ec_init: Forcing SM2 curve for ECDHE key generation");
+	SDF_INFO("pkey_ec_init: pkey_id=%d, ec_scheme=%d, NID_sm2=%d, NID_X9_62_prime256v1=%d", pkey_id, dctx->ec_scheme, NID_sm2, NID_X9_62_prime256v1);
 	dctx->signer_id = NULL;
 	dctx->signer_id_len = 0;
 	dctx->signer_zid = NULL;
@@ -2306,7 +2503,7 @@ static int sdf_pkey_ec_init(EVP_PKEY_CTX* ctx) {
 	SDF_INFO("pkey_ec_init: context initialized successfully, dctx=%p", dctx);
 
 	/* 添加调试信息：检查上下文是否正确设置 */
-	SDF_INFO("pkey_ec_init: ctx=%p, dctx=%p, ec_scheme=%d", ctx, dctx, dctx->ec_scheme);
+	SDF_INFO("pkey_ec_init: ctx=%p, dctx=%p, ec_scheme=%d, gen_group=%p", ctx, dctx, dctx->ec_scheme, dctx->gen_group);
 
 	return 1;
 }
@@ -2407,9 +2604,17 @@ static int sdf_pkey_ec_paramgen(EVP_PKEY_CTX* ctx, EVP_PKEY* pkey) {
 	SDF_EC_PKEY_CTX* dctx = EVP_PKEY_CTX_get_data(ctx);
 	int ret = 0;
 	if (dctx->gen_group == NULL) {
-		SDF_ERR("pkey_ec_paramgen: gen_group is NULL");
-		SDFerr(SDF_F_SDF_PKEY_EC_PARAMGEN, SDF_R_INVALID_PARAMETER);
-		return 0;
+		SDF_INFO("pkey_ec_paramgen: gen_group is NULL, creating SM2 group automatically");
+		/* 自动创建SM2曲线的EC_GROUP */
+		dctx->gen_group = EC_GROUP_new_by_curve_name(NID_sm2);
+		if (dctx->gen_group == NULL) {
+			SDF_ERR("pkey_ec_paramgen: failed to create SM2 group");
+			SDFerr(SDF_F_SDF_PKEY_EC_PARAMGEN, SDF_R_MEMORY_ALLOCATION_FAILED);
+			return 0;
+		}
+		SDF_INFO("pkey_ec_paramgen: created SM2 group successfully");
+		/* 确保ec_scheme为SM2 */
+		dctx->ec_scheme = NID_sm2;
 	}
 	ec = EC_KEY_new();
 	if (ec == NULL) {
@@ -2441,147 +2646,182 @@ static int sdf_pkey_ec_paramgen(EVP_PKEY_CTX* ctx, EVP_PKEY* pkey) {
 }
 
 static int sdf_pkey_ec_keygen(EVP_PKEY_CTX* ctx, EVP_PKEY* pkey) {
+	int ret = 0;
 	EC_KEY* ec = NULL;
-	EVP_PKEY* ctx_pkey = NULL;
-	SDF_EC_PKEY_CTX* dctx = EVP_PKEY_CTX_get_data(ctx);
 	EC_GROUP* group = NULL;
+	EVP_PKEY* ctx_pkey = NULL;
 
-	SDF_INFO("=== sdf_pkey_ec_keygen: starting key generation ===");
-	SDF_INFO("pkey_ec_keygen: ctx=%p, pkey=%p, dctx=%p, ec_scheme=%d",
-		ctx, pkey, dctx, dctx ? dctx->ec_scheme : -1);
+	/* 确保函数被调用时记录详细日志 */
+	SDF_INFO("sdf_pkey_ec_keygen: *** CALLED ***");
+	SDF_INFO("sdf_pkey_ec_keygen: ctx=%p, pkey=%p", ctx, pkey);
 
-	ctx_pkey = EVP_PKEY_CTX_get0_pkey(ctx);
+	/* 获取EVP_PKEY_CTX的数据 */
+	SDF_EC_PKEY_CTX* dctx = EVP_PKEY_CTX_get_data(ctx);
 
-	/* 如果 gen_group 为 NULL 且是 SM2，先创建 SM2 group */
-	if (dctx->gen_group == NULL && dctx->ec_scheme == NID_sm2) {
-		SDF_INFO("pkey_ec_keygen: gen_group is NULL, creating SM2 group");
+	/* **关键修复1：确保 dctx 存在** */
+	if (!dctx) {
+		SDF_INFO("sdf_pkey_ec_keygen: dctx is NULL, initializing for ECDHE temporary key");
+		/* 调用 init 函数初始化 dctx */
+		if (!sdf_pkey_ec_init(ctx)) {
+			SDF_ERR("sdf_pkey_ec_keygen: sdf_pkey_ec_init failed");
+			SDFerr(SDF_F_SDF_PKEY_EC_KEYGEN, SDF_R_MEMORY_ALLOCATION_FAILED);
+			return 0;
+		}
+		/* 重新获取 dctx */
+		dctx = EVP_PKEY_CTX_get_data(ctx);
+		if (!dctx) {
+			SDF_ERR("sdf_pkey_ec_keygen: dctx still NULL after init");
+			SDFerr(SDF_F_SDF_PKEY_EC_KEYGEN, SDF_R_MEMORY_ALLOCATION_FAILED);
+			return 0;
+		}
+		SDF_INFO("sdf_pkey_ec_keygen: initialized dctx=%p for ECDHE, ec_scheme=%d", dctx, dctx->ec_scheme);
+	}
+	else {
+		SDF_INFO("sdf_pkey_ec_keygen: dctx=%p, dctx->ec_scheme=%d, NID_sm2=%d", dctx, dctx->ec_scheme, NID_sm2);
+	}
+
+	/* **关键修复2：确保 gen_group 存在** */
+	if (!dctx->gen_group) {
+		SDF_INFO("sdf_pkey_ec_keygen: gen_group is NULL, creating SM2 group");
 		group = EC_GROUP_new_by_curve_name(NID_sm2);
 		if (!group) {
-			SDF_ERR("pkey_ec_keygen: failed to create SM2 group");
-			SDFerr(SDF_F_SDF_PKEY_EC_KEYGEN, SDF_R_INVALID_PARAMETER);
+			SDF_ERR("sdf_pkey_ec_keygen: failed to create SM2 group");
+			SDFerr(SDF_F_SDF_PKEY_EC_KEYGEN, SDF_R_MEMORY_ALLOCATION_FAILED);
 			return 0;
 		}
 		dctx->gen_group = group;
+		dctx->ec_scheme = NID_sm2;
+		SDF_INFO("sdf_pkey_ec_keygen: created SM2 group successfully");
 	}
 
-	/* 现在检查 gen_group 是否有效 */
-	if (ctx_pkey == NULL && dctx->gen_group == NULL) {
-		SDF_ERR("pkey_ec_keygen: gen_group is NULL and no ctx_pkey");
-		SDFerr(SDF_F_SDF_PKEY_EC_KEYGEN, SDF_R_INVALID_PARAMETER);
-		return 0;
-	}
+	ctx_pkey = EVP_PKEY_CTX_get0_pkey(ctx);
 
+	/* 创建 EC_KEY 对象 */
 	ec = EC_KEY_new();
 	if (!ec) {
-		SDF_ERR("pkey_ec_keygen: alloc EC_KEY failed");
+		SDF_ERR("sdf_pkey_ec_keygen: EC_KEY_new failed");
 		SDFerr(SDF_F_SDF_PKEY_EC_KEYGEN, SDF_R_MEMORY_ALLOCATION_FAILED);
 		return 0;
 	}
 
-	if (dctx->ec_scheme == NID_sm2) {
-		EVP_PKEY_assign(pkey, EVP_PKEY_SM2, ec);
-		SDF_INFO("pkey_ec_keygen: assigned SM2 key to pkey");
-	}
-	else {
-		EVP_PKEY_assign_EC_KEY(pkey, ec);
-		SDF_INFO("pkey_ec_keygen: assigned EC key to pkey");
+	/* 设置曲线组 */
+	if (!EC_KEY_set_group(ec, dctx->gen_group)) {
+		SDF_ERR("sdf_pkey_ec_keygen: EC_KEY_set_group failed");
+		SDFerr(SDF_F_SDF_PKEY_EC_KEYGEN, SDF_R_INVALID_PARAMETER);
+		EC_KEY_free(ec);
+		return 0;
 	}
 
+	/*
+	 * **重要**：不要在这里提前分配 EVP_PKEY！
+	 * 原因：会破坏 Plan B 检测条件 (!ctx_pkey)
+	 * EVP_PKEY 分配将在各个路径的末尾进行
+	 */
+
+	 /* 如果有 ctx_pkey，复制参数 */
 	if (ctx_pkey) {
-		/* Note: if error return, pkey is freed by parent routine */
 		if (!EVP_PKEY_copy_parameters(pkey, ctx_pkey)) {
-			SDF_ERR("pkey_ec_keygen: copy parameters failed");
+			SDF_ERR("sdf_pkey_ec_keygen: copy parameters failed");
 			SDFerr(SDF_F_SDF_PKEY_EC_KEYGEN, SDF_R_INVALID_PARAMETER);
+			EC_KEY_free(ec);
 			return 0;
 		}
 	}
-	else {
-		/* 如果 gen_group 为 NULL，尝试根据 ec_scheme 创建组 */
-		if (dctx->gen_group == NULL) {
-#ifndef OPENSSL_NO_SM2
-			if (dctx->ec_scheme == NID_sm2) {
-				SDF_INFO("pkey_ec_keygen: creating SM2 group");
-				group = EC_GROUP_new_by_curve_name(NID_sm2);
-			}
-			else
-#endif
-			{
-				SDF_INFO("pkey_ec_keygen: creating default EC group");
-				group = EC_GROUP_new_by_curve_name(NID_X9_62_prime256v1);
-			}
 
-			if (!group) {
-				SDF_ERR("pkey_ec_keygen: failed to create EC group");
-				SDFerr(SDF_F_SDF_PKEY_EC_KEYGEN, SDF_R_INVALID_PARAMETER);
-				return 0;
-			}
+	/* 验证曲线设置 */
+	const EC_GROUP* current_group = EC_KEY_get0_group(ec);
+	if (!current_group) {
+		SDF_ERR("sdf_pkey_ec_keygen: EC_KEY has no group set before keygen!");
+		SDFerr(SDF_F_SDF_PKEY_EC_KEYGEN, SDF_R_INVALID_PARAMETER);
+		EC_KEY_free(ec);
+		return 0;
+	}
+	int current_curve_nid = EC_GROUP_get_curve_name(current_group);
+	SDF_INFO("sdf_pkey_ec_keygen: EC_KEY group is set, curve_nid=%d (SM2=%d)", current_curve_nid, NID_sm2);
+	/*
+	 * SM2DHE 临时密钥生成：
+	 * 在 keygen 阶段无法区分服务端/客户端（initiator 还未设置）
+	 * 客户端需要延迟生成密钥，在 derive 阶段由 SDF 一次性完成
+	 * 服务端会继续往下走，生成占位密钥，然后在 pkey_ec_ctrl 阶段由 SDF 更新
+	 * 
+	 * 注意：这里检查 !dctx->sm2dhe.initiator 实际上总是 true（默认值为 0）
+	 * 所以客户端会进入这个分支并返回，服务端也会进入但后续会被 pkey_ec_ctrl 更新
+	 */
+	if (current_curve_nid == NID_sm2 && !ctx_pkey) {
+		SDF_INFO("sdf_pkey_ec_keygen: SM2DHE scenario detected");
+		SDF_INFO("sdf_pkey_ec_keygen: Setting deferred_keygen=1, SDF key will be generated later");
 
-			if (!EC_KEY_set_group(ec, group)) {
-				SDF_ERR("pkey_ec_keygen: set EC_KEY group failed");
-				SDFerr(SDF_F_SDF_PKEY_EC_KEYGEN, SDF_R_INVALID_PARAMETER);
-				EC_GROUP_free(group);
-				return 0;
-			}
+		/* 设置标志，表示这是一个延迟生成的密钥 */
+		dctx->sm2dhe.deferred_keygen = 1;
 
-			/* 保存组引用 */
-			dctx->gen_group = group;
-			SDF_INFO("pkey_ec_keygen: group set successfully");
+		/* 生成占位软件密钥（服务端需要用于 ServerKeyExchange 编码） */
+		ret = EC_KEY_generate_key(ec);
+		if (ret <= 0) {
+			SDF_ERR("sdf_pkey_ec_keygen: EC_KEY_generate_key FAILED!");
+			EC_KEY_free(ec);
+			return 0;
 		}
-		else {
-			if (!EC_KEY_set_group(ec, dctx->gen_group)) {
-				SDF_ERR("pkey_ec_keygen: set EC_KEY group failed");
-				SDFerr(SDF_F_SDF_PKEY_EC_KEYGEN, SDF_R_INVALID_PARAMETER);
-				return 0;
-			}
+
+		/* 分配 EVP_PKEY */
+		EVP_PKEY_assign_EC_KEY(pkey, ec);
+
+		/*
+		 * CRITICAL: 将 deferred_keygen 标志保存到 EVP_PKEY 的 ex_data 中
+		 * 因为后续创建新的 EVP_PKEY_CTX 时，新的 dctx 不会继承这个标志
+		 * 使用 ex_data index 2 来保存 deferred_keygen 标志
+		 */
+		int* deferred_flag = OPENSSL_malloc(sizeof(int));
+		if (deferred_flag) {
+			*deferred_flag = 1;
+			EVP_PKEY_set_ex_data(pkey, 2, deferred_flag);  /* index 2 for deferred_keygen */
+			SDF_INFO("sdf_pkey_ec_keygen: Saved deferred_keygen=1 to EVP_PKEY ex_data");
 		}
+
+		SDF_INFO("sdf_pkey_ec_keygen: Placeholder key generated, deferred_keygen=1");
+		return 1;
 	}
 
-	/* 尝试使用 SDF 硬件生成密钥 */
-	SDF_CTX* sdf_ctx = NULL;
-	int ret = 0;
-
-	if (dctx->ec_scheme == NID_sm2) {
-		sdf_ctx = NULL;
-		if (sdf_ctx) {
-			SDF_INFO("pkey_ec_keygen: using SDF hardware key generation");
-			ret = sdf_ec_key_gen(ec);
-			if (ret > 0) {
-				SDF_INFO("pkey_ec_keygen: SDF hardware key generation successful");
-				/* 输出密钥信息 */
-				const EC_GROUP* group = EC_KEY_get0_group(ec);
-				const EC_POINT* pub_key = EC_KEY_get0_public_key(ec);
-				if (group && pub_key) {
-					int curve_nid = EC_GROUP_get_curve_name(group);
-					SDF_INFO("pkey_ec_keygen: curve_nid=%d, pub_key=%p", curve_nid, pub_key);
-				}
-				return ret;
-			}
-			else {
-				SDF_INFO("pkey_ec_keygen: SDF hardware key generation failed, falling back to software");
-			}
-		}
-	}
-
-	/* 回退到软件密钥生成 */
-	SDF_INFO("pkey_ec_keygen: using software key generation");
+	/*
+	 * 标准路径：使用软件生成 ECDHE 临时密钥
+	 */
+	SDF_INFO("sdf_pkey_ec_keygen: using software key generation for ECDHE");
 	ret = EC_KEY_generate_key(ec);
-	SDF_INFO("pkey_ec_keygen: key generation returned %d", ret);
-
-	if (ret > 0) {
-		SDF_INFO("pkey_ec_keygen: key generation successful");
-		/* 输出密钥信息 */
-		const EC_GROUP* group = EC_KEY_get0_group(ec);
-		const EC_POINT* pub_key = EC_KEY_get0_public_key(ec);
-		if (group && pub_key) {
-			int curve_nid = EC_GROUP_get_curve_name(group);
-			SDF_INFO("pkey_ec_keygen: curve_nid=%d, pub_key=%p", curve_nid, pub_key);
+	if (ret <= 0) {
+		SDF_ERR("sdf_pkey_ec_keygen: EC_KEY_generate_key FAILED!");
+		/* 打印OpenSSL错误栈 */
+		unsigned long err;
+		while ((err = ERR_get_error()) != 0) {
+			char err_buf[256];
+			ERR_error_string_n(err, err_buf, sizeof(err_buf));
+			SDF_ERR("sdf_pkey_ec_keygen: OpenSSL error: %s", err_buf);
 		}
+		SDFerr(SDF_F_SDF_PKEY_EC_KEYGEN, SDF_R_INVALID_PARAMETER);
+		return 0;
+	}
+
+	SDF_INFO("sdf_pkey_ec_keygen: key generation successful");
+
+	/* 验证生成的密钥 */
+	const EC_POINT* pub_key = EC_KEY_get0_public_key(ec);
+	const BIGNUM* priv_key = EC_KEY_get0_private_key(ec);
+	if (pub_key && priv_key) {
+		SDF_INFO("sdf_pkey_ec_keygen: public key=%p, private key=%p", pub_key, priv_key);
 	}
 	else {
-		SDF_ERR("pkey_ec_keygen: key generation failed");
+		SDF_WARN("sdf_pkey_ec_keygen: key generation incomplete, pub=%p, priv=%p", pub_key, priv_key);
 	}
 
-	return ret;
+	/* 分配 EVP_PKEY（软件生成路径） */
+	if (dctx->ec_scheme == NID_sm2) {
+		EVP_PKEY_assign(pkey, EVP_PKEY_SM2, ec);
+		SDF_INFO("sdf_pkey_ec_keygen: assigned SM2 key to pkey (software path)");
+	}
+	else {
+		EVP_PKEY_assign_EC_KEY(pkey, ec);
+		SDF_INFO("sdf_pkey_ec_keygen: assigned EC key to pkey (software path)");
+	}
+
+	return 1;
 }
 
 static int sdf_pkey_ec_sign(EVP_PKEY_CTX* ctx, unsigned char* sig,
@@ -2616,7 +2856,7 @@ static int sdf_pkey_ec_sign(EVP_PKEY_CTX* ctx, unsigned char* sig,
 	SDF_INFO("pkey_ec_sign: digest type=%d, ec_scheme=%d", type, dctx->ec_scheme);
 
 	/* 输出待签名数据（TBS），这是经过 EVP_DigestSign 处理后的最终摘要 */
-	SDF_HEX_DUMP("pkey_ec_sign: TBS data (input from EVP layer)", tbs, tbslen);
+	//SDF_HEX_DUMP("pkey_ec_sign: TBS data (input from EVP layer)", tbs, tbslen);
 
 #ifndef OPENSSL_NO_SM2
 	if (dctx->ec_scheme == NID_sm2) {
@@ -2745,16 +2985,26 @@ static int sdf_pkey_ec_encrypt(EVP_PKEY_CTX* ctx, unsigned char* out,
 
 	switch (dctx->ec_scheme) {
 	case NID_sm2:
-		SDF_INFO("pkey_ec_encrypt: SM2 encrypt called, inlen=%zu, outlen=%zu", inlen, *outlen);
-		/* 暂时使用软件实现 */
-		ret = ossl_sm2_encrypt((EC_KEY*)ec_key, EVP_sm3(), in, inlen, out, outlen, 0);
+		SDF_INFO("pkey_ec_encrypt: SM2 encrypt called, inlen=%zu, out=%p", inlen, out);
+		
+		/* First call: query output size */
+		if (out == NULL) {
+			/* SM2 ciphertext format: C1(65 bytes) + C3(32 bytes) + C2(inlen bytes) + ASN.1 overhead (~10 bytes) */
+			*outlen = 65 + 32 + inlen + 16;
+			SDF_INFO("pkey_ec_encrypt: query size, returning outlen=%zu", *outlen);
+			return 1;
+		}
+		
+		/* Second call: perform actual encryption */
+		SDF_INFO("pkey_ec_encrypt: performing SM2 encryption, buffer size=%zu", *outlen);
+		ret = ossl_sm2_encrypt((EC_KEY*)ec_key, EVP_sm3(), in, inlen, out, outlen, 1); //C1C3C2
 		if (ret <= 0) {
 			SDF_ERR("pkey_ec_encrypt: SM2 encrypt failed, ret=%d", ret);
 			SDFerr(SDF_F_SDF_PKEY_EC_ENCRYPT, SDF_R_ENCRYPTION_FAILED);
 			return 0;
 		}
-		*outlen = ret;
-		SDF_INFO("pkey_ec_encrypt: SM2 encrypt successful, outlen=%zu", *outlen);
+		/* ossl_sm2_encrypt returns 1 on success and updates *outlen with actual ciphertext length */
+		SDF_INFO("pkey_ec_encrypt: SM2 encrypt successful, actual outlen=%zu", *outlen);
 		return 1;
 	default:
 		SDF_ERR("pkey_ec_encrypt: ECIES encrypt not supported");
@@ -2851,6 +3101,94 @@ int SM2CiphertextValue_get_ECCCipher(const SM2CiphertextValue* cv,
 end:
 	return ret;
 }
+int SM2_CiphertextEx_get_ECCCipher(const SM2_CiphertextEx* cv,
+	ECCCipher* ref)
+{
+	int ret = 0;
+
+	/* check arguments */
+	if (!cv || !ref)
+	{
+		SDF_ERR("SM2_CiphertextEx_get_ECCCipher failed");
+		SDFerr(SDF_F_SDF_SM2CIPHERTEXTVALUE_GET_ECCCIPHER, SDF_R_DECRYPTION_FAILED);
+
+		return 0;
+	}
+
+	/* as the `ECCCipher->C[1]` default size is too small, we have to
+	 * check `ECCCipher->L` to make sure caller has initialized this
+	 * structure and prepared enough buffer to hold variable length
+	 * ciphertext (C2 in C1C3C2 format, stored in cv->C3 field)
+	 */
+	if (ref->L < ASN1_STRING_length(cv->C3))
+	{
+		SDF_ERR("SM2_CiphertextEx_get_ECCCipher failed: buffer too small");
+		SDFerr(SDF_F_SDF_SM2CIPHERTEXTVALUE_GET_ECCCIPHER, SDF_R_DECRYPTION_FAILED);
+		return 0;
+	}
+
+	/*
+	 * check compatible of SM2CiphertextValue with EC_GROUP
+	 * In gmapi we only do simple checks, i.e. length of coordinates.
+	 * We assume that more checks, such as x, y in the range of [1, p]
+	 * and other semantic checks should be done by the `sm2` module.
+	 */
+	if (BN_num_bytes(cv->C1x) > ECCref_MAX_LEN
+		|| BN_num_bytes(cv->C1y) > ECCref_MAX_LEN)
+	{
+		SDF_ERR("SM2_CiphertextEx_get_ECCCipher failed");
+		SDFerr(SDF_F_SDF_SM2CIPHERTEXTVALUE_GET_ECCCIPHER, SDF_R_DECRYPTION_FAILED);
+		goto end;
+	}
+
+	/* SM2CiphertextValue ==> ECCCipher */
+	memset(ref, 0, sizeof(*ref));
+
+	if (!BN_bn2bin(cv->C1x,
+		ref->x + ECCref_MAX_LEN - BN_num_bytes(cv->C1x)))
+	{
+		SDF_ERR("SM2_CiphertextEx_get_ECCCipher failed");
+		SDFerr(SDF_F_SDF_SM2CIPHERTEXTVALUE_GET_ECCCIPHER, SDF_R_DECRYPTION_FAILED);
+		goto end;
+	}
+
+	if (!BN_bn2bin(cv->C1y,
+		ref->y + ECCref_MAX_LEN - BN_num_bytes(cv->C1y)))
+	{
+		SDF_ERR("SM2_CiphertextEx_get_ECCCipher failed");
+		SDFerr(SDF_F_SDF_SM2CIPHERTEXTVALUE_GET_ECCCIPHER, SDF_R_DECRYPTION_FAILED);
+
+		goto end;
+	}
+
+	/* encode mac `ECCCipher->M[32]` - C3 in C1C3C2 format, stored in cv->C2 field */
+	if (ASN1_STRING_length(cv->C2) != 32)
+	{
+		SDF_ERR("SM2_CiphertextEx_get_ECCCipher failed: C3(MAC) length != 32");
+		SDFerr(SDF_F_SDF_SM2CIPHERTEXTVALUE_GET_ECCCIPHER, SDF_R_DECRYPTION_FAILED);
+		goto end;
+	}
+	memcpy(ref->M, ASN1_STRING_get0_data(cv->C2),
+		ASN1_STRING_length(cv->C2));
+
+	/* encode ciphertext `ECCCipher->L`, `ECCCipher->C[]` - C2 in C1C3C2 format, stored in cv->C3 field */
+
+	if (ASN1_STRING_length(cv->C3) <= 0
+		|| ASN1_STRING_length(cv->C3) > INT_MAX)
+	{
+		SDF_ERR("SM2_CiphertextEx_get_ECCCipher failed: invalid C2(ciphertext) length");
+		SDFerr(SDF_F_SDF_SM2CIPHERTEXTVALUE_GET_ECCCIPHER, SDF_R_DECRYPTION_FAILED);
+		goto end;
+	}
+	ref->L = ASN1_STRING_length(cv->C3);
+	memcpy(ref->C, ASN1_STRING_get0_data(cv->C3),
+		ASN1_STRING_length(cv->C3));
+
+	/* set return value */
+	ret = 1;
+end:
+	return ret;
+}
 ECCCipher* d2i_ECCCipher(ECCCipher** a, const SGD_UCHAR** pp, long length)
 {
 	ECCCipher* ret = NULL;
@@ -2904,6 +3242,59 @@ end:
 		SM2CiphertextValue_free(cv);
 	return ret;
 }
+ECCCipher* d2i_ECCCipherEx(ECCCipher** a, const SGD_UCHAR** pp, long length)
+{
+	ECCCipher* ret = NULL;
+	ECCCipher* sdf = NULL;
+	SM2_CiphertextEx* cv = NULL;
+	if (a == NULL || *a == NULL)
+	{
+		SDF_ERR("d2i_ECCCipherEx failed");
+		SDFerr(SDF_F_SDF_D2I_ECCCIPHER, SDF_R_DECRYPTION_FAILED);
+		return NULL;
+	}
+	if (!(cv = d2i_SM2_CiphertextEx(NULL, pp, length)))
+	{
+		SDF_ERR("d2i_SM2_CiphertextEx failed");
+		SDFerr(SDF_F_SDF_D2I_ECCCIPHER, SDF_R_DECRYPTION_FAILED);
+		goto end;
+	}
+
+
+	if (a && *a)
+	{
+		if (!SM2_CiphertextEx_get_ECCCipher(cv, *a))
+		{
+			SDF_ERR("SM2CiphertextValue_get_ECCCipher failed");
+			SDFerr(SDF_F_SDF_D2I_ECCCIPHER, SDF_R_DECRYPTION_FAILED);
+			goto end;
+		}
+		ret = *a;
+	}
+	else
+	{
+		// if (SDF_NewECCCipher(&sdf, ASN1_STRING_length(cv->ciphertext)) != SDR_OK)
+		// {
+		// 	GMAPIerr(GMAPI_F_D2I_ECCCIPHER, ERR_R_SDF_LIB);
+		// 	goto end;
+		// }
+		// sdf->L = ASN1_STRING_length(cv->ciphertext);
+		// if (!SM2CiphertextValue_get_ECCCipher(cv, sdf))
+		// {
+		// 	GMAPIerr(GMAPI_F_D2I_ECCCIPHER, ERR_R_GMAPI_LIB);
+		// 	goto end;
+		// }
+		// ret = sdf;
+		// sdf = NULL;
+	}
+
+end:
+	if (sdf)
+		OPENSSL_free(sdf);
+	if (cv)
+		SM2_CiphertextEx_free(cv);
+	return ret;
+}
 static int sdf_pkey_ec_decrypt(EVP_PKEY_CTX* ctx, unsigned char* out,
 	size_t* outlen, const unsigned char* in,
 	size_t inlen) {
@@ -2927,7 +3318,7 @@ static int sdf_pkey_ec_decrypt(EVP_PKEY_CTX* ctx, unsigned char* out,
 				ecc_ciph = d2i_ECCCipher(&ecc_ciph, &p, inlen);
 				if (ecc_ciph == NULL)
 				{
-					SDF_ERR("d2i_ECCCipher failed");
+					SDF_ERR("d2i_ECCCipherEx failed");
 					SDFerr(SDF_F_SDF_PKEY_EC_DECRYPT, SDF_R_DECRYPTION_FAILED);
 					return 0;
 				}
@@ -2948,16 +3339,10 @@ static int sdf_pkey_ec_decrypt(EVP_PKEY_CTX* ctx, unsigned char* out,
 				return 1;
 			}
 
-			///* 软件回退 */
-			//ret = ossl_sm2_decrypt((EC_KEY*)ec_key, EVP_sm3(), in, inlen, out, outlen, 1);
-			//if (ret <= 0) {
-			//    SDF_ERR("pkey_ec_decrypt: SM2 decrypt failed (software), ret=%d", ret);
-			//    SDFerr(SDF_F_SDF_PKEY_EC_DECRYPT, SDF_R_DECRYPTION_FAILED);
-			//    return 0;
-			//}
-			*outlen = ret;
-			SDF_INFO("pkey_ec_decrypt: SM2 decrypt successful (software), outlen=%zu", *outlen);
-			return 1;
+			/* 软件解密当前未实现，仅支持硬件解密 */
+			SDF_ERR("pkey_ec_decrypt: software SM2 decrypt not implemented");
+			SDFerr(SDF_F_SDF_PKEY_EC_DECRYPT, SDF_R_NOT_SUPPORTED);
+			return 0;
 		}
 	default:
 		SDF_ERR("pkey_ec_decrypt: ECIES decrypt not supported");
@@ -2967,6 +3352,136 @@ static int sdf_pkey_ec_decrypt(EVP_PKEY_CTX* ctx, unsigned char* out,
 }
 
 #ifndef OPENSSL_NO_EC
+static int EC_KEY_get_ECCrefPublicKey(EC_KEY* ec_key, ECCrefPublicKey* ref)
+{
+	int ret = 0;
+	BN_CTX* bn_ctx = NULL;
+	const EC_GROUP* group = EC_KEY_get0_group(ec_key);
+	const EC_POINT* point = EC_KEY_get0_public_key(ec_key);
+	BIGNUM* x;
+	BIGNUM* y;
+
+	/* check arguments */
+	if (!ec_key || !ref)
+	{
+		SDF_ERR("EC_KEY_get_ECCrefPublicKey: invalid parameters");
+		SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_INVALID_PARAMETER);
+		return 0;
+	}
+
+	/* 验证 EC_KEY 结构是否有效 */
+	group = EC_KEY_get0_group(ec_key);
+	point = EC_KEY_get0_public_key(ec_key);
+	if (!group || !point) {
+		SDF_ERR("EC_KEY_get_ECCrefPublicKey: EC_KEY has invalid group or point");
+		SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_INVALID_PARAMETER);
+		return 0;
+	}
+
+	/* **关键修复：对于 ENGINE 密钥，直接从 key_ctx 获取原始公钥数据** */
+	SDF_KEY_CTX* key_ctx = (SDF_KEY_CTX*)EC_KEY_get_ex_data(ec_key, 0);
+	if (key_ctx && key_ctx->is_engine_key && key_ctx->has_public_key) {
+		SDF_INFO("EC_KEY_get_ECCrefPublicKey: ENGINE key detected, using cached public key");
+		/* 直接使用缓存中的公钥数据 */
+		if (key_ctx->pub_key_bits > ECCref_MAX_BITS) {
+			SDF_ERR("EC_KEY_get_ECCrefPublicKey: pub_key_bits too large");
+			return 0;
+		}
+		memset(ref, 0, sizeof(*ref));
+		ref->bits = key_ctx->pub_key_bits;
+		/* 跳过前 32 字节的填充，复制实际坐标值 */
+		memcpy(ref->x, key_ctx->pub_key_x, ECCref_MAX_LEN);
+		memcpy(ref->y, key_ctx->pub_key_y, ECCref_MAX_LEN);
+		SDF_INFO("EC_KEY_get_ECCrefPublicKey: ENGINE key converted successfully");
+		SDF_HEX_DUMP("  x", ref->x + ECCref_MAX_LEN - 32, 32);
+		SDF_HEX_DUMP("  y", ref->y + ECCref_MAX_LEN - 32, 32);
+		return 1;
+	}
+
+	/* prepare */
+	do
+	{
+		if (!(bn_ctx = BN_CTX_new()))
+		{
+			SDF_ERR("BN_CTX_new failed");
+			SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_MEMORY_ALLOCATION_FAILED);
+			break;
+		}
+
+		BN_CTX_start(bn_ctx);
+		x = BN_CTX_get(bn_ctx);
+		y = BN_CTX_get(bn_ctx);
+		if (!x || !y)
+		{
+			SDF_ERR("BN_CTX_get failed");
+			SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_MEMORY_ALLOCATION_FAILED);
+			break;
+		}
+
+		if (EC_GROUP_get_degree(group) > ECCref_MAX_BITS)
+		{
+			SDF_ERR("EC_GROUP_get_degree  > ECCref_MAX_BITS");
+			SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_INVALID_KEY_LENGTH);
+			break;
+		}
+
+		if (EC_METHOD_get_field_type(EC_GROUP_method_of(group)) == NID_X9_62_prime_field)
+		{
+			if (!EC_POINT_get_affine_coordinates_GFp(group, point, x, y, bn_ctx))
+			{
+				SDF_ERR("EC_POINT_get_affine_coordinates_GFp failed");
+				SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_KEY_EXCHANGE_FAILED);
+				break;
+			}
+		}
+		else
+		{
+			if (!EC_POINT_get_affine_coordinates_GF2m(group, point, x, y, bn_ctx))
+			{
+				SDF_ERR("EC_POINT_get_affine_coordinates_GF2m failed");
+				SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_KEY_EXCHANGE_FAILED);
+				break;
+			}
+		}
+
+		/* EC_KEY ==> ECCrefPublicKey */
+		memset(ref, 0, sizeof(*ref));
+		ref->bits = EC_GROUP_get_degree(group);
+
+		/* 调试：打印原始坐标 */
+		int x_bytes = BN_num_bytes(x);
+		int y_bytes = BN_num_bytes(y);
+		SDF_INFO("EC_KEY_get_ECCrefPublicKey: raw x_len=%d, y_len=%d", x_bytes, y_bytes);
+
+		if (!BN_bn2bin(x, ref->x + ECCref_MAX_LEN - BN_num_bytes(x)))
+		{
+			SDF_ERR("BN_bn2bin failed");
+			SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_KEY_EXCHANGE_FAILED);
+			break;
+		}
+		if (!BN_bn2bin(y, ref->y + ECCref_MAX_LEN - BN_num_bytes(y)))
+		{
+			SDF_ERR("BN_bn2bin failed");
+			SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_KEY_EXCHANGE_FAILED);
+			break;
+		}
+
+		/* 调试：打印转换后的公钥 */
+		SDF_INFO("EC_KEY_get_ECCrefPublicKey: converted to ECCrefPublicKey format");
+		SDF_HEX_DUMP("  ECCrefPublicKey.x (effective 32 bytes)", ref->x + ECCref_MAX_LEN - 32, 32);
+		SDF_HEX_DUMP("  ECCrefPublicKey.y (effective 32 bytes)", ref->y + ECCref_MAX_LEN - 32, 32);
+
+		ret = 1;
+	} while (0);
+
+	if (bn_ctx)
+	{
+		BN_CTX_end(bn_ctx);
+		BN_CTX_free(bn_ctx);
+	}
+	return ret;
+}
+
 static int sdf_pkey_ec_derive(EVP_PKEY_CTX* ctx, unsigned char* key,
 	size_t* keylen) {
 	int ret;
@@ -2980,35 +3495,696 @@ static int sdf_pkey_ec_derive(EVP_PKEY_CTX* ctx, unsigned char* key,
 	SDF_INFO("pkey_ec_derive: called, keylen=%zu", key ? *keylen : 0);
 	SDF_INFO("pkey_ec_derive: ctx=%p, dctx=%p, ec_scheme=%d", ctx, dctx, dctx ? dctx->ec_scheme : -1);
 
+	/* 调试：检查 SM2DHE 参数 */
+	if (dctx) {
+		SDF_INFO("pkey_ec_derive: SM2DHE params check:");
+		SDF_INFO("  self_id=%p, self_id_len=%zu", dctx->sm2dhe.self_id, dctx->sm2dhe.self_id_len);
+		SDF_INFO("  peer_id=%p, peer_id_len=%zu", dctx->sm2dhe.peer_id, dctx->sm2dhe.peer_id_len);
+		SDF_INFO("  initiator=%d", dctx->sm2dhe.initiator);
+	}
+
 	pkey = EVP_PKEY_CTX_get0_pkey(ctx);
 	peerkey = EVP_PKEY_CTX_get0_peerkey(ctx);
 
 	SDF_INFO("pkey_ec_derive: pkey=%p, peerkey=%p", pkey, peerkey);
 
-	if (!pkey || !peerkey) {
-		SDF_ERR("pkey_ec_derive: keys not set");
-		SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_INVALID_PARAMETER);
-		return 0;
+	/* 获取密钥上下文 */
+	SDF_KEY_CTX* key_ctx = EVP_PKEY_get_ex_data(pkey, 0);
+	if (!key_ctx) {
+		eckey = EVP_PKEY_get0_EC_KEY(pkey);
+		if (eckey) {
+			key_ctx = EC_KEY_get_ex_data(eckey, 0);
+		}
 	}
 
-	eckey = dctx->co_key ? dctx->co_key : EVP_PKEY_get0_EC_KEY(pkey);
+	/* 检查是否有SM2DHE参数 */
+	if (dctx && dctx->sm2dhe.self_id != NULL && key_ctx && key_ctx->sdf_ctx) {
+		SDF_INFO("pkey_ec_derive: SM2DHE parameters detected");
+		SDF_INFO("pkey_ec_derive: initiator=%d (1=sponsor/server, 0=response/client)", dctx->sm2dhe.initiator);
 
-	if (!key) {
-		const EC_GROUP* group;
-		group = EC_KEY_get0_group(eckey);
-		*keylen = (EC_GROUP_get_degree(group) + 7) / 8;
-		return 1;
-	}
-	pubkey = EC_KEY_get0_public_key(EVP_PKEY_get0_EC_KEY(peerkey));
+		/* 检查是否有必要的对端公钥 */
+		if (dctx->sm2dhe.peer_eph_pub == NULL) {
+			SDF_WARN("pkey_ec_derive: SM2DHE peer_eph_pub is NULL, using standard ECDH");
+			goto standard_ecdh;
+		}
 
-	outlen = *keylen;
+		/* 检查临时公钥是否存在 */
+		if (dctx->sm2dhe.self_eph_pub == NULL) {
+			SDF_WARN("pkey_ec_derive: SM2DHE self_eph_pub is NULL, using standard ECDH");
+			goto standard_ecdh;
+		}
+
+		/* 检查 SDF 上下文和 byzk0018 接口是否可用 */
+		if (key_ctx->sdf_ctx->sdfList.SDF_GenerateAgreementDataWithECCEx &&
+			key_ctx->sdf_ctx->sdfList.SDF_GenerateKeyWithECCEx &&
+			key_ctx->sdf_ctx->sdfList.SDF_GenerateAgreementDataAndKeyWithECCEx) {
+
+			SDF_INFO("pkey_ec_derive: Using byzk0018 SM2 key exchange interface");
+
+			/* 准备密钥协商所需的参数 */
+			ECCrefPublicKey sponsor_pub, response_pub;
+			ECCrefPublicKey sponsor_tmp_pub, response_tmp_pub;
+			SGD_HANDLE agreement_handle = NULL;
+			SGD_HANDLE key_handle = NULL;
+			/*
+			 * SM2密钥协商输出长度:
+			 * - 为了与软件实现兼容,使用48字节(SSL_MAX_MASTER_KEY_LENGTH)
+			 * - 虽然GM/T 0003.3-2012标准规定32字节,但客户端软件实现输出48字节
+			 * - 双方必须使用相同长度才能成功协商
+			 */
+			unsigned char shared_secret[48] = { 0 };
+			unsigned int secret_len = sizeof(shared_secret);  /* 48字节 */
+
+			/* 转换公钥格式：从 EC_KEY 到 ECCrefPublicKey */
+			memset(&sponsor_pub, 0, sizeof(sponsor_pub));
+			memset(&response_pub, 0, sizeof(response_pub));
+			memset(&sponsor_tmp_pub, 0, sizeof(sponsor_tmp_pub));
+			memset(&response_tmp_pub, 0, sizeof(response_tmp_pub));
+
+			/*
+			 * 转换证书公钥（长期密钥）
+			 *
+			 * 对于发起方（服务端）：
+			 * - sponsor_pub: 发起方（服务端）的加密证书公钥（pkey）
+			 * - response_pub: 响应方（客户端）的加密证书公钥（peer_cert_pub）
+			 */
+			if (!dctx->sm2dhe.initiator && dctx->sm2dhe.deferred_keygen) {
+				/* 响应方：sponsor_pub 是服务端的证书公钥 */
+				SDF_INFO("pkey_ec_derive: Converting peer_cert_pub to sponsor_pub (server's cert key)");
+				if (!EC_KEY_get_ECCrefPublicKey(EVP_PKEY_get0_EC_KEY(dctx->sm2dhe.peer_cert_pub), &sponsor_pub)) {
+					SDF_ERR("pkey_ec_derive: Failed to convert peer_cert_pub to sponsor_pub");
+					SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_KEY_EXCHANGE_FAILED);
+					goto standard_ecdh;
+				}
+				SDF_HEX_DUMP("  sponsor_pub.x (server cert)", sponsor_pub.x + ECCref_MAX_LEN - 32, 32);
+				SDF_HEX_DUMP("  sponsor_pub.y (server cert)", sponsor_pub.y + ECCref_MAX_LEN - 32, 32);
+				
+				/* 响应方：response_pub 是客户端的证书公钥 */
+				SDF_INFO("pkey_ec_derive: Converting self_cert_pub to response_pub (client's cert key)");
+				if (!EC_KEY_get_ECCrefPublicKey(EVP_PKEY_get0_EC_KEY(dctx->sm2dhe.self_cert_pub), &response_pub)) {
+					SDF_ERR("pkey_ec_derive: Failed to convert self_cert_pub to response_pub");
+					SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_KEY_EXCHANGE_FAILED);
+					goto standard_ecdh;
+				}
+				SDF_HEX_DUMP("  response_pub.x (client cert)", response_pub.x + ECCref_MAX_LEN - 32, 32);
+				SDF_HEX_DUMP("  response_pub.y (client cert)", response_pub.y + ECCref_MAX_LEN - 32, 32);
+			}
+			else {
+				/* 发起方（服务端）路径 */
+				SDF_INFO("pkey_ec_derive: Initiator - Converting pkey to sponsor_pub (server's cert key)");
+				if (!EC_KEY_get_ECCrefPublicKey(EVP_PKEY_get0_EC_KEY(pkey), &sponsor_pub)) {
+					SDF_ERR("pkey_ec_derive: Failed to convert own pubkey to ECCrefPublicKey");
+					SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_KEY_EXCHANGE_FAILED);
+					goto standard_ecdh;
+				}
+				SDF_HEX_DUMP("  sponsor_pub.x (server cert)", sponsor_pub.x + ECCref_MAX_LEN - 32, 32);
+				SDF_HEX_DUMP("  sponsor_pub.y (server cert)", sponsor_pub.y + ECCref_MAX_LEN - 32, 32);
+
+				SDF_INFO("pkey_ec_derive: Converting peer_cert_pub=%p to response_pub (client's cert key)", dctx->sm2dhe.peer_cert_pub);
+				if (!EC_KEY_get_ECCrefPublicKey(EVP_PKEY_get0_EC_KEY(dctx->sm2dhe.peer_cert_pub), &response_pub)) {
+					SDF_ERR("pkey_ec_derive: Failed to convert peer cert pubkey to ECCrefPublicKey");
+					SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_KEY_EXCHANGE_FAILED);
+					goto standard_ecdh;
+				}
+				SDF_HEX_DUMP("  response_pub.x (client cert)", response_pub.x + ECCref_MAX_LEN - 32, 32);
+				SDF_HEX_DUMP("  response_pub.y (client cert)", response_pub.y + ECCref_MAX_LEN - 32, 32);
+			}
+
+			/* 
+			 * 转换临时公钥
+			 * 
+			 * 对于响应方（客户端）使用 deferred_keygen 的情况：
+			 * - sponsor_tmp_pub: 服务端的临时公钥（从 peer_eph_pub 获取）
+			 * - response_tmp_pub: 将由 SDF 接口内部生成并输出
+			 * 
+			 * 对于发起方（服务端）或不使用 deferred_keygen 的情况：
+			 * - sponsor_tmp_pub: 自身的临时公钥（从 self_eph_pub 获取）
+			 * - response_tmp_pub: 对端的临时公钥（从 peer_eph_pub 获取）
+			 */
+			if (!dctx->sm2dhe.initiator && dctx->sm2dhe.deferred_keygen) {
+				/* 响应方使用 deferred_keygen：sponsor_tmp_pub 是服务端的临时公钥 */
+				SDF_INFO("pkey_ec_derive: Responder with deferred_keygen");
+				SDF_INFO("pkey_ec_derive: Converting peer_eph_pub to sponsor_tmp_pub (server's temp key)");
+				
+				if (!EC_KEY_get_ECCrefPublicKey(EVP_PKEY_get0_EC_KEY(dctx->sm2dhe.peer_eph_pub), &sponsor_tmp_pub)) {
+					SDF_ERR("pkey_ec_derive: Failed to convert peer_eph_pub to sponsor_tmp_pub");
+					SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_KEY_EXCHANGE_FAILED);
+					goto standard_ecdh;
+				}
+				SDF_INFO("pkey_ec_derive: SDF will generate client's temporary key pair internally");
+				/* response_tmp_pub 将由 SDF 接口生成并输出 */
+			} else {
+				/* 标准路径：发起方或不使用 deferred_keygen */
+				if (!EC_KEY_get_ECCrefPublicKey(EVP_PKEY_get0_EC_KEY(dctx->sm2dhe.self_eph_pub), &sponsor_tmp_pub)) {
+					SDF_ERR("pkey_ec_derive: Failed to convert self tmp pubkey to ECCrefPublicKey");
+					SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_KEY_EXCHANGE_FAILED);
+					goto standard_ecdh;
+				}
+				
+				/* 转换对端临时公钥 */
+				if (dctx->sm2dhe.peer_eph_pub) {
+					if (!EC_KEY_get_ECCrefPublicKey(EVP_PKEY_get0_EC_KEY(dctx->sm2dhe.peer_eph_pub), &response_tmp_pub)) {
+						SDF_ERR("pkey_ec_derive: Failed to convert peer tmp privkey to ECCrefPublicKey");
+						SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_KEY_EXCHANGE_FAILED);
+						goto standard_ecdh;
+					}
+				}
+				SDF_HEX_DUMP("  response_tmp_pub.x", response_tmp_pub.x + ECCref_MAX_LEN - 32, 32);
+				SDF_HEX_DUMP("  response_tmp_pub.y", response_tmp_pub.y + ECCref_MAX_LEN - 32, 32);
+			}
+
+			/* 打印转换后的公钥信息 */
+			SDF_INFO("pkey_ec_derive: Converted keys:");
+			SDF_INFO("  sponsor_pub.bits=%d", sponsor_pub.bits);
+			SDF_HEX_DUMP("  sponsor_pub.x", sponsor_pub.x, sizeof(sponsor_pub.x));
+			SDF_HEX_DUMP("  sponsor_pub.y", sponsor_pub.y, sizeof(sponsor_pub.y));
+			SDF_INFO("  response_pub.bits=%d", response_pub.bits);
+			SDF_HEX_DUMP("  response_pub.x", response_pub.x, sizeof(response_pub.x));
+			SDF_HEX_DUMP("  response_pub.y", response_pub.y, sizeof(response_pub.y));
+			SDF_INFO("  sponsor_tmp_pub.bits=%d", sponsor_tmp_pub.bits);
+			SDF_HEX_DUMP("  sponsor_tmp_pub.x", sponsor_tmp_pub.x, sizeof(sponsor_tmp_pub.x));
+			SDF_HEX_DUMP("  sponsor_tmp_pub.y", sponsor_tmp_pub.y, sizeof(sponsor_tmp_pub.y));
+			if (dctx->sm2dhe.peer_eph_pub) {
+				SDF_INFO("  response_tmp_pub.bits=%d", response_tmp_pub.bits);
+				SDF_HEX_DUMP("  response_tmp_pub.x", response_tmp_pub.x, sizeof(response_tmp_pub.x));
+				SDF_HEX_DUMP("  response_tmp_pub.y", response_tmp_pub.y, sizeof(response_tmp_pub.y));
+			}
+			SDF_INFO("  self_id (len=%d): %.*s", dctx->sm2dhe.self_id_len, dctx->sm2dhe.self_id_len, dctx->sm2dhe.self_id);
+			SDF_INFO("  peer_id (len=%d): %.*s", dctx->sm2dhe.peer_id_len, dctx->sm2dhe.peer_id_len, dctx->sm2dhe.peer_id);
+
+			if (dctx->sm2dhe.initiator)
+			{
+				/* 发起方（服务端）：先生成协商数据，然后生成密钥 */
+				/*
+				 * CRITICAL: 从临时密钥的 EVP_PKEY ex_data 中读取 agreement_handle
+				 * 注意：pkey 是证书密钥，self_eph_pub 才是临时密钥
+				 * agreement_handle 保存在临时密钥的 ex_data 中
+				 */
+				SGD_HANDLE* saved_handle = NULL;
+				if (dctx->sm2dhe.self_eph_pub) 
+				{
+					saved_handle = (SGD_HANDLE*)EVP_PKEY_get_ex_data(dctx->sm2dhe.self_eph_pub, 1);
+					if (saved_handle && *saved_handle) 
+					{
+						SDF_INFO("pkey_ec_derive: Using pre-generated agreement_handle from self_eph_pub ex_data (byzk0018)");
+						SDF_INFO("pkey_ec_derive: Retrieved agreement_handle=%p from self_eph_pub=%p", *saved_handle, dctx->sm2dhe.self_eph_pub);
+						agreement_handle = *saved_handle;
+						dctx->sm2dhe.agreement_handle = agreement_handle;  /* 同步到 dctx */
+					}
+				}
+
+				
+					if (dctx->sm2dhe.agreement_handle) 
+					{
+						SDF_INFO("pkey_ec_derive: Using pre-generated agreement_handle from dctx (fallback)");
+						agreement_handle = dctx->sm2dhe.agreement_handle;
+					}
+					else
+					{
+						SDF_INFO("pkey_ec_derive: Calling SDF_GenerateAgreementDataWithECCEx for initiator (byzk0018)");
+						ret = key_ctx->sdf_ctx->sdfList.SDF_GenerateAgreementDataWithECCEx(
+							key_ctx->sdf_ctx->hSession,
+							key_ctx->key_index,
+							sponsor_pub.bits, /* 使用动态密钥长度 */
+							dctx->sm2dhe.self_id,
+							dctx->sm2dhe.self_id_len,
+							&sponsor_pub,
+							&sponsor_tmp_pub,
+							&agreement_handle);
+
+						if (ret != SDR_OK) 
+						{
+							SDF_ERR("pkey_ec_derive: SDF_GenerateAgreementDataWithECCEx failed, ret=0x%08X", ret);
+							if (key_ctx->sdf_ctx->sdfList.SDF_GetErrMsg) {
+								SDF_ERR("pkey_ec_derive: Error msg: %s", key_ctx->sdf_ctx->sdfList.SDF_GetErrMsg(ret));
+							}
+							SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_KEY_EXCHANGE_FAILED);
+							goto standard_ecdh;
+						}
+						SDF_INFO("pkey_ec_derive: SDF_GenerateAgreementDataWithECCEx successful, agreement_handle=%p", agreement_handle);
+					}
+
+					/* 使用对端公钥生成会话密钥 */
+					SDF_INFO("pkey_ec_derive: Calling SDF_GenerateKeyWithECCEx for initiator");
+					SDF_INFO("  Input parameters:");
+					SDF_INFO("    hSession=%p", key_ctx->sdf_ctx->hSession);
+					SDF_INFO("    peer_id=%.*s (len=%d)", dctx->sm2dhe.peer_id_len, dctx->sm2dhe.peer_id, dctx->sm2dhe.peer_id_len);
+					SDF_INFO("    response_pub.bits=%d", response_pub.bits);
+					SDF_HEX_DUMP("    response_pub.x (effective 32 bytes)", response_pub.x + ECCref_MAX_LEN - 32, 32);
+					SDF_HEX_DUMP("    response_pub.y (effective 32 bytes)", response_pub.y + ECCref_MAX_LEN - 32, 32);
+					SDF_INFO("    response_tmp_pub.bits=%d", response_tmp_pub.bits);
+					SDF_HEX_DUMP("    response_tmp_pub.x (effective 32 bytes)", response_tmp_pub.x + ECCref_MAX_LEN - 32, 32);
+					SDF_HEX_DUMP("    response_tmp_pub.y (effective 32 bytes)", response_tmp_pub.y + ECCref_MAX_LEN - 32, 32);
+					SDF_INFO("    agreement_handle=%p", agreement_handle);
+					SDF_INFO("    shared_secret buffer size=48 (for compatibility with software implementation)");
+
+					ret = key_ctx->sdf_ctx->sdfList.SDF_GenerateKeyWithECCEx(
+						key_ctx->sdf_ctx->hSession,
+						dctx->sm2dhe.peer_id,
+						dctx->sm2dhe.peer_id_len,
+						&response_pub,
+						&response_tmp_pub,
+						agreement_handle,
+						shared_secret,
+						&secret_len,
+						&key_handle);
+
+					if (ret != SDR_OK)
+					{
+						SDF_ERR("pkey_ec_derive: SDF_GenerateKeyWithECCEx failed, ret=0x%08X", ret);
+						if (key_ctx->sdf_ctx->sdfList.SDF_GetErrMsg) 
+						{
+							SDF_ERR("pkey_ec_derive: Error msg: %s", key_ctx->sdf_ctx->sdfList.SDF_GetErrMsg(ret));
+						}
+						SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_KEY_EXCHANGE_FAILED);
+						if (agreement_handle)
+						{
+							key_ctx->sdf_ctx->sdfList.SDF_DestroyKey(key_ctx->sdf_ctx->hSession, agreement_handle);
+							agreement_handle = NULL;
+						}
+						goto standard_ecdh;
+					}
+					SDF_INFO("pkey_ec_derive: SDF_GenerateKeyWithECCEx successful, key_handle=%p", key_handle);
+				}
+				else 
+				{
+					/* 响应方（客户端）：直接生成协商数据和密钥 */
+					SDF_INFO("pkey_ec_derive: Calling SDF_GenerateAgreementDataAndKeyWithECCEx for responder");
+					ret = key_ctx->sdf_ctx->sdfList.SDF_GenerateAgreementDataAndKeyWithECCEx(
+						key_ctx->sdf_ctx->hSession,
+						key_ctx->key_index,
+						sponsor_pub.bits, /* 使用动态密钥长度 */
+						dctx->sm2dhe.self_id,
+						dctx->sm2dhe.self_id_len,
+						dctx->sm2dhe.peer_id,
+						dctx->sm2dhe.peer_id_len,
+						&sponsor_pub,
+						&sponsor_tmp_pub,
+						&response_pub,
+						&response_tmp_pub,
+						shared_secret,
+						&secret_len,
+						&key_handle);
+
+					if (ret != SDR_OK) {
+						SDF_ERR("pkey_ec_derive: SDF_GenerateAgreementDataAndKeyWithECCEx failed, ret=0x%08X", ret);
+						if (key_ctx->sdf_ctx->sdfList.SDF_GetErrMsg) {
+							SDF_ERR("pkey_ec_derive: Error msg: %s", key_ctx->sdf_ctx->sdfList.SDF_GetErrMsg(ret));
+						}
+						SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_KEY_EXCHANGE_FAILED);
+						goto standard_ecdh;
+					}
+					SDF_INFO("pkey_ec_derive: SDF_GenerateAgreementDataAndKeyWithECCEx successful, key_handle=%p", key_handle);
+
+					/* 保存 SDF 生成的临时公钥（客户端）*/
+					SDF_INFO("pkey_ec_derive: Saving SDF-generated ephemeral public key for ClientKeyExchange");
+					SDF_HEX_DUMP("  response_tmp_pub.x", response_tmp_pub.x + ECCref_MAX_LEN - 32, 32);
+					SDF_HEX_DUMP("  response_tmp_pub.y", response_tmp_pub.y + ECCref_MAX_LEN - 32, 32);
+
+					/* 转换为 04 || X || Y 格式（65字节） */
+					size_t pub_len = 1 + 32 + 32;  /* 0x04 + X + Y */
+					unsigned char* pub_encoded = OPENSSL_malloc(pub_len);
+					if (pub_encoded) {
+						pub_encoded[0] = 0x04;  /* 未压缩格式 */
+						memcpy(pub_encoded + 1, response_tmp_pub.x + ECCref_MAX_LEN - 32, 32);
+						memcpy(pub_encoded + 1 + 32, response_tmp_pub.y + ECCref_MAX_LEN - 32, 32);
+
+						/* 释放旧的缓冲区（如果存在） */
+						if (dctx->sm2dhe.sdf_generated_eph_pub) {
+							OPENSSL_free(dctx->sm2dhe.sdf_generated_eph_pub);
+						}
+
+						dctx->sm2dhe.sdf_generated_eph_pub = pub_encoded;
+						dctx->sm2dhe.sdf_generated_eph_pub_len = pub_len;
+
+						SDF_INFO("pkey_ec_derive: SDF-generated ephemeral public key saved, len=%zu", pub_len);
+						SDF_HEX_DUMP("  Encoded public key", pub_encoded, pub_len);
+					}
+					else {
+						SDF_ERR("pkey_ec_derive: Failed to allocate memory for SDF-generated public key");
+					}
+				}
+
+				/* 使用生成的共享密钥 */
+				if (key) {
+					/* 检查输出缓冲区大小 */
+					if (*keylen < secret_len) {
+						SDF_ERR("pkey_ec_derive: Output buffer too small, required=%u, provided=%zu", secret_len, *keylen);
+						SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_BUFFER_TOO_SMALL);
+						/* 清理资源 */
+						if (key_handle) {
+							key_ctx->sdf_ctx->sdfList.SDF_DestroyKey(key_ctx->sdf_ctx->hSession, key_handle);
+						}
+						/* 注意：不要销毁 agreement_handle，因为它可能是在 pkey_ec_ctrl 中生成的 */
+						/* agreement_handle 的生命周期由 SDF 上下文管理 */
+						return 0;
+					}
+					memcpy(key, shared_secret, secret_len);
+					*keylen = secret_len;
+					SDF_INFO("pkey_ec_derive: SM2 key exchange successful, shared secret len=%u", secret_len);
+					SDF_HEX_DUMP("pkey_ec_derive: Shared secret", key, *keylen);
+
+					/* 清理资源 */
+					if (key_handle) {
+						key_ctx->sdf_ctx->sdfList.SDF_DestroyKey(key_ctx->sdf_ctx->hSession, key_handle);
+					}
+					/* 注意：不要销毁 agreement_handle，因为它可能是在 pkey_ec_ctrl 中生成的 */
+					/* agreement_handle 的生命周期由 SDF 上下文管理 */
+
+					return 1;
+				}
+
+				/* 清理资源 */
+				if (key_handle) {
+					key_ctx->sdf_ctx->sdfList.SDF_DestroyKey(key_ctx->sdf_ctx->hSession, key_handle);
+				}
+				/* 注意：不要销毁 agreement_handle，因为它可能是在 pkey_ec_ctrl 中生成的 */
+				/* agreement_handle 的生命周期由 SDF 上下文管理 */
+
+				return 1;
+////			}
+////			else 
+////			{
+////				SDF_WARN("pkey_ec_derive: byzk0018 SM2 key exchange interface not available");
+////				goto standard_ecdh;
+////			}
+		}
+		else if (dctx && dctx->sm2dhe.self_id != NULL) {
+			SDF_WARN("pkey_ec_derive: SM2DHE parameters detected but no SDF context");
+			goto standard_ecdh;
+		} /* SM2DHE block ends */
+
+	standard_ecdh:
+		if (!pkey) {
+			SDF_ERR("pkey_ec_derive: pkey not set");
+			SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_INVALID_PARAMETER);
+			return 0;
+		}
+
+		/* 在 SM2DHE 回退场景中，可能没有 peerkey，需要从 sm2dhe 结构获取 */
+		if (!peerkey && dctx && dctx->sm2dhe.peer_eph_pub) {
+			peerkey = dctx->sm2dhe.peer_eph_pub;
+			SDF_INFO("pkey_ec_derive: using peer_eph_pub from SM2DHE params");
+		}
+
+		if (!peerkey) {
+			SDF_ERR("pkey_ec_derive: peerkey not set and no SM2DHE peer_eph_pub");
+			SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_INVALID_PARAMETER);
+			return 0;
+		}
+
+		/* 在 SM2DHE 回退场景中，可能需要使用临时私钥 */
+		if (dctx && dctx->sm2dhe.self_eph_priv) {
+			eckey = EVP_PKEY_get0_EC_KEY(dctx->sm2dhe.self_eph_priv);
+			SDF_INFO("pkey_ec_derive: using self_eph_priv from SM2DHE params");
+		}
+		else if (dctx && dctx->co_key) {
+			eckey = dctx->co_key;
+		}
+		else {
+			eckey = EVP_PKEY_get0_EC_KEY(pkey);
+		}
+
+		if (!eckey) {
+			SDF_ERR("pkey_ec_derive: eckey is NULL");
+			SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_INVALID_PARAMETER);
+			return 0;
+		}
+
+		if (!key) {
+			const EC_GROUP* group;
+			group = EC_KEY_get0_group(eckey);
+			*keylen = (EC_GROUP_get_degree(group) + 7) / 8;
+			return 1;
+		}
+		pubkey = EC_KEY_get0_public_key(EVP_PKEY_get0_EC_KEY(peerkey));
+
+		outlen = *keylen;
 
 #ifndef OPENSSL_NO_SM2
-	if (dctx->ec_scheme == NID_sm2) {
-		SDF_INFO("pkey_ec_derive: using standard ECDH for SM2");
-		/* SM2 使用标准 ECDH 算法 */
+		if (dctx->ec_scheme == NID_sm2) {
+			SDF_INFO("pkey_ec_derive: SM2 key exchange detected");
+
+			/* 检查是否有 SDF 上下文和必要的 SDF 接口 */
+			if (key_ctx && key_ctx->sdf_ctx) {
+				if (key_ctx->sdf_ctx->sdfList.SDF_GenerateAgreementDataWithECCEx &&
+					key_ctx->sdf_ctx->sdfList.SDF_GenerateKeyWithECCEx &&
+					key_ctx->sdf_ctx->sdfList.SDF_GenerateAgreementDataAndKeyWithECCEx) {
+
+					SDF_INFO("pkey_ec_derive: SDF SM2 key exchange interface available");
+					SDF_INFO("pkey_ec_derive: Attempting to use SDF interface for SM2 key exchange");
+
+					/* 准备密钥协商所需的参数 */
+					ECCrefPublicKey sponsor_pub, response_pub;
+					ECCrefPublicKey sponsor_tmp_pub, response_tmp_pub;
+					SGD_HANDLE agreement_handle = NULL;
+					SGD_HANDLE key_handle = NULL;
+					/*
+					 * SM2密钥协商输出长度:
+					 * - 为了与软件实现兼容,使用48字节(SSL_MAX_MASTER_KEY_LENGTH)
+					 * - 虽然GM/T 0003.3-2012标准规定32字节,但客户端软件实现输出48字节
+					 * - 双方必须使用相同长度才能成功协商
+					 */
+					unsigned char shared_secret[48] = { 0 };
+					unsigned int secret_len = sizeof(shared_secret);  /* 48字节 */
+
+					/* 转换公钥格式：从 EC_KEY 到 ECCrefPublicKey */
+					memset(&sponsor_pub, 0, sizeof(sponsor_pub));
+					memset(&response_pub, 0, sizeof(response_pub));
+					memset(&sponsor_tmp_pub, 0, sizeof(sponsor_tmp_pub));
+					memset(&response_tmp_pub, 0, sizeof(response_tmp_pub));
+
+					/* 转换自身公钥 */
+					if (!EC_KEY_get_ECCrefPublicKey(eckey, &sponsor_pub)) {
+						SDF_ERR("pkey_ec_derive: Failed to convert own pubkey to ECCrefPublicKey");
+						goto sm2_fallback_to_provider;
+					}
+
+					/* 转换对端公钥 */
+					if (!EC_KEY_get_ECCrefPublicKey(EVP_PKEY_get0_EC_KEY(peerkey), &response_pub)) {
+						SDF_ERR("pkey_ec_derive: Failed to convert peer pubkey to ECCrefPublicKey");
+						goto sm2_fallback_to_provider;
+					}
+
+					/* 尝试使用 SDF 接口进行密钥交换 */
+					if (dctx->sm2dhe.self_id != NULL && dctx->sm2dhe.peer_id != NULL) {
+						SDF_INFO("pkey_ec_derive: Using SM2DHE with SDF interface");
+
+						/* 检查是否有临时公钥 */
+						if (dctx->sm2dhe.self_eph_pub) {
+							if (!EC_KEY_get_ECCrefPublicKey(EVP_PKEY_get0_EC_KEY(dctx->sm2dhe.self_eph_pub), &sponsor_tmp_pub)) {
+								SDF_ERR("pkey_ec_derive: Failed to convert self tmp pubkey to ECCrefPublicKey");
+								goto sm2_fallback_to_provider;
+							}
+						}
+
+						/* 检查是否有对端临时公钥 */
+						if (dctx->sm2dhe.peer_eph_pub) {
+							if (!EC_KEY_get_ECCrefPublicKey(EVP_PKEY_get0_EC_KEY(dctx->sm2dhe.peer_eph_pub), &response_tmp_pub)) {
+								SDF_ERR("pkey_ec_derive: Failed to convert peer tmp pubkey to ECCrefPublicKey");
+								goto sm2_fallback_to_provider;
+							}
+						}
+
+						/* 根据发起方/响应方角色调用不同的 SDF 接口 */
+						if (dctx->sm2dhe.initiator) {
+							/* 优先使用在 pkey_ec_ctrl 中预先生成的 agreement_handle */
+							if (dctx->sm2dhe.agreement_handle) {
+								SDF_INFO("pkey_ec_derive: Using pre-generated agreement_handle from pkey_ec_ctrl");
+								SDF_INFO("pkey_ec_derive: Skipping SDF_GenerateAgreementDataWithECCEx call");
+
+								/* 使用预先保存的 agreement_handle */
+								agreement_handle = dctx->sm2dhe.agreement_handle;
+
+								/* 打印当前使用的临时公钥（在 pkey_ec_ctrl 中已经更新过） */
+								SDF_INFO("pkey_ec_derive: Using SDF-generated temporary key (updated in pkey_ec_ctrl):");
+								EC_KEY_get_ECCrefPublicKey(EVP_PKEY_get0_EC_KEY(dctx->sm2dhe.self_eph_pub), &sponsor_tmp_pub);
+								SDF_INFO("  X: %02X%02X%02X%02X...",
+									sponsor_tmp_pub.x[0], sponsor_tmp_pub.x[1], sponsor_tmp_pub.x[2], sponsor_tmp_pub.x[3]);
+							}
+							else {
+								/* 如果没有预先保存的 agreement_handle，则调用 SDF_GenerateAgreementDataWithECCEx (fallback) */
+								SDF_INFO("pkey_ec_derive: No pre-generated agreement_handle, calling SDF_GenerateAgreementDataWithECCEx");
+
+								/* 打印调用前的临时公钥（引擎生成的） */
+								SDF_INFO("pkey_ec_derive: sponsor_tmp_pub BEFORE SDF call (engine-generated):");
+								SDF_INFO("  X: %02X%02X%02X%02X...",
+									sponsor_tmp_pub.x[0], sponsor_tmp_pub.x[1], sponsor_tmp_pub.x[2], sponsor_tmp_pub.x[3]);
+
+								ret = key_ctx->sdf_ctx->sdfList.SDF_GenerateAgreementDataWithECCEx(
+									key_ctx->sdf_ctx->hSession,
+									key_ctx->key_index,
+									sponsor_pub.bits,
+									dctx->sm2dhe.self_id,
+									dctx->sm2dhe.self_id_len,
+									&sponsor_pub,
+									&sponsor_tmp_pub,
+									&agreement_handle);
+
+								if (ret != SDR_OK) {
+									SDF_ERR("pkey_ec_derive: SDF_GenerateAgreementDataWithECCEx failed, ret=0x%08X", ret);
+									goto sm2_fallback_to_provider;
+								}
+
+								/* 打印调用后的临时公钥（SDF生成的） */
+								SDF_INFO("pkey_ec_derive: sponsor_tmp_pub AFTER SDF call (SDF-generated):");
+								SDF_INFO("  X: %02X%02X%02X%02X...",
+									sponsor_tmp_pub.x[0], sponsor_tmp_pub.x[1], sponsor_tmp_pub.x[2], sponsor_tmp_pub.x[3]);
+								SDF_INFO("  Y: %02X%02X%02X%02X...",
+									sponsor_tmp_pub.y[0], sponsor_tmp_pub.y[1], sponsor_tmp_pub.y[2], sponsor_tmp_pub.y[3]);
+
+								/* 从 SDF 接口获取生成的临时公钥，并更新到 self_eph_pub */
+								/* 注意：这种 fallback 路径不应该发生，因为 agreement_handle 应该在 pkey_ec_ctrl 中生成 */
+								if (dctx->sm2dhe.self_eph_pub) {
+									EC_KEY* self_eph_ec = EVP_PKEY_get0_EC_KEY(dctx->sm2dhe.self_eph_pub);
+									if (self_eph_ec) {
+										const EC_GROUP* group = EC_KEY_get0_group(self_eph_ec);
+										EC_POINT* new_pub_point = EC_POINT_new(group);
+
+										if (new_pub_point) {
+											/* 从 ECCrefPublicKey 格式转换回 EC_POINT */
+											BIGNUM* x = BN_bin2bn(sponsor_tmp_pub.x, sizeof(sponsor_tmp_pub.x), NULL);
+											BIGNUM* y = BN_bin2bn(sponsor_tmp_pub.y, sizeof(sponsor_tmp_pub.y), NULL);
+
+											if (x && y && EC_POINT_set_affine_coordinates(group, new_pub_point, x, y, NULL)) {
+												/* 更新 EC_KEY 的公钥部分 */
+												int set_pub_result = EC_KEY_set_public_key(self_eph_ec, new_pub_point);
+
+												if (set_pub_result == 1) {
+													SDF_INFO("pkey_ec_derive: Successfully updated self_eph_pub with SDF-generated temporary public key");
+													SDF_INFO("pkey_ec_derive: self_eph_pub X: %02X%02X%02X%02X...",
+														sponsor_tmp_pub.x[0], sponsor_tmp_pub.x[1], sponsor_tmp_pub.x[2], sponsor_tmp_pub.x[3]);
+												}
+												else {
+													SDF_WARN("pkey_ec_derive: Failed to set SDF-generated public key to self_eph_pub");
+												}
+											}
+											else {
+												SDF_ERR("pkey_ec_derive: Failed to convert ECCrefPublicKey to EC_POINT");
+											}
+
+											if (x) BN_free(x);
+											if (y) BN_free(y);
+											EC_POINT_free(new_pub_point);
+										}
+										else {
+											SDF_ERR("pkey_ec_derive: Failed to create new EC_POINT");
+										}
+									}
+									else {
+										SDF_ERR("pkey_ec_derive: self_eph_pub EC_KEY is NULL");
+									}
+								}
+								else {
+									SDF_ERR("pkey_ec_derive: self_eph_pub is NULL, cannot update with SDF-generated key");
+								}
+							}
+
+							SDF_INFO("pkey_ec_derive: Calling SDF_GenerateKeyWithECCEx for initiator");
+							ret = key_ctx->sdf_ctx->sdfList.SDF_GenerateKeyWithECCEx(
+								key_ctx->sdf_ctx->hSession,
+								dctx->sm2dhe.peer_id,
+								dctx->sm2dhe.peer_id_len,
+								&response_pub,
+								&response_tmp_pub,
+								agreement_handle,
+								shared_secret,
+								&secret_len,
+								&key_handle);
+
+							if (ret != SDR_OK) {
+								SDF_ERR("pkey_ec_derive: SDF_GenerateKeyWithECCEx failed, ret=0x%08X", ret);
+								/* 注意：不要销毁 agreement_handle，因为它可能是在 pkey_ec_ctrl 中生成的 */
+								if (key_handle) {
+									key_ctx->sdf_ctx->sdfList.SDF_DestroyKey(key_ctx->sdf_ctx->hSession, key_handle);
+								}
+								/* 只有当 agreement_handle 是在这个函数中生成时才销毁它 */
+								if (!dctx->sm2dhe.agreement_handle && agreement_handle) {
+									key_ctx->sdf_ctx->sdfList.SDF_DestroyKey(key_ctx->sdf_ctx->hSession, agreement_handle);
+								}
+								goto sm2_fallback_to_provider;
+							}
+						}
+						else {
+							SDF_INFO("pkey_ec_derive: Calling SDF_GenerateAgreementDataAndKeyWithECCEx for responder");
+							ret = key_ctx->sdf_ctx->sdfList.SDF_GenerateAgreementDataAndKeyWithECCEx(
+								key_ctx->sdf_ctx->hSession,
+								key_ctx->key_index,
+								sponsor_pub.bits,
+								dctx->sm2dhe.self_id,
+								dctx->sm2dhe.self_id_len,
+								dctx->sm2dhe.peer_id,
+								dctx->sm2dhe.peer_id_len,
+								&sponsor_pub,
+								&sponsor_tmp_pub,
+								&response_pub,
+								&response_tmp_pub,
+								shared_secret,
+								&secret_len,
+								&key_handle);
+
+							if (ret != SDR_OK) {
+								SDF_ERR("pkey_ec_derive: SDF_GenerateAgreementDataAndKeyWithECCEx failed, ret=0x%08X", ret);
+								goto sm2_fallback_to_provider;
+							}
+						}
+
+						/* 使用生成的共享密钥 */
+						if (key) {
+							if (*keylen < secret_len) {
+								SDF_ERR("pkey_ec_derive: Output buffer too small, required=%u, provided=%zu", secret_len, *keylen);
+								if (key_handle) {
+									key_ctx->sdf_ctx->sdfList.SDF_DestroyKey(key_ctx->sdf_ctx->hSession, key_handle);
+								}
+								/* 只有当 agreement_handle 是在这个函数中生成时才销毁它 */
+								if (!dctx->sm2dhe.agreement_handle && agreement_handle) {
+									key_ctx->sdf_ctx->sdfList.SDF_DestroyKey(key_ctx->sdf_ctx->hSession, agreement_handle);
+								}
+								return 0;
+							}
+							memcpy(key, shared_secret, secret_len);
+							*keylen = secret_len;
+							SDF_INFO("pkey_ec_derive: SM2 key exchange successful, shared secret len=%u", secret_len);
+
+							/* 清理资源 */
+							if (key_handle) {
+								key_ctx->sdf_ctx->sdfList.SDF_DestroyKey(key_ctx->sdf_ctx->hSession, key_handle);
+							}
+							/* 注意：不要销毁 agreement_handle，因为它可能是在 pkey_ec_ctrl 中生成的 */
+							/* agreement_handle 的生命周期由 SDF 上下文管理，不在这里销毁 */
+
+							return 1;
+						}
+
+						/* 清理资源 */
+						if (key_handle) {
+							key_ctx->sdf_ctx->sdfList.SDF_DestroyKey(key_ctx->sdf_ctx->hSession, key_handle);
+						}
+						/* 注意：不要销毁 agreement_handle，因为它可能是在 pkey_ec_ctrl 中生成的 */
+						/* agreement_handle 的生命周期由 SDF 上下文管理，不在这里销毁 */
+
+						return 1;
+					}
+					else {
+						SDF_INFO("pkey_ec_derive: SM2DHE parameters not set, using standard ECDH");
+					}
+				}
+				else {
+					SDF_WARN("pkey_ec_derive: SDF SM2 key exchange interface not available");
+				}
+			}
+			else {
+				SDF_WARN("pkey_ec_derive: No SDF context available");
+			}
+		}
+	sm2_fallback_to_provider:
+		SDF_INFO("pkey_ec_derive: Falling back to provider for SM2 key exchange");
+		SDF_INFO("pkey_ec_derive: Returning -2 to let provider handle it");
+		return -2; /* Let OpenSSL fallback to provider */
 	}
 #endif
+
+	/* For non-SM2 curves, use standard ECDH */
 	SDF_INFO("pkey_ec_derive: computing ECDH key, outlen=%zu", outlen);
 	SDF_INFO("pkey_ec_derive: eckey=%p, pubkey=%p", eckey, pubkey);
 
@@ -3017,7 +4193,7 @@ static int sdf_pkey_ec_derive(EVP_PKEY_CTX* ctx, unsigned char* key,
 
 	if (ret <= 0) {
 		SDF_ERR("pkey_ec_derive: derive failed, ret=%d", ret);
-		SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_SIGNATURE_VERIFICATION_FAILED);
+		SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_KEY_EXCHANGE_FAILED);
 		return 0;
 	}
 	SDF_INFO("pkey_ec_derive: derive successful, keylen=%d", ret);
@@ -3033,12 +4209,21 @@ static int sdf_pkey_ec_kdf_derive(EVP_PKEY_CTX* ctx, unsigned char* key,
 	int rv = 0;
 
 	SDF_INFO("=== sdf_pkey_ec_kdf_derive: starting KDF derive ===");
-	SDF_INFO("sdf_pkey_ec_kdf_derive: called, kdf_type=%d", dctx->kdf_type);
+	SDF_INFO("sdf_pkey_ec_kdf_derive: called, kdf_type=%d (0=EVP_PKEY_ECDH_KDF_NONE, 1=X9_62)", dctx->kdf_type);
 
-	if (dctx->kdf_type == EVP_PKEY_ECDH_KDF_NONE) {
-		SDF_INFO("sdf_pkey_ec_kdf_derive: calling sdf_pkey_ec_derive");
+#ifndef OPENSSL_NO_SM2
+	if (dctx->ec_scheme == NID_sm2) {
+		SDF_INFO("sdf_pkey_ec_kdf_derive: SM2 detected, calling sdf_pkey_ec_derive for SM2DHE");
 		return sdf_pkey_ec_derive(ctx, key, keylen);
 	}
+#endif
+
+	if (dctx->kdf_type == EVP_PKEY_ECDH_KDF_NONE) {
+		SDF_INFO("sdf_pkey_ec_kdf_derive: NO KDF, calling sdf_pkey_ec_derive");
+		return sdf_pkey_ec_derive(ctx, key, keylen);
+	}
+
+	SDF_INFO("sdf_pkey_ec_kdf_derive: WITH KDF, proceeding to KDF process");
 	/* Report expected length when queried */
 	if (!key) {
 		if (dctx->kdf_outlen == 0)
@@ -3051,23 +4236,23 @@ static int sdf_pkey_ec_kdf_derive(EVP_PKEY_CTX* ctx, unsigned char* key,
 		dctx->kdf_outlen = *keylen; /* 若上层未设置，采用请求长度 */
 	if (*keylen != dctx->kdf_outlen) {
 		SDF_ERR("pkey_ec_kdf_derive: keylen(%zu) != kdf_outlen(%zu)", *keylen, dctx->kdf_outlen);
-		SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_SIGNATURE_VERIFICATION_FAILED);
+		SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_BUFFER_TOO_SMALL);
 		return 0;
 	}
 	if (!sdf_pkey_ec_derive(ctx, NULL, &ktmplen)) {
 		SDF_ERR("pkey_ec_kdf_derive: derive failed");
-		SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_SIGNATURE_VERIFICATION_FAILED);
+		SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_KEY_EXCHANGE_FAILED);
 		return 0;
 	}
 	ktmp = OPENSSL_malloc(ktmplen);
 	if (ktmp == NULL) {
 		SDF_ERR("pkey_ec_kdf_derive: alloc ktmp failed");
-		SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_SIGNATURE_VERIFICATION_FAILED);
+		SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_MEMORY_ALLOCATION_FAILED);
 		return 0;
 	}
 	if (!sdf_pkey_ec_derive(ctx, ktmp, &ktmplen)) {
 		SDF_ERR("pkey_ec_kdf_derive: derive failed");
-		SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_SIGNATURE_VERIFICATION_FAILED);
+		SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_KEY_EXCHANGE_FAILED);
 		goto err;
 	}
 	/* Ensure SM3 is used for NTLS/SM2DHE if not explicitly set */
@@ -3082,13 +4267,18 @@ static int sdf_pkey_ec_kdf_derive(EVP_PKEY_CTX* ctx, unsigned char* key,
 		SDF_HEX_DUMP("pkey_ec_kdf_derive: ukm(first 64)", dctx->kdf_ukm, dump_len);
 	}
 
+	SDF_HEX_DUMP("pkey_ec_kdf_derive: raw shared secret", ktmp, ktmplen);
+
 	/* Do KDF stuff */
+	SDF_INFO("pkey_ec_kdf_derive: calling ECDH_KDF_X9_62...");
 	if (!ECDH_KDF_X9_62(key, *keylen, ktmp, ktmplen, dctx->kdf_ukm,
 		dctx->kdf_ukmlen, dctx->kdf_md)) {
 		SDF_ERR("pkey_ec_kdf_derive: KDF failed");
-		SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_SIGNATURE_VERIFICATION_FAILED);
+		SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_KDF_FAILED);
 		goto err;
 	}
+	SDF_HEX_DUMP("pkey_ec_kdf_derive: KDF output", key, *keylen);
+	SDF_INFO("pkey_ec_kdf_derive: KDF succeeded");
 	rv = 1;
 
 err:
@@ -3166,7 +4356,8 @@ static int sdf_pkey_ec_digestsign(EVP_MD_CTX* mctx, unsigned char* sig,
 				id = (const unsigned char*)SM2_DEFAULT_USERID;
 				id_len = strlen(SM2_DEFAULT_USERID);
 				SDF_INFO("pkey_ec_digestsign: using default SM2 ID: %s", SM2_DEFAULT_USERID);
-			} else {
+			}
+			else {
 				SDF_INFO("pkey_ec_digestsign: using custom SM2 ID, len=%zu", id_len);
 				SDF_HEX_DUMP("pkey_ec_digestsign: custom SM2 ID", id, id_len);
 			}
@@ -3215,6 +4406,56 @@ static int sdf_pkey_ec_digestsign(EVP_MD_CTX* mctx, unsigned char* sig,
 			SDF_INFO("pkey_ec_digestsign: hardware signing succeeded, siglen=%u", *siglen);
 			return 1;
 		}
+		else {
+			/* SM2 密钥但有软件私钥：使用软件 SM2 签名 */
+			SDF_INFO("pkey_ec_digestsign: SM2 key with software private key, using software SM2 signing");
+
+			/* 计算 e = SM3(ZA || M) */
+			unsigned char za[32];
+			const unsigned char* id = dctx->id;
+			size_t id_len = dctx->id_len;
+			const EVP_MD* md = dctx->md ? dctx->md : EVP_sm3();
+
+			/* 如果没有设置ID，使用默认ID */
+			if (!id) {
+				id = (const unsigned char*)SM2_DEFAULT_USERID;
+				id_len = strlen(SM2_DEFAULT_USERID);
+			}
+
+			/* 计算 ZA */
+			if (!ossl_sm2_compute_z_digest(za, md, id, id_len, ec)) {
+				SDF_ERR("pkey_ec_digestsign: failed to compute ZA");
+				return 0;
+			}
+
+			/* 计算 e = SM3(ZA || M) */
+			EVP_MD_CTX* hash_ctx = EVP_MD_CTX_new();
+			if (!hash_ctx) {
+				SDF_ERR("pkey_ec_digestsign: failed to create hash context");
+				return 0;
+			}
+
+			if (!EVP_DigestInit_ex(hash_ctx, md, NULL) ||
+				!EVP_DigestUpdate(hash_ctx, za, 32) ||
+				!EVP_DigestUpdate(hash_ctx, tbs, tbslen) ||
+				!EVP_DigestFinal_ex(hash_ctx, digest, NULL)) {
+				SDF_ERR("pkey_ec_digestsign: failed to compute e = SM3(ZA || M)");
+				EVP_MD_CTX_free(hash_ctx);
+				return 0;
+			}
+
+			EVP_MD_CTX_free(hash_ctx);
+
+			/* 使用软件 SM2 签名 */
+			ret = ossl_sm2_internal_sign(digest, 32, sig, siglen, ec);
+			if (ret <= 0) {
+				SDF_ERR("pkey_ec_digestsign: software SM2 signing failed");
+				return 0;
+			}
+
+			SDF_INFO("pkey_ec_digestsign: software SM2 signing succeeded, siglen=%u", *siglen);
+			return 1;
+		}
 	}
 	else
 #endif
@@ -3259,7 +4500,7 @@ static int sdf_pkey_ec_digestverify(EVP_MD_CTX* mctx, const unsigned char* sig,
 	EC_KEY* ec;
 	unsigned char digest[32];
 	int ret;
-	int isRetry = 1; 
+	int isRetry = 1;
 
 	SDF_INFO("pkey_ec_digestverify: *** CALLED *** tbslen=%zu, siglen=%zu", tbslen, siglen);
 
@@ -3288,7 +4529,7 @@ static int sdf_pkey_ec_digestverify(EVP_MD_CTX* mctx, const unsigned char* sig,
 
 	SDF_INFO("pkey_ec_digestverify: ctx=%p, dctx=%p, pkey=%p, ec=%p", (void*)ctx, (void*)dctx, (void*)pkey, (void*)ec);
 	SDF_INFO("pkey_ec_digestverify: ec_scheme=%d, NID_sm2=%d", dctx->ec_scheme, NID_sm2);
-	SDF_HEX_DUMP("pkey_ec_digestverify: original TBS data", tbs, tbslen);
+	//SDF_HEX_DUMP("pkey_ec_digestverify: original TBS data", tbs, tbslen);
 
 #ifndef OPENSSL_NO_SM2
 	if (dctx->ec_scheme == NID_sm2) {
@@ -3299,12 +4540,13 @@ static int sdf_pkey_ec_digestverify(EVP_MD_CTX* mctx, const unsigned char* sig,
 		const EVP_MD* md = dctx->md ? dctx->md : EVP_sm3();
 
 		/* 如果没有设置ID，使用默认ID */
-rety:
+	rety:
 		if (!id) {
 			id = (const unsigned char*)SM2_DEFAULT_USERID;
 			id_len = strlen(SM2_DEFAULT_USERID);
 			SDF_INFO("pkey_ec_digestverify: using default SM2 ID: %s", SM2_DEFAULT_USERID);
-		} else {		
+		}
+		else {
 			SDF_INFO("pkey_ec_digestverify: using custom SM2 ID, len=%zu", id_len);
 			SDF_HEX_DUMP("pkey_ec_digestverify: custom SM2 ID", id, id_len);
 		}
@@ -3355,7 +4597,7 @@ rety:
 				SDF_WARN("use custom SM2 ID verify failed, retry with default SM2 ID");
 				goto rety;
 			}
-			
+
 			SDF_ERR("pkey_ec_digestverify: software verification failed");
 			return 0;
 		}
@@ -3388,32 +4630,47 @@ static int sdf_pkey_ec_ctrl(EVP_PKEY_CTX* ctx, int type, int p1, void* p2) {
 	EVP_PKEY* pkey;
 	EC_GROUP* group;
 
-	SDF_INFO("pkey_ec_ctrl: type=%d, p1=%d, dctx=%p", type, p1, dctx);
+	SDF_INFO("pkey_ec_ctrl: type=%d, p1=%d, p2=%p, dctx=%p", type, p1, p2, dctx);
+	SDF_INFO("pkey_ec_ctrl: EVP_PKEY_CTRL_EC_PARAMGEN_CURVE_NID=%d, NID_sm2=%d", EVP_PKEY_CTRL_EC_PARAMGEN_CURVE_NID, NID_sm2);
+	SDF_INFO("pkey_ec_ctrl: SDF_PKEY_CTRL_SET_SM2DHE_PARAMS=%d", SDF_PKEY_CTRL_SET_SM2DHE_PARAMS);
 
 	switch (type) {
 	case EVP_PKEY_CTRL_EC_PARAMGEN_CURVE_NID:
-		SDF_INFO("pkey_ec_ctrl: EVP_PKEY_CTRL_EC_PARAMGEN_CURVE_NID, curve_nid=%d, dctx=%p", p1, dctx);
+		SDF_INFO("pkey_ec_ctrl: EVP_PKEY_CTRL_EC_PARAMGEN_CURVE_NID called with curve_nid=%d, dctx=%p", p1, dctx);
+
+		/* 如果 dctx 为 NULL，先初始化它（ECDHE 临时密钥生成时可能遇到此情况）*/
 		if (!dctx) {
-			SDF_ERR("pkey_ec_ctrl: dctx is NULL");
-			return 0;
+			SDF_INFO("pkey_ec_ctrl: dctx is NULL, initializing for ECDHE keygen");
+			EVP_PKEY* ctx_pkey = EVP_PKEY_CTX_get0_pkey(ctx);
+			if (!sdf_pkey_ec_init(ctx)) {
+				SDF_ERR("pkey_ec_ctrl: failed to initialize dctx");
+				SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_MEMORY_ALLOCATION_FAILED);
+				return 0;
+			}
+			dctx = EVP_PKEY_CTX_get_data(ctx);
+			if (!dctx) {
+				SDF_ERR("pkey_ec_ctrl: dctx still NULL after init");
+				SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_MEMORY_ALLOCATION_FAILED);
+				return 0;
+			}
+			SDF_INFO("pkey_ec_ctrl: dctx initialized successfully, dctx=%p", dctx);
 		}
 
-		if (p1 == NID_sm2) {
-			SDF_INFO("pkey_ec_ctrl: SM2 curve detected, configuring SM2 scheme");
-			dctx->ec_scheme = NID_sm2;
-			return 1;
-		}
+		/* 无论传入什么曲线NID，都强制使用SM2曲线 */
+		SDF_INFO("pkey_ec_ctrl: Forcing SM2 curve regardless of input, p1=%d, NID_sm2=%d", p1, NID_sm2);
+		dctx->ec_scheme = NID_sm2;
 
-		group = EC_GROUP_new_by_curve_name(p1);
+		/* 创建SM2曲线的EC_GROUP */
+		group = EC_GROUP_new_by_curve_name(NID_sm2);
 		if (group == NULL) {
-			SDF_ERR("pkey_ec_ctrl: alloc group failed for curve_nid=%d", p1);
+			SDF_ERR("pkey_ec_ctrl: alloc SM2 group failed");
 			SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_SIGNATURE_VERIFICATION_FAILED);
+			SDF_INFO("pkey_ec_ctrl: Returning 0 because SM2 group allocation failed");
 			return 0;
 		}
 		EC_GROUP_free(dctx->gen_group);
 		dctx->gen_group = group;
-		SDF_INFO("pkey_ec_ctrl: curve group set successfully");
-		dctx->ec_scheme = p1;
+		SDF_INFO("pkey_ec_ctrl: SM2 curve group set successfully, returning 1");
 		return 1;
 
 	case EVP_PKEY_CTRL_EC_PARAM_ENC:
@@ -3615,18 +4872,11 @@ static int sdf_pkey_ec_ctrl(EVP_PKEY_CTX* ctx, int type, int p1, void* p2) {
 		return dctx->kdf_ukmlen;
 
 	case EVP_PKEY_CTRL_MD:
-		if (EVP_MD_type((const EVP_MD*)p2) != NID_sha1 &&
-#ifndef OPENSSL_NO_SM3
-			EVP_MD_type((const EVP_MD*)p2) != NID_sm3 &&
-#endif
-			EVP_MD_type((const EVP_MD*)p2) != NID_ecdsa_with_SHA1 &&
-			EVP_MD_type((const EVP_MD*)p2) != NID_sha224 &&
-			EVP_MD_type((const EVP_MD*)p2) != NID_sha256 &&
-			EVP_MD_type((const EVP_MD*)p2) != NID_sha384 &&
-			EVP_MD_type((const EVP_MD*)p2) != NID_sha512) {
-			SDF_ERR("pkey_ec_ctrl: p2 is invalid");
-			SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_SIGNATURE_VERIFICATION_FAILED);
-			return 0;
+		/* 允许任何消息摘要算法，包括NULL，因为ECDHE密钥生成可能不需要MD */
+		SDF_INFO("pkey_ec_ctrl: EVP_PKEY_CTRL_MD called with md=%p, p1=%d", p2, p1);
+		if (p2) {
+			const char* md_name = EVP_MD_name((const EVP_MD*)p2);
+			SDF_INFO("pkey_ec_ctrl: Set MD to %s, returning 1", md_name ? md_name : "unknown");
 		}
 		dctx->md = p2;
 		return 1;
@@ -3658,12 +4908,314 @@ static int sdf_pkey_ec_ctrl(EVP_PKEY_CTX* ctx, int type, int p1, void* p2) {
 	case EVP_PKEY_CTRL_CMS_SIGN:
 		return 1;
 
+	case SDF_PKEY_CTRL_SET_SM2DHE_PARAMS:
+		SDF_INFO("pkey_ec_ctrl: SDF_PKEY_CTRL_SET_SM2DHE_PARAMS received");
+		if (!dctx) {
+			SDF_ERR("pkey_ec_ctrl: dctx is NULL");
+			return 0;
+		}
+
+		if (p2 == NULL) {
+			SDF_ERR("pkey_ec_ctrl: SM2DHE params pointer is NULL");
+			return 0;
+		}
+
+		/* Store SM2DHE parameters */
+		/* CRITICAL: Save internal fields before copying - they are NOT in SDF_SM2DHE_PARAMS */
+		SGD_HANDLE saved_agreement_handle = dctx->sm2dhe.agreement_handle;
+		int saved_deferred_keygen = dctx->sm2dhe.deferred_keygen;
+		unsigned char* saved_sdf_generated_eph_pub = dctx->sm2dhe.sdf_generated_eph_pub;
+		size_t saved_sdf_generated_eph_pub_len = dctx->sm2dhe.sdf_generated_eph_pub_len;
+
+		/*
+		 * CRITICAL: 尝试从 EVP_PKEY 的 ex_data 恢复 deferred_keygen 标志
+		 * 因为新创建的 EVP_PKEY_CTX 的 dctx 不会继承原来的 deferred_keygen 标志
+		 * 
+		 * 需要检查两个地方：
+		 * 1. EVP_PKEY_CTX_get0_pkey(ctx) - 当前上下文的 pkey
+		 * 2. params->self_eph_pub - 传入的临时公钥（这才是真正保存了 deferred_keygen 的 pkey）
+		 */
+		
+		/* 先定义 params 以便访问 self_eph_pub */
+		struct {
+			EVP_PKEY* self_eph_priv;
+			EVP_PKEY* peer_eph_pub;
+			EVP_PKEY* self_cert_priv;
+			EVP_PKEY* peer_cert_pub;
+			EVP_PKEY* self_cert_pub;
+			EVP_PKEY* self_eph_pub;
+			const unsigned char* self_id;
+			size_t self_id_len;
+			const unsigned char* peer_id;
+			size_t peer_id_len;
+			int initiator;
+		} *params = p2;
+
+		/* 尝试从 self_eph_pub 恢复 deferred_keygen（这是临时密钥） */
+		if (params->self_eph_pub && !saved_deferred_keygen) {
+			int* deferred_flag = (int*)EVP_PKEY_get_ex_data(params->self_eph_pub, 2);
+			if (deferred_flag && *deferred_flag) {
+				saved_deferred_keygen = *deferred_flag;
+				SDF_INFO("pkey_ec_ctrl: Restored deferred_keygen=%d from self_eph_pub ex_data", saved_deferred_keygen);
+			}
+		}
+		
+		/* 也尝试从当前 pkey 恢复 */
+		EVP_PKEY* ctx_pkey = EVP_PKEY_CTX_get0_pkey(ctx);
+		if (ctx_pkey && !saved_deferred_keygen) {
+			int* deferred_flag = (int*)EVP_PKEY_get_ex_data(ctx_pkey, 2);
+			if (deferred_flag && *deferred_flag) {
+				saved_deferred_keygen = *deferred_flag;
+				SDF_INFO("pkey_ec_ctrl: Restored deferred_keygen=%d from ctx pkey ex_data", saved_deferred_keygen);
+			}
+		}
+
+		/*
+		 * CRITICAL FIX: Only copy the fields that exist in SDF_SM2DHE_PARAMS
+		 * The structure passed from SSL layer does NOT have agreement_handle, deferred_keygen, etc.
+		 * Using sizeof(dctx->sm2dhe) would read garbage values!
+		 * 
+		 * SDF_SM2DHE_PARAMS has: self_eph_priv, peer_eph_pub, self_cert_priv, peer_cert_pub,
+		 *                       self_cert_pub, self_eph_pub, self_id, self_id_len,
+		 *                       peer_id, peer_id_len, initiator
+		 * Total: 10 pointers/size_t + 1 int = about 88 bytes on 64-bit
+		 */
+		/* params already defined above for deferred_keygen recovery */
+
+		/* Copy only the fields from SDF_SM2DHE_PARAMS */
+		dctx->sm2dhe.self_eph_priv = params->self_eph_priv;
+		dctx->sm2dhe.peer_eph_pub = params->peer_eph_pub;
+		dctx->sm2dhe.self_cert_priv = params->self_cert_priv;
+		dctx->sm2dhe.peer_cert_pub = params->peer_cert_pub;
+		dctx->sm2dhe.self_cert_pub = params->self_cert_pub;
+		dctx->sm2dhe.self_eph_pub = params->self_eph_pub;
+		dctx->sm2dhe.self_id = params->self_id;
+		dctx->sm2dhe.self_id_len = params->self_id_len;
+		dctx->sm2dhe.peer_id = params->peer_id;
+		dctx->sm2dhe.peer_id_len = params->peer_id_len;
+		dctx->sm2dhe.initiator = params->initiator;
+
+		/* Restore internal fields that are managed by ENGINE */
+		dctx->sm2dhe.agreement_handle = saved_agreement_handle;
+		dctx->sm2dhe.deferred_keygen = saved_deferred_keygen;
+		dctx->sm2dhe.sdf_generated_eph_pub = saved_sdf_generated_eph_pub;
+		dctx->sm2dhe.sdf_generated_eph_pub_len = saved_sdf_generated_eph_pub_len;
+
+		SDF_INFO("pkey_ec_ctrl: Copied SM2DHE params (field by field, not memcpy)");
+		SDF_INFO("pkey_ec_ctrl: Preserved agreement_handle=%p, deferred_keygen=%d",
+			saved_agreement_handle, saved_deferred_keygen);
+
+		/* Debug: log SM2DHE parameters */
+		SDF_INFO("pkey_ec_ctrl: SM2DHE parameters stored:");
+		SDF_INFO("  self_eph_priv=%p, peer_eph_pub=%p",
+			dctx->sm2dhe.self_eph_priv, dctx->sm2dhe.peer_eph_pub);
+		SDF_INFO("  self_cert_priv=%p, peer_cert_pub=%p",
+			dctx->sm2dhe.self_cert_priv, dctx->sm2dhe.peer_cert_pub);
+		SDF_INFO("  self_cert_pub=%p, self_eph_pub=%p",
+			dctx->sm2dhe.self_cert_pub, dctx->sm2dhe.self_eph_pub);
+		SDF_INFO("  self_id=%p (len=%zu), peer_id=%p (len=%zu)",
+			dctx->sm2dhe.self_id, dctx->sm2dhe.self_id_len,
+			dctx->sm2dhe.peer_id, dctx->sm2dhe.peer_id_len);
+		SDF_INFO("  initiator=%d", dctx->sm2dhe.initiator);
+
+		/*
+		 * 对于发起方（服务端），在这里生成 agreement_handle
+		 * 根据GM/T 0003.3-2012标准，发起方需要：
+		 * 1. 调用 SDF_GenerateAgreementDataWithECCEx 生成协商数据（获得 agreement_handle）
+		 * 2. 在密钥派生时调用 SDF_GenerateKeyWithECCEx 生成共享密钥
+		 *
+		 * 触发条件：
+		 * 1. initiator == 1（服务端）
+		 * 2. peer_eph_pub == NULL（还没收到客户端公钥，即 ServerKeyExchange 阶段）
+		 * 3. agreement_handle == NULL（还没生成过）
+		 *
+		 * derive 阶段 peer_eph_pub 不为 NULL，跳过密钥生成
+		 */
+		if (dctx->sm2dhe.initiator && dctx->sm2dhe.peer_eph_pub == NULL && dctx->sm2dhe.agreement_handle == NULL) {
+			EVP_PKEY* pkey = EVP_PKEY_CTX_get0_pkey(ctx);
+			SDF_KEY_CTX* key_ctx = NULL;
+			ECCrefPublicKey sponsor_pub = { 0 };
+			ECCrefPublicKey sponsor_tmp_pub = { 0 };
+			int ret;
+
+			if (!pkey) {
+				SDF_ERR("pkey_ec_ctrl: Cannot get pkey from ctx");
+				return 0;
+			}
+
+			/* 获取 SDF key context
+			 * 注意：pkey 可能是临时密钥（没有 SDF_KEY_CTX），需要从证书密钥获取
+			 */
+			key_ctx = (SDF_KEY_CTX*)EVP_PKEY_get_ex_data(pkey, 0);
+			if (!key_ctx || !key_ctx->sdf_ctx) {
+				/* pkey 是临时密钥，尝试从证书密钥获取 SDF_KEY_CTX */
+				if (dctx->sm2dhe.self_cert_priv) {
+					key_ctx = (SDF_KEY_CTX*)EVP_PKEY_get_ex_data(dctx->sm2dhe.self_cert_priv, 0);
+					SDF_INFO("pkey_ec_ctrl: pkey is ephemeral key, using SDF context from cert key");
+				}
+
+				if (!key_ctx || !key_ctx->sdf_ctx) {
+					SDF_ERR("pkey_ec_ctrl: Cannot get SDF key context from pkey or cert key");
+					return 0;
+				}
+			}
+
+			/* 转换自身证书公钥（sponsor_pub） */
+			if (!EC_KEY_get_ECCrefPublicKey(EVP_PKEY_get0_EC_KEY(dctx->sm2dhe.self_cert_pub), &sponsor_pub)) {
+				SDF_ERR("pkey_ec_ctrl: Failed to convert self_cert_pub to ECCrefPublicKey");
+				return 0;
+			}
+
+			/* 转换自身临时公钥（sponsor_tmp_pub） */
+			if (!EC_KEY_get_ECCrefPublicKey(EVP_PKEY_get0_EC_KEY(dctx->sm2dhe.self_eph_pub), &sponsor_tmp_pub)) {
+				SDF_ERR("pkey_ec_ctrl: Failed to convert self_eph_pub to ECCrefPublicKey");
+				return 0;
+			}
+
+			SDF_INFO("pkey_ec_ctrl: Calling SDF_GenerateAgreementDataWithECCEx for initiator");
+			SDF_INFO("  key_index=%u, self_id=%.*s (len=%zu)",
+				key_ctx->key_index,
+				dctx->sm2dhe.self_id_len, dctx->sm2dhe.self_id, dctx->sm2dhe.self_id_len);
+			SDF_INFO("  sponsor_pub.bits=%d", sponsor_pub.bits);
+			SDF_INFO("  sponsor_tmp_pub.bits=%d", sponsor_tmp_pub.bits);
+
+			ret = key_ctx->sdf_ctx->sdfList.SDF_GenerateAgreementDataWithECCEx(
+				key_ctx->sdf_ctx->hSession,
+				key_ctx->key_index,
+				sponsor_pub.bits,
+				dctx->sm2dhe.self_id,
+				dctx->sm2dhe.self_id_len,
+				&sponsor_pub,
+				&sponsor_tmp_pub,
+				&dctx->sm2dhe.agreement_handle);
+
+			if (ret != SDR_OK) {
+				SDF_ERR("pkey_ec_ctrl: SDF_GenerateAgreementDataWithECCEx failed, ret=0x%08X", ret);
+				if (key_ctx->sdf_ctx->sdfList.SDF_GetErrMsg) {
+					SDF_ERR("pkey_ec_ctrl: Error msg: %s", key_ctx->sdf_ctx->sdfList.SDF_GetErrMsg(ret));
+				}
+				return 0;
+			}
+
+			SDF_INFO("pkey_ec_ctrl: SDF_GenerateAgreementDataWithECCEx successful, agreement_handle=%p",
+				dctx->sm2dhe.agreement_handle);
+
+			/*
+			 * CRITICAL: 将 agreement_handle 保存到 EVP_PKEY 的 ex_data 中
+			 * 因为每次创建新的 EVP_PKEY_CTX 时都会创建新的 dctx，
+			 * 导致保存在 dctx 中的 agreement_handle 丢失
+			 *
+			 * EVP_PKEY 对象在整个生命周期中是同一个，所以保存在这里更可靠
+			 */
+			SGD_HANDLE* saved_handle = OPENSSL_malloc(sizeof(SGD_HANDLE));
+			if (saved_handle) {
+				*saved_handle = dctx->sm2dhe.agreement_handle;
+				EVP_PKEY_set_ex_data(pkey, 1, saved_handle);  /* index 1 for agreement_handle */
+				SDF_INFO("pkey_ec_ctrl: Saved agreement_handle=%p to EVP_PKEY=%p ex_data", *saved_handle, pkey);
+			}
+			else {
+				SDF_ERR("pkey_ec_ctrl: Failed to allocate memory for agreement_handle");
+			}
+
+			/*
+			 * Plan A: 提取 SDF 生成的临时公钥并更新 self_eph_pub
+			 *
+			 * 问题：SSL层发送的是软件生成的临时公钥 (068101AA...)，
+			 *      但SDF内部生成了新的临时密钥对 (65A2DA82...)
+			 * 解决：从sponsor_tmp_pub（输出参数）中提取SDF生成的临时公钥，更新到self_eph_pub
+			 *
+			 * 注意：SDF_GenerateAgreementDataWithECCEx会覆盖sponsor_tmp_pub，
+			 *      所以此时sponsor_tmp_pub包含的是SDF生成的公钥，不是SSL传入的！
+			 */
+			SDF_INFO("pkey_ec_ctrl: Plan A - Extracting SDF-generated ephemeral public key from sponsor_tmp_pub");
+
+			SDF_INFO("pkey_ec_ctrl: SDF-generated temp public key (from sponsor_tmp_pub output):");
+			SDF_HEX_DUMP("  x", sponsor_tmp_pub.x + ECCref_MAX_LEN - 32, 32);
+			SDF_HEX_DUMP("  y", sponsor_tmp_pub.y + ECCref_MAX_LEN - 32, 32);
+
+			/* 将SDF生成的临时公钥设置回self_eph_pub EVP_PKEY */
+			EC_KEY* ec_key = (EC_KEY*)EVP_PKEY_get0_EC_KEY(dctx->sm2dhe.self_eph_pub);
+			if (ec_key) {
+				/* 从ECCrefPublicKey转换回EC_POINT */
+				BIGNUM* x = BN_bin2bn(sponsor_tmp_pub.x + ECCref_MAX_LEN - 32, 32, NULL);
+				BIGNUM* y = BN_bin2bn(sponsor_tmp_pub.y + ECCref_MAX_LEN - 32, 32, NULL);
+				if (x && y) {
+					EC_POINT* pub_point = EC_POINT_new(EC_KEY_get0_group(ec_key));
+					if (pub_point) {
+						if (EC_POINT_set_affine_coordinates_GFp(EC_KEY_get0_group(ec_key),
+							pub_point, x, y, NULL)) {
+							/* 设置新的公钥 */
+							if (EC_KEY_set_public_key(ec_key, pub_point)) {
+								SDF_INFO("pkey_ec_ctrl: Successfully updated self_eph_pub with SDF-generated public key");
+								SDF_INFO("pkey_ec_ctrl: SSL layer will now send SDF's public key in ServerKeyExchange");
+							}
+							else {
+								SDF_ERR("pkey_ec_ctrl: EC_KEY_set_public_key failed");
+							}
+						}
+						else {
+							SDF_ERR("pkey_ec_ctrl: EC_POINT_set_affine_coordinates_GFp failed");
+						}
+						EC_POINT_free(pub_point);
+					}
+					else {
+						SDF_ERR("pkey_ec_ctrl: EC_POINT_new failed");
+					}
+				}
+				else {
+					SDF_ERR("pkey_ec_ctrl: BN_bin2bn failed");
+				}
+				if (x) BN_free(x);
+				if (y) BN_free(y);
+			}
+			else {
+				SDF_ERR("pkey_ec_ctrl: Cannot get EC_KEY from self_eph_pub");
+			}
+
+			/* 清除 deferred_keygen 标记，表示 SDF 密钥已生成 */
+			dctx->sm2dhe.deferred_keygen = 0;
+			SDF_INFO("pkey_ec_ctrl: SDF ephemeral key generated, cleared deferred_keygen flag");
+		}
+		else if (dctx->sm2dhe.initiator && dctx->sm2dhe.peer_eph_pub != NULL) {
+			/* derive 阶段，peer_eph_pub 已存在，跳过重复生成 */
+			SDF_INFO("pkey_ec_ctrl: peer_eph_pub exists (derive phase), skipping duplicate key generation");
+			SDF_INFO("pkey_ec_ctrl: using existing agreement_handle=%p", dctx->sm2dhe.agreement_handle);
+		}
+
+		SDF_INFO("pkey_ec_ctrl: SDF_PKEY_CTRL_SET_SM2DHE_PARAMS set successfully");
+
+		return 1;
+
+	case SDF_PKEY_CTRL_GET_SDF_GENERATED_EPH_PUB:
+		SDF_INFO("pkey_ec_ctrl: SDF_PKEY_CTRL_GET_SDF_GENERATED_EPH_PUB received");
+		if (!dctx) {
+			SDF_ERR("pkey_ec_ctrl: dctx is NULL");
+			return 0;
+		}
+
+		/* 返回 SDF 生成的临时公钥 */
+		if (dctx->sm2dhe.sdf_generated_eph_pub && dctx->sm2dhe.sdf_generated_eph_pub_len > 0) {
+			/* p2 应该指向一个结构体，包含 pub 和 pub_len 指针 */
+			struct {
+				unsigned char** pub;
+				size_t* pub_len;
+			} *out = (void*)p2;
+
+			if (out && out->pub && out->pub_len) {
+				*out->pub = dctx->sm2dhe.sdf_generated_eph_pub;
+				*out->pub_len = dctx->sm2dhe.sdf_generated_eph_pub_len;
+				SDF_INFO("pkey_ec_ctrl: Returning SDF-generated ephemeral public key, len=%zu", *out->pub_len);
+				return 1;
+			}
+		}
+
+		SDF_INFO("pkey_ec_ctrl: No SDF-generated ephemeral public key available");
+		return 0;
+
 	default:
-		SDF_ERR("pkey_ec_ctrl: unknown control type=%d, p1=%d", type, p1);
-		SDF_ERR("pkey_ec_ctrl: EVP_PKEY_CTRL_EC_PARAMGEN_CURVE_NID=%d", EVP_PKEY_CTRL_EC_PARAMGEN_CURVE_NID);
-		SDF_ERR("pkey_ec_ctrl: EVP_PKEY_CTRL_MD=%d", EVP_PKEY_CTRL_MD);
-		SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_SIGNATURE_VERIFICATION_FAILED);
-		return -2;  /* 返回 -2 表示不支持，让 OpenSSL 使用默认实现 */
+		SDF_INFO("pkey_ec_ctrl: unknown control type=%d, p1=%d, p2=%p, dctx=%p", type, p1, p2, dctx);
+		/* 返回 0 表示不支持，让 OpenSSL 使用默认实现 */
+		return 0;
 	}
 }
 
@@ -3682,13 +5234,32 @@ static int sdf_pkey_ec_ctrl_str(EVP_PKEY_CTX* ctx, const char* type,
 			SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_SIGNATURE_VERIFICATION_FAILED);
 			return 0;
 		}
-		return EVP_PKEY_CTX_set_ec_paramgen_curve_nid(ctx, nid);
+		/* 强制设置曲线参数，确保 OpenSSL 内部状态同步 */
+		EVP_PKEY_CTX_set_ec_paramgen_curve_nid(ctx, nid);
+
+		/* 设置算法类型以确保正确的生成路径 */
+		if (nid == NID_sm2) {
+			/* SM2 特殊处理 */
+			//EVP_PKEY_CTX_ctrl(ctx, EVP_PKEY_EC, EVP_PKEY_CTRL_EC_SCHEME, NID_sm2, NULL);
+		}
+		else {
+			/* 标准椭圆曲线 */
+			//EVP_PKEY_CTX_ctrl(ctx, EVP_PKEY_EC, EVP_PKEY_CTRL_EC_SCHEME, NID_undef, NULL);
+		}
+
+		// /* 最终验证设置 */
+		// if (EVP_PKEY_CTX_get_ec_paramgen_curve_nid(ctx) != nid) {
+		// 	SDF_ERR("pkey_ec_ctrl_str: failed to verify curve nid=%d after setting", nid);
+		// 	SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_SIGNATURE_VERIFICATION_FAILED);
+		// 	return 0;
+		// }
 #ifndef OPENSSL_NO_SM2
 	}
 	else if (strcmp(type, "group_name") == 0) {
+		SDF_EC_PKEY_CTX* dctx = EVP_PKEY_CTX_get_data(ctx);
 		int nid = OBJ_txt2nid(value);
 		if (nid == NID_undef) {
-			if (strcmp(value, "sm2p256v1") == 0 || strcmp(value, "SM2") == 0)
+			if (strcmp(value, "sm2p256v1") == 0 || strcmp(value, "SM2") == 0 || strcmp(value, "sm2") == 0)
 				nid = NID_sm2;
 		}
 		if (nid == NID_undef) {
@@ -3696,7 +5267,32 @@ static int sdf_pkey_ec_ctrl_str(EVP_PKEY_CTX* ctx, const char* type,
 			SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_SIGNATURE_VERIFICATION_FAILED);
 			return 0;
 		}
-		return EVP_PKEY_CTX_set_ec_paramgen_curve_nid(ctx, nid);
+
+		/* 确保 dctx 存在 */
+		if (!dctx) {
+			SDF_INFO("pkey_ec_ctrl_str: dctx is NULL, initializing");
+			if (!sdf_pkey_ec_init(ctx)) {
+				SDF_ERR("pkey_ec_ctrl_str: failed to initialize dctx");
+				return 0;
+			}
+			dctx = EVP_PKEY_CTX_get_data(ctx);
+		}
+
+		/* 强制使用 SM2 曲线 */
+		nid = NID_sm2;
+		SDF_INFO("pkey_ec_ctrl_str: forcing SM2 curve, nid=%d", nid);
+
+		/* 创建并设置 gen_group */
+		EC_GROUP* group = EC_GROUP_new_by_curve_name(nid);
+		if (!group) {
+			SDF_ERR("pkey_ec_ctrl_str: failed to create group for nid=%d", nid);
+			return 0;
+		}
+		EC_GROUP_free(dctx->gen_group);
+		dctx->gen_group = group;
+		dctx->ec_scheme = nid;
+		SDF_INFO("pkey_ec_ctrl_str: group_name set successfully");
+		return 1;
 	}
 	else if (!strcmp(type, "ec_scheme")) {
 		int scheme;
@@ -3707,8 +5303,24 @@ static int sdf_pkey_ec_ctrl_str(EVP_PKEY_CTX* ctx, const char* type,
 			SDFerr(SDF_F_SDF_ECC_VERIFY, SDF_R_SIGNATURE_VERIFICATION_FAILED);
 			return 0;
 		}
-		return EVP_PKEY_CTX_ctrl(ctx, EVP_PKEY_EC, -1, EVP_PKEY_CTRL_EC_SCHEME,
-			scheme, NULL);
+		/* 成功时返回 1，失败时返回 0 或 -2 */
+		int result = EVP_PKEY_CTX_ctrl(ctx, EVP_PKEY_EC, -1,
+			EVP_PKEY_CTRL_EC_SCHEME, scheme, NULL);
+
+		/* 添加调试日志 */
+		SDF_INFO("pkey_ec_ctrl_str: ec_scheme result=%d", result);
+
+		/* 添加更多调试信息 */
+		SDF_INFO("pkey_ec_ctrl_str: scheme=%s, scheme_nid=%d", value, scheme);
+
+		if (result == 1) {
+			SDF_INFO("pkey_ec_ctrl_str: ec_scheme '%s' successfully set", value);
+		}
+		else {
+			SDF_ERR("pkey_ec_ctrl_str: failed to set ec_scheme '%s'", value);
+		}
+
+		return result;
 	}
 	else if (!strcmp(type, "signer_id")) {
 		return EVP_PKEY_CTX_ctrl(ctx, EVP_PKEY_EC, -1, EVP_PKEY_CTRL_SIGNER_ID, 0,
@@ -3765,6 +5377,7 @@ static EVP_PKEY_METHOD* get_sdf_ec_pkey_method(void) {
 	if (sdf_ec_pkey_meth)
 		return sdf_ec_pkey_meth;
 
+	//sdf_ec_pkey_meth = EVP_PKEY_meth_new(EVP_PKEY_EC, 0);
 	sdf_ec_pkey_meth = EVP_PKEY_meth_new(EVP_PKEY_EC, 0);
 	if (!sdf_ec_pkey_meth) {
 		SDF_ERR("get_sdf_ec_pkey_method: alloc sdf_ec_pkey_meth failed");
@@ -3795,7 +5408,9 @@ static EVP_PKEY_METHOD* sdf_sm2_pkey_meth = NULL;
 
 static int sdf_pkey_sm2_init(EVP_PKEY_CTX* ctx) {
 	SDF_EC_PKEY_CTX* dctx;
+	EVP_PKEY* pkey;
 
+	SDF_INFO("pkey_sm2_init: initializing SM2 PKEY context");
 	dctx = OPENSSL_zalloc(sizeof(*dctx));
 	if (dctx == NULL) {
 		SDF_ERR("sdf_pkey_sm2_init: alloc dctx failed");
@@ -3805,9 +5420,38 @@ static int sdf_pkey_sm2_init(EVP_PKEY_CTX* ctx) {
 
 	dctx->cofactor_mode = -1;
 	dctx->kdf_type = EVP_PKEY_ECDH_KDF_NONE;
+	
 #ifndef OPENSSL_NO_SM2
-	/* SM2 方法强制设置为 SM2 scheme */
-	dctx->ec_scheme = NID_sm2;
+	/* 立即创建 SM2 曲线的 EC_GROUP，确保 gen_group 不为 NULL */
+	dctx->gen_group = EC_GROUP_new_by_curve_name(NID_sm2);
+	if (!dctx->gen_group) {
+		SDF_ERR("pkey_sm2_init: failed to create SM2 group");
+		SDFerr(SDF_F_SDF_CTRL, SDF_R_MEMORY_ALLOCATION_FAILED);
+		OPENSSL_free(dctx);
+		return 0;
+	}
+	SDF_INFO("pkey_sm2_init: created SM2 group successfully, gen_group=%p", dctx->gen_group);
+
+	/* 根据 pkey 类型设置 ec_scheme */
+	pkey = EVP_PKEY_CTX_get0_pkey(ctx);
+	if (pkey) {
+		int pkey_id = EVP_PKEY_id(pkey);
+		int is_sm2_ctx = (pkey_id == EVP_PKEY_SM2);
+		
+		SDF_INFO("pkey_sm2_init: pkey=%p, pkey_id=%d, is_sm2_ctx=%d, EVP_PKEY_SM2=%d, EVP_PKEY_EC=%d",
+			pkey, pkey_id, is_sm2_ctx, EVP_PKEY_SM2, EVP_PKEY_EC);
+		
+		/* 强制使用 SM2 曲线用于 ECDHE 密钥生成 */
+		SDF_INFO("pkey_sm2_init: Forcing SM2 curve for ECDHE key generation");
+		dctx->ec_scheme = NID_sm2;
+		SDF_INFO("pkey_sm2_init: pkey_id=%d, ec_scheme=%d, NID_sm2=%d, NID_X9_62_prime256v1=%d",
+			pkey_id, dctx->ec_scheme, NID_sm2, NID_X9_62_prime256v1);
+	} else {
+		/* 没有 pkey（keygen 场景），强制使用 SM2 */
+		SDF_INFO("pkey_sm2_init: Forcing SM2 curve for ECDHE key generation");
+		dctx->ec_scheme = NID_sm2;
+	}
+	
 	dctx->signer_id = NULL;
 	dctx->signer_id_len = 0;
 	dctx->signer_zid = NULL;
@@ -3816,6 +5460,9 @@ static int sdf_pkey_sm2_init(EVP_PKEY_CTX* ctx) {
 #endif
 
 	EVP_PKEY_CTX_set_data(ctx, dctx);
+	SDF_INFO("pkey_sm2_init: context initialized successfully, dctx=%p", dctx);
+	SDF_INFO("pkey_sm2_init: ctx=%p, dctx=%p, ec_scheme=%d, gen_group=%p",
+		ctx, dctx, dctx->ec_scheme, dctx->gen_group);
 	return 1;
 }
 
@@ -3846,8 +5493,10 @@ static EVP_PKEY_METHOD* get_sdf_sm2_pkey_method(void) {
 	/* 设置 digestverify 方法，直接处理原始消息并正确计算 e = SM3(ZA || M) */
 	EVP_PKEY_meth_set_digestverify(sdf_sm2_pkey_meth, sdf_pkey_ec_digestverify);
 	EVP_PKEY_meth_set_derive(sdf_sm2_pkey_meth, NULL, sdf_pkey_ec_kdf_derive);
-	EVP_PKEY_meth_set_ctrl(sdf_sm2_pkey_meth, sdf_pkey_ec_ctrl,
-		sdf_pkey_ec_ctrl_str);
+	EVP_PKEY_meth_set_ctrl(sdf_sm2_pkey_meth, sdf_pkey_ec_ctrl, sdf_pkey_ec_ctrl_str);
+
+	SDF_INFO("get_sdf_sm2_pkey_method: SM2 method created successfully, meth=%p", sdf_sm2_pkey_meth);
+	SDF_INFO("get_sdf_sm2_pkey_method: ctrl callback set to sdf_pkey_ec_ctrl=%p", sdf_pkey_ec_ctrl);
 
 	return sdf_sm2_pkey_meth;
 }
@@ -3861,39 +5510,43 @@ ENGINE_set_EC作用是：改变
 EC_KEY_new/EC_KEY_generate_key/EC_KEY_sign/EC_KEY_verify 这些底层函数的实现。
 相当于替换 EC 算法引擎，是和 OpenSSL EC_KEY 结构紧耦合的。
 */
-static int sdf_pkey_meths(ENGINE* e, EVP_PKEY_METHOD** pmeth, const int** nids,
-	int nid) {
+static int sdf_pkey_meths(ENGINE* e, EVP_PKEY_METHOD** pmeth, const int** nids, int nid) {
 	/* 支持的 PKEY NID 列表（以 0 结尾） */
 	static int sdf_pkey_nids_all[] = {
-  #ifndef OPENSSL_NO_EC
-		EVP_PKEY_EC,
-  #endif
-  #ifndef OPENSSL_NO_SM2
+		#ifndef OPENSSL_NO_EC
+		EVP_PKEY_EC,  /* 确保支持EC类型，用于ECDHE */
+		#endif
+		#ifndef OPENSSL_NO_SM2
 		EVP_PKEY_SM2,
-  #endif
+		#endif
 		// EVP_PKEY_RSA,
-		 0 };
+		0 };
 
 	if (pmeth == NULL) {
 		/* 返回支持的 NID 列表 */
 		*nids = sdf_pkey_nids_all;
-		return 2; /* 返回支持的 NID 数量：EC SM2 RSA */
+		SDF_INFO("sdf_pkey_meths: returning supported NIDs: EVP_PKEY_EC=%d, EVP_PKEY_SM2=%d", EVP_PKEY_EC, EVP_PKEY_SM2);
+		return 2; /* 返回支持的 NID 数量：EC SM2 */
 	}
 
 	if (nid == EVP_PKEY_EC) {
+		SDF_INFO("sdf_pkey_meths: requested EVP_PKEY_EC, returning sdf_ec_pkey_meth");
 		*pmeth = get_sdf_ec_pkey_method();
 		return (*pmeth != NULL) ? 1 : 0;
 	}
 
 #ifndef OPENSSL_NO_SM2
 	if (nid == EVP_PKEY_SM2) {
+		/* SM2 必须返回独立的 sdf_sm2_pkey_meth，不能返回 sdf_ec_pkey_meth */
+		/* 否则会导致双重释放（double free）崩溃 */
+		SDF_INFO("sdf_pkey_meths: requested EVP_PKEY_SM2, returning independent SM2 method");
 		*pmeth = get_sdf_sm2_pkey_method();
 		return (*pmeth != NULL) ? 1 : 0;
 	}
 #endif
 
 	* pmeth = NULL;
-	SDF_ERR("sdf_pkey_meths: pmeth is null");
+	SDF_ERR("sdf_pkey_meths: pmeth is null, unsupported nid=%d", nid);
 	SDFerr(SDF_F_SDF_CTRL, SDF_R_INVALID_PARAMETER);
 	return 0;
 }
@@ -3927,6 +5580,17 @@ static int sdf_init(ENGINE* e) {
 			return 0;
 		}
 	}
+
+	/* 绑定功能（使用当前的功能掩码）*/
+	SDF_INFO("sdf_init: Feature mask is 0x%04X, rebinding features", sdf_global_feature_mask);
+
+	/* 如果功能掩码为 0（配置文件显式设置为 0），不绑定任何功能 */
+	if (sdf_global_feature_mask == 0) {
+		SDF_INFO("sdf_init: Feature mask is 0, engine disabled by configuration");
+		return 1;
+	}
+
+	//sdf_rebind_features(e);
 
 	/* 如果已经设置了模块路径，立即初始化设备 */
 	if (ctx->module_path) {
@@ -4094,7 +5758,9 @@ static int sdf_rebind_features(ENGINE* e) {
 	/* EVP_PKEY_METHOD功能 */
 	if (sdf_global_feature_mask & ENGINE_FEATURE_PKEY_METHS) {
 		ENGINE_set_pkey_meths(e, sdf_pkey_meths);
-		SDF_INFO("  PKEY methods: ENABLED");
+		/* 注册 PKEY methods 到全局表 */
+		int ret = ENGINE_register_pkey_meths(e);
+		SDF_INFO("  PKEY methods: ENABLED, registration: %s", ret ? "SUCCESS" : "FAILED");
 	}
 
 	/* SSL扩展功能（国密SSL支持）*/
@@ -4196,11 +5862,20 @@ static int bind_sdf(ENGINE* e) {
 		return 0;
 	}
 
-	/* 根据全局功能掩码动态绑定功能 */
-	sdf_rebind_features(e);
+	/* 绑定默认功能 */
+	SDF_INFO("bind_sdf: Initializing with feature mask: 0x%04X", sdf_global_feature_mask);
 
-	/* 注册 PKEY methods 到全局表（在引擎初始化完成后） */
-	if (sdf_global_feature_mask & ENGINE_FEATURE_PKEY_METHS) {
+	/* 如果功能掩码为0（配置文件显式设置为0），不绑定任何功能 */
+	if (sdf_global_feature_mask == 0) {
+		SDF_INFO("  Engine disabled (FEATURE_MASK=0 in config)");
+	}
+	else {
+		SDF_INFO("  Binding features (default or configured)");
+		sdf_rebind_features(e);
+	}
+
+	/* 注册 PKEY methods 到全局表（仅在功能掩码不为0时） */
+	if (sdf_global_feature_mask != 0 && (sdf_global_feature_mask & ENGINE_FEATURE_PKEY_METHS)) {
 		int ret = ENGINE_register_pkey_meths(e);
 		SDF_INFO("PKEY methods registered to global table: %s", ret ? "SUCCESS" : "FAILED");
 
@@ -4235,8 +5910,7 @@ static int bind_helper(ENGINE* e, const char* id) {
 		SDFerr(SDF_F_BIND_SDF, SDF_R_MEMORY_ALLOCATION_FAILED);
 		return 0;
 	}
-}
-return 1;
+	return 1;
 }
 
 IMPLEMENT_DYNAMIC_CHECK_FN()
@@ -4278,5 +5952,8 @@ void engine_load_sdf_int(void) {
 	ERR_pop_to_mark();
 }
 
-void ENGINE_load_sdf(void) { engine_load_sdf_int(); }
+void ENGINE_load_sdf(void) {
+	/* 使用 ENGINE_load_builtin_engines 替代 ENGINE_add */
+	ENGINE_load_builtin_engines();
+}
 #endif

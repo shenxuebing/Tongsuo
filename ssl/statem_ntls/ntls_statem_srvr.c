@@ -1615,19 +1615,81 @@ int tls_construct_server_key_exchange_ntls(SSL *s, WPACKET *pkt)
         /* Cache the group used in the SSL_SESSION */
         s->session->kex_group = curve_id;
         /* Generate a new key for this curve */
+        fprintf(stderr, "DEBUG: Generating temporary ECDHE key for curve_id=%u\n", curve_id);
         s->s3.tmp.pkey = ssl_generate_pkey_group(s, curve_id);
         if (s->s3.tmp.pkey == NULL) {
             /* SSLfatal() already called */
+            fprintf(stderr, "ERROR: ssl_generate_pkey_group FAILED!\n");
+            ERR_print_errors_fp(stderr);
             goto err;
+        }
+        fprintf(stderr, "DEBUG: Temporary ECDHE key generated successfully, pkey=%p\n", s->s3.tmp.pkey);
+
+        /*
+         * For SDF ENGINE with SM2DHE: trigger SDF to generate the real ephemeral key
+         * before encoding the public key for ServerKeyExchange.
+         */
+        if (type & SSL_kSM2DHE) {
+            EVP_PKEY_CTX *tmp_ctx = EVP_PKEY_CTX_new(s->s3.tmp.pkey, NULL);
+            if (tmp_ctx) {
+                /* Define the control command if not already defined */
+                #ifndef SDF_PKEY_CTRL_SET_SM2DHE_PARAMS
+                #define SDF_PKEY_CTRL_SET_SM2DHE_PARAMS 65537
+                #endif
+                
+                /* Initialize for derive operation to set up the context properly */
+                if (EVP_PKEY_derive_init(tmp_ctx) > 0) {
+                    /* Prepare SM2DHE parameters for SDF ENGINE */
+                    struct {
+                        EVP_PKEY *self_eph_priv;
+                        EVP_PKEY *peer_eph_pub;
+                        EVP_PKEY *self_cert_priv;
+                        EVP_PKEY *peer_cert_pub;
+                        EVP_PKEY *self_cert_pub;
+                        EVP_PKEY *self_eph_pub;
+                        unsigned char *self_id;
+                        size_t self_id_len;
+                        unsigned char *peer_id;
+                        size_t peer_id_len;
+                        int initiator;
+                    } sdf_params = {0};
+                    
+                    /* Server is initiator */
+                    sdf_params.initiator = 1;
+                    sdf_params.self_eph_pub = s->s3.tmp.pkey;
+                    sdf_params.self_cert_priv = s->cert->pkeys[SSL_PKEY_SM2_ENC].privatekey;
+                    sdf_params.self_cert_pub = s->cert->pkeys[SSL_PKEY_SM2_ENC].privatekey;
+                    sdf_params.self_id = (unsigned char *)"1234567812345678";
+                    sdf_params.self_id_len = 16;
+                    
+                    fprintf(stderr, "DEBUG: Triggering SDF to generate real ephemeral key for server...\n");
+                    
+                    /* This will trigger SDF ENGINE to generate the real ephemeral key */
+                    /* Use -1 for keytype to skip type checking, allowing both EVP_PKEY_EC and EVP_PKEY_SM2 */
+                    int ctrl_ret = EVP_PKEY_CTX_ctrl(tmp_ctx, -1, EVP_PKEY_OP_DERIVE,
+                                                     SDF_PKEY_CTRL_SET_SM2DHE_PARAMS, 0, &sdf_params);
+                    if (ctrl_ret > 0) {
+                        fprintf(stderr, "DEBUG: SDF ephemeral key generation triggered successfully\n");
+                    } else {
+                        fprintf(stderr, "DEBUG: SDF ctrl returned %d (may be software path)\n", ctrl_ret);
+                    }
+                }
+                
+                EVP_PKEY_CTX_free(tmp_ctx);
+            }
         }
 
         /* Encode the public key. */
+        fprintf(stderr, "DEBUG: Encoding temporary ECDHE public key...\n");
         encodedlen = EVP_PKEY_get1_encoded_public_key(s->s3.tmp.pkey,
                                                       &encodedPoint);
         if (encodedlen == 0) {
+            fprintf(stderr, "ERROR: EVP_PKEY_get1_encoded_public_key FAILED!\n");
+            ERR_print_errors_fp(stderr);
             SSLfatal_ntls(s, SSL_AD_INTERNAL_ERROR, ERR_R_EVP_LIB);
             goto err;
         }
+        fprintf(stderr, "DEBUG: Public key encoded, len=%zu\n", encodedlen);
         /*
          * We only support named (not generic) curves. In this situation, the
          * ServerKeyExchange message has: [1 byte CurveType], [2 byte CurveName]
@@ -1689,13 +1751,13 @@ int tls_construct_server_key_exchange_ntls(SSL *s, WPACKET *pkt)
             goto err;
         }
 
-        if (EVP_DigestSignInit_ex(md_ctx, &pctx,
-                                  md == NULL ? NULL : EVP_MD_get0_name(md),
-                                  s->ctx->libctx, s->ctx->propq, pkey,
-                                  NULL) <= 0) {
-            SSLfatal_ntls(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
-            goto err;
-        }
+            if (EVP_DigestSignInit_ex(md_ctx, &pctx,
+                                      md == NULL ? NULL : EVP_MD_get0_name(md),
+                                      s->ctx->libctx, s->ctx->propq, pkey,
+                                      NULL) <= 0) {
+                SSLfatal_ntls(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+                goto err;
+            }
 
         if (EVP_PKEY_is_a(pkey, "SM2")) {
             if (EVP_PKEY_CTX_set1_id(pctx, SM2_DEFAULT_ID,

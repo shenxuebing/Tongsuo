@@ -3947,6 +3947,12 @@ int ssl_generate_master_secret(SSL *s, unsigned char *pms, size_t pmslen,
             /* SSLfatal() already called */
             goto err;
         }
+        printf("DEBUG ssl_generate_master_secret: Master secret (%d bytes): ",
+               s->session->master_key_length);
+        for (int i = 0; i < s->session->master_key_length; i++) {
+            printf("%02X ", s->session->master_key[i]);
+        }
+        printf("\n");
     }
 
     ret = 1;
@@ -3969,14 +3975,63 @@ EVP_PKEY *ssl_generate_pkey(SSL *s, EVP_PKEY *pm)
 {
     EVP_PKEY_CTX *pctx = NULL;
     EVP_PKEY *pkey = NULL;
+    int use_engine = 0;
+    ENGINE *cert_engine = NULL;
+    void *cert_ex_data = NULL;
 
     if (pm == NULL)
         return NULL;
-    pctx = EVP_PKEY_CTX_new_from_pkey(s->ctx->libctx, pm, s->ctx->propq);
-    if (pctx == NULL)
-        goto err;
-    if (EVP_PKEY_keygen_init(pctx) <= 0)
-        goto err;
+
+    /* Check if certificate key uses ENGINE */
+    if (s->cert && s->cert->key && s->cert->key->privatekey) {
+        EVP_PKEY *cert_pkey = s->cert->key->privatekey;
+        cert_engine = EVP_PKEY_get0_engine(cert_pkey);
+        cert_ex_data = EVP_PKEY_get_ex_data(cert_pkey, 0);
+        
+        if (cert_ex_data != NULL || cert_engine != NULL) {
+            use_engine = 1;
+        }
+    }
+
+    if (use_engine) {
+        /* ENGINE path: use EVP_PKEY_CTX_new_id to allow ENGINE's Plan B detection */
+        int pkey_id = EVP_PKEY_id(pm);
+        
+        /* For SM2, use EVP_PKEY_EC with ENGINE to trigger sdf_pkey_meths */
+        if (pkey_id == EVP_PKEY_SM2) {
+            pkey_id = EVP_PKEY_EC;
+        }
+        
+        if (cert_engine != NULL) {
+            pctx = EVP_PKEY_CTX_new_id(pkey_id, cert_engine);
+        } else {
+            /* cert_ex_data is not NULL but cert_engine is NULL */
+            pctx = EVP_PKEY_CTX_new_id(pkey_id, NULL);
+        }
+        
+        if (pctx == NULL)
+            goto err;
+        if (EVP_PKEY_keygen_init(pctx) <= 0)
+            goto err;
+        
+        /* Set the group name using ctrl_str for ENGINE */
+        const EC_GROUP *group = EC_KEY_get0_group(EVP_PKEY_get0_EC_KEY(pm));
+        if (group) {
+            int nid = EC_GROUP_get_curve_name(group);
+            const char *curve_name = OBJ_nid2sn(nid);
+            if (curve_name && EVP_PKEY_CTX_ctrl_str(pctx, "group_name", curve_name) <= 0) {
+                goto err;
+            }
+        }
+    } else {
+        /* Software path: use EVP_PKEY_CTX_new_from_pkey */
+        pctx = EVP_PKEY_CTX_new_from_pkey(s->ctx->libctx, pm, s->ctx->propq);
+        if (pctx == NULL)
+            goto err;
+        if (EVP_PKEY_keygen_init(pctx) <= 0)
+            goto err;
+    }
+    
     if (EVP_PKEY_keygen(pctx, &pkey) <= 0) {
         EVP_PKEY_free(pkey);
         pkey = NULL;
@@ -3993,30 +4048,40 @@ EVP_PKEY *ssl_generate_pkey_group(SSL *s, uint16_t id)
     const TLS_GROUP_INFO *ginf = tls1_group_id_lookup(s->ctx, id);
     EVP_PKEY_CTX *pctx = NULL;
     EVP_PKEY *pkey = NULL;
+    int use_engine = 0;
 
     if (ginf == NULL) {
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
         goto err;
     }
 
-    // /* SM2 需要特殊处理：直接使用 SM2 算法创建密钥，不使用 set_group_name */
-    // if (id == tls1_nid2group_id(NID_sm2) || (!SSL_is_server(s) && id == TLSEXT_curve_SM2)) {
-    //     pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_SM2, NULL);
-    //     if (pctx == NULL) {
-    //         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_MALLOC_FAILURE);
-    //         goto err;
-    //     }
-    //     if (EVP_PKEY_keygen_init(pctx) <= 0) {
-    //         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_EVP_LIB);
-    //         goto err;
-    //     }
-    //     if (EVP_PKEY_keygen(pctx, &pkey) <= 0) {
-    //         SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_EVP_LIB);
-    //         EVP_PKEY_free(pkey);
-    //         pkey = NULL;
-    //     }
-    // } else
-     {
+#ifndef OPENSSL_NO_ENGINE
+    /*
+     * Check if we should use ENGINE for temporary key generation.
+     * Detect ENGINE keys using ex_data (set by SDF ENGINE when creating keys).
+     * This is more reliable than EVP_PKEY_get0_engine in OpenSSL 3.x.
+     */
+    void *cert_ex_data = NULL;
+    EVP_PKEY *cert_priv = NULL;
+    
+    /* Check sign cert first */
+    if (s->cert->pkeys[SSL_PKEY_SM2_SIGN].privatekey != NULL) {
+        cert_priv = s->cert->pkeys[SSL_PKEY_SM2_SIGN].privatekey;
+        cert_ex_data = EVP_PKEY_get_ex_data(cert_priv, 0);
+    }
+    
+    /* Check enc cert if sign cert didn't have ENGINE */
+    if (cert_ex_data == NULL && 
+        s->cert->pkeys[SSL_PKEY_SM2_ENC].privatekey != NULL) {
+        cert_priv = s->cert->pkeys[SSL_PKEY_SM2_ENC].privatekey;
+        cert_ex_data = EVP_PKEY_get_ex_data(cert_priv, 0);
+    }
+    
+    /* If either ex_data or engine pointer is set, use ENGINE path */
+    if (cert_ex_data != NULL) {
+        use_engine = 1;
+    }
+#endif
         if (!SSL_is_server(s) && id == TLSEXT_curve_SM2)
             pctx = EVP_PKEY_CTX_new_from_name(s->ctx->libctx, "EC",
                                               s->ctx->propq);
@@ -4024,23 +4089,38 @@ EVP_PKEY *ssl_generate_pkey_group(SSL *s, uint16_t id)
             pctx = EVP_PKEY_CTX_new_from_name(s->ctx->libctx, ginf->algorithm,
                                               s->ctx->propq);
 
-        if (pctx == NULL) {
-            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_MALLOC_FAILURE);
-            goto err;
-        }
-        if (EVP_PKEY_keygen_init(pctx) <= 0) {
+    if (pctx == NULL) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_MALLOC_FAILURE);
+        goto err;
+    }
+    if (EVP_PKEY_keygen_init(pctx) <= 0) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_EVP_LIB);
+        goto err;
+    }
+    
+    /*
+     * Set the group name using the appropriate API.
+     * ENGINE path: use ctrl_str (ENGINE can handle this).
+     * Software path: use set_group_name (provider-based).
+     */
+    if (use_engine) {
+        /* ENGINE path: use ctrl_str */
+        if (EVP_PKEY_CTX_ctrl_str(pctx, "group_name", ginf->realname) <= 0) {
             SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_EVP_LIB);
             goto err;
         }
+    } else {
+        /* Software path: use set_group_name */
         if (!EVP_PKEY_CTX_set_group_name(pctx, ginf->realname)) {
             SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_EVP_LIB);
             goto err;
         }
-        if (EVP_PKEY_keygen(pctx, &pkey) <= 0) {
-            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_EVP_LIB);
-            EVP_PKEY_free(pkey);
-            pkey = NULL;
-        }
+    }
+    
+    if (EVP_PKEY_keygen(pctx, &pkey) <= 0) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_EVP_LIB);
+        EVP_PKEY_free(pkey);
+        pkey = NULL;
     }
 
  err:
@@ -4056,45 +4136,80 @@ EVP_PKEY *ssl_generate_param_group(SSL *s, uint16_t id)
     EVP_PKEY_CTX *pctx = NULL;
     EVP_PKEY *pkey = NULL;
     const TLS_GROUP_INFO *ginf = tls1_group_id_lookup(s->ctx, id);
+    int use_engine = 0;
+    ENGINE *cert_engine = NULL;
+    void *cert_ex_data = NULL;
 
     if (ginf == NULL)
         goto err;
 
-    // /* SM2 参数生成走 provider 路径（不调用 set_group_name） */
-    // if (id == tls1_nid2group_id(NID_sm2)) {
-    //     pctx = EVP_PKEY_CTX_new_from_name(s->ctx->libctx, "SM2", s->ctx->propq);
-    //     if (pctx == NULL)
-    //         goto err;
-    //     if (EVP_PKEY_paramgen_init(pctx) <= 0)
-    //         goto err;
-    //     if (EVP_PKEY_paramgen(pctx, &pkey) <= 0) {
-    //         EVP_PKEY_free(pkey);
-    //         pkey = NULL;
-    //     }
-    //     goto done;
-    // }
+    /* Check if certificate key uses ENGINE (similar to ssl_generate_pkey_group) */
+    if (s->cert && s->cert->key && s->cert->key->privatekey) {
+        EVP_PKEY *cert_pkey = s->cert->key->privatekey;
+        cert_engine = EVP_PKEY_get0_engine(cert_pkey);
+        cert_ex_data = EVP_PKEY_get_ex_data(cert_pkey, 0);
+        
+        if (cert_ex_data != NULL || cert_engine != NULL) {
+            use_engine = 1;
+        }
+    }
 
-    if (SSL_IS_TLS13(s) && id == TLSEXT_curve_SM2)
-        pctx = EVP_PKEY_CTX_new_from_name(s->ctx->libctx, "EC",
-                                          s->ctx->propq);
-    else
-        pctx = EVP_PKEY_CTX_new_from_name(s->ctx->libctx, ginf->algorithm,
-                                          s->ctx->propq);
+    if (use_engine) {
+        /* ENGINE path: use EVP_PKEY_CTX_new_id with ENGINE */
+        int nid = tls1_group_id2nid(ginf->group_id, 0);
+        int pkey_id = OBJ_obj2nid(OBJ_nid2obj(nid));
+        
+        /* For SM2, use EVP_PKEY_EC with ENGINE to trigger sdf_pkey_meths */
+        if (pkey_id == EVP_PKEY_SM2) {
+            pkey_id = EVP_PKEY_EC;
+        }
+        
+        if (cert_engine != NULL) {
+            pctx = EVP_PKEY_CTX_new_id(pkey_id, cert_engine);
+        } else {
+            /* cert_ex_data is not NULL but cert_engine is NULL
+             * Use NULL engine and let the system find the right engine via ex_data */
+            pctx = EVP_PKEY_CTX_new_id(pkey_id, NULL);
+        }
+    } else {
+        /* Software path: use EVP_PKEY_CTX_new_from_name */
+        if (SSL_IS_TLS13(s) && id == TLSEXT_curve_SM2)
+            pctx = EVP_PKEY_CTX_new_from_name(s->ctx->libctx, "EC",
+                                              s->ctx->propq);
+        else
+            pctx = EVP_PKEY_CTX_new_from_name(s->ctx->libctx, ginf->algorithm,
+                                              s->ctx->propq);
+    }
 
     if (pctx == NULL)
         goto err;
     if (EVP_PKEY_paramgen_init(pctx) <= 0)
         goto err;
-    if (!EVP_PKEY_CTX_set_group_name(pctx, ginf->realname)) {
-        SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_EVP_LIB);
-        goto err;
+    
+    /*
+     * Set the group name using the appropriate API.
+     * ENGINE path: use ctrl_str (ENGINE can handle this).
+     * Software path: use set_group_name (provider-based).
+     */
+    if (use_engine) {
+        /* ENGINE path: use ctrl_str */
+        if (EVP_PKEY_CTX_ctrl_str(pctx, "group_name", ginf->realname) <= 0) {
+            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_EVP_LIB);
+            goto err;
+        }
+    } else {
+        /* Software path: use set_group_name */
+        if (!EVP_PKEY_CTX_set_group_name(pctx, ginf->realname)) {
+            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_EVP_LIB);
+            goto err;
+        }
     }
+    
     if (EVP_PKEY_paramgen(pctx, &pkey) <= 0) {
         EVP_PKEY_free(pkey);
         pkey = NULL;
     }
 
-done:
  err:
     EVP_PKEY_CTX_free(pctx);
     return pkey;

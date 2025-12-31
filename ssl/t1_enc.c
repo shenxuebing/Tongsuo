@@ -660,16 +660,18 @@ int tls1_generate_master_secret(SSL *s, unsigned char *out, unsigned char *p,
     }
 
     OSSL_TRACE_BEGIN(TLS) {
-        BIO_printf(trc_out, "Premaster Secret:\n");
+        BIO_printf(trc_out, "\n=== Master Secret Derivation ===\n");
+        BIO_printf(trc_out, "Role: %s\n", s->server ? "SERVER" : "CLIENT");
+        BIO_printf(trc_out, "Cipher: %s\n", SSL_get_cipher_name(s));
+        BIO_printf(trc_out, "Premaster Secret (%zu bytes):\n", len);
         BIO_dump_indent(trc_out, p, len, 4);
-        BIO_printf(trc_out, "Client Random:\n");
+        BIO_printf(trc_out, "Client Random (%d bytes):\n", SSL3_RANDOM_SIZE);
         BIO_dump_indent(trc_out, s->s3.client_random, SSL3_RANDOM_SIZE, 4);
-        BIO_printf(trc_out, "Server Random:\n");
+        BIO_printf(trc_out, "Server Random (%d bytes):\n", SSL3_RANDOM_SIZE);
         BIO_dump_indent(trc_out, s->s3.server_random, SSL3_RANDOM_SIZE, 4);
-        BIO_printf(trc_out, "Master Secret:\n");
-        BIO_dump_indent(trc_out,
-                        s->session->master_key,
-                        SSL3_MASTER_SECRET_SIZE, 4);
+        BIO_printf(trc_out, "Master Secret (%d bytes):\n", SSL3_MASTER_SECRET_SIZE);
+        BIO_dump_indent(trc_out, s->session->master_key, SSL3_MASTER_SECRET_SIZE, 4);
+        BIO_printf(trc_out, "=== End Master Secret Derivation ===\n\n");
     } OSSL_TRACE_END(TLS);
 
     *secret_size = SSL3_MASTER_SECRET_SIZE;

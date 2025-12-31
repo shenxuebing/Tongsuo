@@ -120,6 +120,8 @@ extern "C" {
 /* Not supported operation */
 # define SDF_R_NOT_SUPPORTED                               160
 # define SDF_R_KEY_SET_FAILED                              161
+# define SDF_R_KDF_FAILED								   162
+# define SDF_R_KEY_EXCHANGE_FAILED						   163
 
 # ifdef  __cplusplus
 }

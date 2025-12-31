@@ -423,7 +423,7 @@ typedef enum OPTION_choice {
     OPT_XMPPHOST, OPT_VERIFY, OPT_NAMEOPT,
     OPT_CERT, OPT_CRL, OPT_CRL_DOWNLOAD, OPT_SESS_OUT, OPT_SESS_IN,
 #ifndef OPENSSL_NO_NTLS
-    OPT_SIGN_CERT, OPT_SIGN_KEY, OPT_ENC_CERT, OPT_ENC_KEY,
+    OPT_SIGN_CERT, OPT_SIGN_KEY, OPT_SIGN_KEYFORM, OPT_ENC_CERT, OPT_ENC_KEY, OPT_ENC_KEYFORM,
 #endif
     OPT_CERTFORM, OPT_CRLFORM, OPT_VERIFY_RET_ERROR, OPT_VERIFY_QUIET,
     OPT_BRIEF, OPT_PREXIT, OPT_CRLF, OPT_QUIET, OPT_NBIO,
@@ -538,7 +538,9 @@ const OPTIONS s_client_options[] = {
     {"build_chain", OPT_BUILD_CHAIN, '-', "Build client certificate chain"},
 #ifndef OPENSSL_NO_NTLS
     {"sign_key", OPT_SIGN_KEY, 's', "NTLS signing private key file to use"},
+    {"sign_keyform", OPT_SIGN_KEYFORM, 'E', "NTLS signing key format (ENGINE, PEM, DER) PEM default"},
     {"enc_key", OPT_ENC_KEY, 's', "NTLS encryption private key file to use"},
+    {"enc_keyform", OPT_ENC_KEYFORM, 'E', "NTLS encryption key format (ENGINE, PEM, DER) PEM default"},
 #endif
     {"key", OPT_KEY, 's', "Private key file to use; default: -cert file"},
     {"keyform", OPT_KEYFORM, 'E', "Key format (ENGINE, other values ignored)"},
@@ -854,6 +856,8 @@ int s_client_main(int argc, char **argv)
 #ifndef OPENSSL_NO_NTLS
     char *enc_cert_file = NULL, *enc_key_file = NULL;
     char *sign_cert_file = NULL, *sign_key_file = NULL;
+    int s_enc_key_format = FORMAT_PEM;
+    int s_sign_key_format = FORMAT_PEM;
     int enable_ntls = 0;
 #endif
 #ifndef OPENSSL_NO_SM2
@@ -1397,6 +1401,9 @@ int s_client_main(int argc, char **argv)
         case OPT_KEYFORM:
             if (!opt_format(opt_arg(), OPT_FMT_ANY, &key_format))
                 goto opthelp;
+            /* Also set NTLS key formats if not explicitly set */
+            s_sign_key_format = key_format;
+            s_enc_key_format = key_format;
             break;
         case OPT_PASS:
             passarg = opt_arg();
@@ -1411,8 +1418,16 @@ int s_client_main(int argc, char **argv)
         case OPT_SIGN_KEY:
             sign_key_file = opt_arg();
             break;
+        case OPT_SIGN_KEYFORM:
+            if (!opt_format(opt_arg(), OPT_FMT_ANY, &s_sign_key_format))
+                goto opthelp;
+            break;
         case OPT_ENC_KEY:
             enc_key_file = opt_arg();
+            break;
+        case OPT_ENC_KEYFORM:
+            if (!opt_format(opt_arg(), OPT_FMT_ANY, &s_enc_key_format))
+                goto opthelp;
             break;
 #endif
         case OPT_RECONNECT:
@@ -1777,7 +1792,7 @@ int s_client_main(int argc, char **argv)
     /* XXX: don't support cert-key bundle at current stage */
     /* TODO: fix the key format stuff and password stuffs */
     if (sign_key_file) {
-        sign_key = load_key(sign_key_file, FORMAT_PEM, 0, pass, e,
+        sign_key = load_key(sign_key_file, s_sign_key_format, 0, pass, e,
                        "NTLS client signing certificate private key file");
         if (sign_key == NULL) {
             ERR_print_errors(bio_err);
@@ -1795,7 +1810,7 @@ int s_client_main(int argc, char **argv)
     }
 
     if (enc_key_file) {
-        enc_key = load_key(enc_key_file, FORMAT_PEM, 0, pass, e,
+        enc_key = load_key(enc_key_file, s_enc_key_format, 0, pass, e,
                        "NTLS client encryption certificate private key file");
         if (enc_key == NULL) {
             ERR_print_errors(bio_err);

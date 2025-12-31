@@ -649,6 +649,12 @@ extern "C" {
 	typedef SGD_RV DEVAPI _CP_SDF_GenerateAgreementDataWithECC(SGD_HANDLE hSessionHandle, SGD_UINT32 uiISKIndex, SGD_UINT32 uiKeyBits, SGD_UCHAR* pucSponsorID, SGD_UINT32 uiSponsorIDLength, ECCrefPublicKey* pucSponsorPublicKey, ECCrefPublicKey* pucSponsorTmpPublicKey, SGD_HANDLE* phAgreementHandle);
 	typedef SGD_RV DEVAPI _CP_SDF_GenerateKeyWithECC(SGD_HANDLE hSessionHandle, SGD_UCHAR* pucResponseID, SGD_UINT32 uiResponseIDLength, ECCrefPublicKey* pucResponsePublicKey, ECCrefPublicKey* pucResponseTmpPublicKey, SGD_HANDLE hAgreementHandle, SGD_HANDLE* phKeyHandle);
 	typedef SGD_RV DEVAPI _CP_SDF_GenerateAgreementDataAndKeyWithECC(SGD_HANDLE hSessionHandle, SGD_UINT32 uiISKIndex, SGD_UINT32 uiKeyBits, SGD_UCHAR* pucResponseID, SGD_UINT32 uiResponseIDLength, SGD_UCHAR* pucSponsorID, SGD_UINT32 uiSponsorIDLength, ECCrefPublicKey* pucSponsorPublicKey, ECCrefPublicKey* pucSponsorTmpPublicKey, ECCrefPublicKey* pucResponsePublicKey, ECCrefPublicKey* pucResponseTmpPublicKey, SGD_HANDLE* phKeyHandle);
+	// 新增：扩展接口，输出原始共享密钥
+	// 发起方接口（服务端使用）
+	typedef SGD_RV DEVAPI _CP_SDF_GenerateAgreementDataWithECCEx(SGD_HANDLE hSessionHandle, SGD_UINT32 uiISKIndex, SGD_UINT32 uiKeyBits, SGD_UCHAR* pucSponsorID, SGD_UINT32 uiSponsorIDLength, ECCrefPublicKey* pucSponsorPublicKey, ECCrefPublicKey* pucSponsorTmpPublicKey, SGD_HANDLE* phAgreementHandle);
+	typedef SGD_RV DEVAPI _CP_SDF_GenerateKeyWithECCEx(SGD_HANDLE hSessionHandle, SGD_UCHAR* pucResponseID, SGD_UINT32 uiResponseIDLength, ECCrefPublicKey* pucResponsePublicKey, ECCrefPublicKey* pucResponseTmpPublicKey, SGD_HANDLE hAgreementHandle, SGD_UCHAR* pucSharedSecret, SGD_UINT32* puiSecretLength, SGD_HANDLE* phKeyHandle);
+	// 响应方接口（客户端使用）
+	typedef SGD_RV DEVAPI _CP_SDF_GenerateAgreementDataAndKeyWithECCEx(SGD_HANDLE hSessionHandle, SGD_UINT32 uiISKIndex, SGD_UINT32 uiKeyBits, SGD_UCHAR* pucResponseID, SGD_UINT32 uiResponseIDLength, SGD_UCHAR* pucSponsorID, SGD_UINT32 uiSponsorIDLength, ECCrefPublicKey* pucSponsorPublicKey, ECCrefPublicKey* pucSponsorTmpPublicKey, ECCrefPublicKey* pucResponsePublicKey, ECCrefPublicKey* pucResponseTmpPublicKey, SGD_UCHAR* pucSharedSecret, SGD_UINT32* puiSecretLength, SGD_HANDLE* phKeyHandle);
 	typedef SGD_RV DEVAPI _CP_SDF_GenerateKeyWithIPK_ECC(SGD_HANDLE hSessionHandle, SGD_UINT32 uiIPKIndex, SGD_UINT32 uiKeyBits, ECCCipher* pucKey, SGD_HANDLE* phKeyHandle);
 	typedef SGD_RV DEVAPI _CP_SDF_GenerateKeyWithEPK_ECC(SGD_HANDLE hSessionHandle, SGD_UINT32 uiKeyBits, SGD_UINT32 uiSDFID, ECCrefPublicKey* pucPublicKey, ECCCipher* pucKey, SGD_HANDLE* phKeyHandle);
 	typedef SGD_RV DEVAPI _CP_SDF_ImportKeyWithISK_ECC(SGD_HANDLE hSessionHandle, SGD_UINT32 uiISKIndex, ECCCipher* pucKey, SGD_HANDLE* phKeyHandle);
@@ -734,6 +740,12 @@ extern "C" {
 		_CP_SDF_GenerateAgreementDataWithECC* SDF_GenerateAgreementDataWithECC;
 		_CP_SDF_GenerateKeyWithECC* SDF_GenerateKeyWithECC;
 		_CP_SDF_GenerateAgreementDataAndKeyWithECC* SDF_GenerateAgreementDataAndKeyWithECC;
+		// 新增：扩展接口，输出原始共享密钥
+		// 发起方接口（服务端使用）
+		_CP_SDF_GenerateAgreementDataWithECCEx* SDF_GenerateAgreementDataWithECCEx;
+		_CP_SDF_GenerateKeyWithECCEx* SDF_GenerateKeyWithECCEx;
+		// 响应方接口（客户端使用）
+		_CP_SDF_GenerateAgreementDataAndKeyWithECCEx* SDF_GenerateAgreementDataAndKeyWithECCEx;
 		_CP_SDF_GenerateKeyWithIPK_ECC* SDF_GenerateKeyWithIPK_ECC;
 		_CP_SDF_GenerateKeyWithEPK_ECC* SDF_GenerateKeyWithEPK_ECC;
 		_CP_SDF_ImportKeyWithISK_ECC* SDF_ImportKeyWithISK_ECC;
