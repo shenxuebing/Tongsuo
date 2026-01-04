@@ -296,18 +296,18 @@ int sm2dh_set_ctx_params(void *vpecdhctx, const OSSL_PARAM params[])
         if (key == NULL)
             return 0;
 
-        EC_KEY_free(pectx->enc_peerk);
-        pectx->enc_peerk = (EC_KEY *)evp_pkey_export_to_provider(key,
-                                                                 pectx->libctx,
-                                                                 &keymgmt,
-                                                                 NULL);
-        EVP_KEYMGMT_free(keymgmt);
+            EC_KEY_free(pectx->enc_peerk);
+            pectx->enc_peerk = (EC_KEY *)evp_pkey_export_to_provider(key,
+                                                                     pectx->libctx,
+                                                                     &keymgmt,
+                                                                     NULL);
+            EVP_KEYMGMT_free(keymgmt);
 
-        if (pectx->enc_peerk == NULL)
-            return 0;
-        else
-            EC_KEY_up_ref(pectx->enc_peerk);
-    }
+            if (pectx->enc_peerk == NULL)
+                return 0;
+            else
+                EC_KEY_up_ref(pectx->enc_peerk);
+        }
 
     p = OSSL_PARAM_locate_const(params, OSSL_EXCHANGE_PARAM_OUTLEN);
     if (p != NULL) {
@@ -448,13 +448,29 @@ int sm2dh_derive(void *vpecdhctx, unsigned char *secret,
         return 0;
     }
 
+    /* Debug: Print SM2_compute_key parameters */
+    fprintf(stderr, "DEBUG sm2dh_derive: Calling SM2_compute_key with:\n");
+    fprintf(stderr, "  initiator=%d\n", pecdhctx->initiator);
+    fprintf(stderr, "  peer_id_len=%zu, id_len=%zu\n", pecdhctx->peer_id_len, pecdhctx->id_len);
+    fprintf(stderr, "  peerk=%p, k=%p\n", pecdhctx->peerk, pecdhctx->k);
+    fprintf(stderr, "  enc_peerk=%p, enc_k=%p\n", pecdhctx->enc_peerk, pecdhctx->enc_k);
+
     if (SM2_compute_key(secret, pecdhctx->outlen, pecdhctx->initiator,
                         pecdhctx->peer_id, pecdhctx->peer_id_len,
                         pecdhctx->id, pecdhctx->id_len,
                         pecdhctx->peerk, pecdhctx->k,
                         pecdhctx->enc_peerk, pecdhctx->enc_k,
-                        pecdhctx->md, pecdhctx->libctx, NULL) <= 0)
+                        pecdhctx->md, pecdhctx->libctx, NULL) <= 0) {
+        fprintf(stderr, "DEBUG sm2dh_derive: SM2_compute_key FAILED\n");
         return 0;
+    }
+
+    fprintf(stderr, "DEBUG sm2dh_derive: SM2_compute_key succeeded, secret len=%zu\n", pecdhctx->outlen);
+    fprintf(stderr, "DEBUG sm2dh_derive: Shared secret (48 bytes): ");
+    for (size_t i = 0; i < pecdhctx->outlen && i < 48; i++) {
+        fprintf(stderr, "%02X ", secret[i]);
+    }
+    fprintf(stderr, "\n");
 
     *psecretlen = pecdhctx->outlen;
 

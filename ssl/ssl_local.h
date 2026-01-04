@@ -1406,6 +1406,9 @@ struct ssl_st {
 # ifndef OPENSSL_NO_NTLS
             CERT_PKEY *sign_cert;
             CERT_PKEY *enc_cert;
+            /* ENGINE-generated ephemeral public key for SM2DHE (ECDHE-SM2) */
+            unsigned char *engine_eph_pub;
+            size_t engine_eph_pub_len;
 # endif
             /*
              * signature algorithms peer reports: e.g. supported signature
