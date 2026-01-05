@@ -24,6 +24,7 @@
 #include <openssl/param_build.h>
 #include "internal/cryptlib.h"
 #include "internal/tlsgroups.h"
+#include "internal/tlog.h"
 
 /* Note: ENGINE-generated ephemeral public key is now stored in SSL structure
  * (s->s3.tmp.engine_eph_pub) instead of using global variables.
@@ -1172,7 +1173,7 @@ MSG_PROCESS_RETURN tls_process_server_hello_ntls(SSL *s, PACKET *pkt)
 }
 
 static MSG_PROCESS_RETURN tls_process_as_hello_retry_request(SSL *s,
-                                                             PACKET *extpkt)
+                                                             PACKET *pkt)
 {
     RAW_EXTENSION *extensions = NULL;
 
@@ -1183,7 +1184,7 @@ static MSG_PROCESS_RETURN tls_process_as_hello_retry_request(SSL *s,
     EVP_CIPHER_CTX_free(s->enc_write_ctx);
     s->enc_write_ctx = NULL;
 
-    if (!tls_collect_extensions_ntls(s, extpkt, SSL_EXT_TLS1_3_HELLO_RETRY_REQUEST,
+    if (!tls_collect_extensions_ntls(s, pkt, SSL_EXT_TLS1_3_HELLO_RETRY_REQUEST,
                                 &extensions, NULL, 1)
             || !tls_parse_all_extensions_ntls(s, SSL_EXT_TLS1_3_HELLO_RETRY_REQUEST,
                                          extensions, NULL, 0, 1)) {
@@ -1571,21 +1572,11 @@ MSG_PROCESS_RETURN tls_process_key_exchange_ntls(SSL *s, PACKET *pkt)
         }
         
         /* DEBUG: 输出客户端 TBS 数据用于调试 */
-        {
-            size_t i;
-            fprintf(stderr, "CLIENT: TBS data for verification (%zu bytes):\n", tbslen);
-            fprintf(stderr, "  client_random (32 bytes): ");
-            for (i = 0; i < 32; i++) fprintf(stderr, "%02X ", tbs[i]);
-            fprintf(stderr, "\n  server_random (32 bytes): ");
-            for (i = 32; i < 64; i++) fprintf(stderr, "%02X ", tbs[i]);
-            fprintf(stderr, "\n  params (%zu bytes): ", tbslen - 64);
-            for (i = 64; i < tbslen && i < 128; i++) fprintf(stderr, "%02X ", tbs[i]);
-            if (tbslen > 128) fprintf(stderr, "...");
-            fprintf(stderr, "\n  signature (%zu bytes): ", PACKET_remaining(&signature));
-            for (i = 0; i < PACKET_remaining(&signature) && i < 80; i++) 
-                fprintf(stderr, "%02X ", PACKET_data(&signature)[i]);
-            fprintf(stderr, "\n");
-        }
+        TLOG_DEBUG("客户端验证 TBS 数据 (Client TBS data for verification), 长度=%zu bytes", tbslen);
+        TLOG_DEBUG_HEX("客户端随机数 (Client Random)", tbs, 32);
+        TLOG_DEBUG_HEX("服务端随机数 (Server Random)", tbs + 32, 32);
+        TLOG_DEBUG_HEX("ServerKeyExchange 参数 (SKE Params)", tbs + 64, 64);
+        TLOG_DEBUG_HEX("服务端签名 (Server Signature)", PACKET_data(&signature), 80);
         
         OPENSSL_free(buf);
         buf = NULL;
@@ -1593,7 +1584,8 @@ MSG_PROCESS_RETURN tls_process_key_exchange_ntls(SSL *s, PACKET *pkt)
         rv = EVP_DigestVerify(md_ctx, PACKET_data(&signature),
                               PACKET_remaining(&signature), tbs, tbslen);
         
-        fprintf(stderr, "CLIENT: EVP_DigestVerify result=%d\n", rv);
+        TLOG_INFO("开始验证服务端签名 (Starting to verify server signature)");
+        TLOG_INFO("服务端签名验证结果=%d (Server signature verification result=%d)", rv,rv);
         
         OPENSSL_free(tbs);
         if (rv <= 0) {
@@ -2024,6 +2016,8 @@ static int tls_construct_cke_sm2dhe_ntls(SSL *s, WPACKET *pkt)
      */
     if (s->s3.tmp.engine_eph_pub != NULL && s->s3.tmp.engine_eph_pub_len > 0) {
         /* Use ENGINE-generated ephemeral public key */
+        TLOG_INFO("使用 ENGINE 生成的临时公钥，长度=%zu (Using ENGINE-generated ephemeral public key, length=%zu)", s->s3.tmp.engine_eph_pub_len,s->s3.tmp.engine_eph_pub_len);
+        TLOG_DEBUG_HEX("客户端临时公钥 (Client Ephemeral Public Key)", s->s3.tmp.engine_eph_pub, s->s3.tmp.engine_eph_pub_len);
         encoded_pt_len = s->s3.tmp.engine_eph_pub_len;
         encodedPoint = OPENSSL_malloc(encoded_pt_len);
         if (encodedPoint == NULL) {
@@ -2032,20 +2026,19 @@ static int tls_construct_cke_sm2dhe_ntls(SSL *s, WPACKET *pkt)
         }
         memcpy(encodedPoint, s->s3.tmp.engine_eph_pub, encoded_pt_len);
         
-        fprintf(stderr, "DEBUG tls_construct_cke_sm2dhe_ntls: Using ENGINE-generated ephemeral public key, len=%zu\n", encoded_pt_len);
-        
         /* Clear the temporary storage after use */
         OPENSSL_free(s->s3.tmp.engine_eph_pub);
         s->s3.tmp.engine_eph_pub = NULL;
         s->s3.tmp.engine_eph_pub_len = 0;
     } else {
         /* Generate encoding of client key (software path) */
+        TLOG_INFO("使用软件生成的临时公钥 (Using software-generated ephemeral public key)");
         encoded_pt_len = EVP_PKEY_get1_encoded_public_key(ckey, &encodedPoint);
         if (encoded_pt_len == 0) {
             SSLfatal_ntls(s, SSL_AD_INTERNAL_ERROR, ERR_R_EC_LIB);
             goto err;
         }
-        fprintf(stderr, "DEBUG tls_construct_cke_sm2dhe_ntls: Using software-generated ephemeral public key, len=%zu\n", encoded_pt_len);
+        TLOG_DEBUG_HEX("客户端临时公钥 (Client Ephemeral Public Key)", encodedPoint, encoded_pt_len);
     }
 
     curve_id = tls1_shared_group(s, -2);

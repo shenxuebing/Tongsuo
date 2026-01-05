@@ -22,27 +22,14 @@
 #include <openssl/x509v3.h>
 #include <openssl/trace.h>
 #include "internal/sockets.h"
+#include "crypto/sm2dhe.h"
+#include "internal/tlog.h"
 
 #ifndef EVP_PKEY_CTRL_USER
 #define EVP_PKEY_CTRL_USER 0x10000
 #endif
+/* Legacy SDF-specific control command (deprecated, kept for compatibility) */
 #define SDF_PKEY_CTRL_SET_SM2DHE_PARAMS 65537
-
-/* Structure to pass SM2DHE parameters to SDF ENGINE via EVP_PKEY_CTX_ctrl */
-struct SDF_SM2DHE_PARAMS {
-    EVP_PKEY *self_eph_priv;        /* 本端临时私钥 */
-    EVP_PKEY *peer_eph_pub;         /* 对端临时公钥 */
-    EVP_PKEY *self_cert_priv;       /* 本端证书私钥 (encryption cert) */
-    EVP_PKEY *peer_cert_pub;        /* 对端证书公钥 (encryption cert) */
-    EVP_PKEY *self_cert_pub;        /* 本端证书公钥 */
-    EVP_PKEY *self_eph_pub;         /* 本端临时公钥 */
-    const unsigned char *self_id;   /* 本端ID */
-    size_t self_id_len;             /* 本端ID长度 */
-    const unsigned char *peer_id;   /* 对端ID */
-    size_t peer_id_len;             /* 对端ID长度 */
-    int initiator;                  /* 是否为发起方 */
-    /* Note: agreement_handle is managed internally by ENGINE */
-};
 
 static int ssl_add_cert_to_wpacket_ntls(SSL *s, WPACKET *pkt, X509 *x);
 /*
@@ -1697,7 +1684,7 @@ int ssl_derive_ntls(SSL *s, EVP_PKEY *privkey, EVP_PKEY *pubkey, int gensecret)
     void *cert_ex_data = NULL;
     int use_engine_sm2dhe = 0;
     ENGINE *sdf_engine = NULL;
-    struct SDF_SM2DHE_PARAMS params_to_engine;
+    EVP_PKEY_SM2DHE_PARAMS params_to_engine;
 
     if (privkey == NULL || pubkey == NULL) {
         SSLfatal_ntls(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
@@ -1747,34 +1734,33 @@ int ssl_derive_ntls(SSL *s, EVP_PKEY *privkey, EVP_PKEY *pubkey, int gensecret)
     ENGINE *cert_engine = EVP_PKEY_get0_engine(cert_priv);
     int cert_pkey_id = EVP_PKEY_id(cert_priv);
 
-    printf("DEBUG ssl_derive_ntls: Engine detection - cert_ex_data=%p, cert_engine=%p, cert_pkey_id=%d\n",
-           cert_ex_data, cert_engine, cert_pkey_id);
-
+    TLOG_DEBUG("DEBUG ssl_derive_ntls: Engine detection - cert_ex_data=%p, cert_engine=%p, cert_pkey_id=%d", cert_ex_data, cert_engine, cert_pkey_id);
     /* Check if we should use ENGINE-based SM2DHE */
     if ((cert_ex_data != NULL || cert_engine != NULL) && cert_pkey_id == EVP_PKEY_SM2) {
-        printf("DEBUG ssl_derive_ntls: ENGINE SM2 key detected, using legacy ENGINE path\n");
+        TLOG_DEBUG("DEBUG ssl_derive_ntls: Engine detection - use_engine_sm2dhe = 1");
         use_engine_sm2dhe = 1;
         
         /*
-         * Use cert_engine directly if available, otherwise use NULL.
+         * Create EVP_PKEY_CTX from cert_priv (encryption certificate private key).
          * EVP_PKEY_CTX_new will use the ENGINE associated with cert_priv.
          */
         if (cert_engine != NULL) {
-            printf("DEBUG ssl_derive_ntls: Using ENGINE from cert_priv\n");
+            TLOG_DEBUG("DEBUG ssl_derive_ntls: Engine detection - cert_engine=%p", cert_engine);
             pctx = EVP_PKEY_CTX_new(cert_priv, cert_engine);
         } else {
-            printf("DEBUG ssl_derive_ntls: cert_engine is NULL, using EVP_PKEY_CTX_new with NULL ENGINE\n");
+            TLOG_DEBUG("DEBUG ssl_derive_ntls: Engine detection - cert_engine=%p", cert_engine);
             pctx = EVP_PKEY_CTX_new(cert_priv, NULL);
         }
         
         /* Fallback to provider if ENGINE context creation failed */
         if (pctx == NULL) {
-            printf("DEBUG ssl_derive_ntls: ENGINE context creation failed, falling back to provider\n");
+            TLOG_DEBUG("DEBUG ssl_derive_ntls: Engine detection - use_engine_sm2dhe = 0");
             use_engine_sm2dhe = 0;
             pctx = EVP_PKEY_CTX_new_from_pkey(s->ctx->libctx, privkey, s->ctx->propq);
         }
     } else {
-        printf("DEBUG ssl_derive_ntls: Software key detected, using provider\n");
+        TLOG_DEBUG("DEBUG ssl_derive_ntls: Engine detection - use_engine_sm2dhe = 0");
+        use_engine_sm2dhe = 0;
         pctx = EVP_PKEY_CTX_new_from_pkey(s->ctx->libctx, privkey, s->ctx->propq);
     }
 
@@ -1783,23 +1769,15 @@ int ssl_derive_ntls(SSL *s, EVP_PKEY *privkey, EVP_PKEY *pubkey, int gensecret)
         goto err;
     }
 
-    /* Debug: Print key info before derive */
-    printf("DEBUG ssl_derive_ntls: privkey type=%d, pubkey type=%d\n",
-           EVP_PKEY_id(privkey), EVP_PKEY_id(pubkey));
-    printf("DEBUG ssl_derive_ntls: cert_priv type=%d, peer_cert_pub type=%d\n",
-           EVP_PKEY_id(cert_priv), EVP_PKEY_id(peer_cert_pub));
-    printf("DEBUG ssl_derive_ntls: use_engine_sm2dhe=%d\n", use_engine_sm2dhe);
-    fflush(stdout);
-
     if (use_engine_sm2dhe) {
         /*
-         * ENGINE-based SM2DHE: Use legacy EVP_PKEY_CTX_ctrl to pass parameters
+         * ENGINE-based SM2DHE: Use standard EVP_PKEY_CTX_ctrl to pass parameters
          * Parameters are passed to ENGINE's dctx->sm2dhe structure
          */
-        printf("DEBUG ssl_derive_ntls: Using ENGINE-based SM2DHE path\n");
-        fflush(stdout);
+        TLOG_INFO("使用 ENGINE 路径进行 SM2DHE 密钥协商 (Using ENGINE path for SM2DHE)");
 
-        /* Prepare SM2DHE parameters structure */
+        /* Prepare SM2DHE parameters using standard EVP_PKEY_SM2DHE_PARAMS structure */
+        memset(&params_to_engine, 0, sizeof(params_to_engine));
         params_to_engine.initiator = s->server;
         params_to_engine.self_id = SM2_DEFAULT_ID;
         params_to_engine.self_id_len = SM2_DEFAULT_ID_LEN;
@@ -1809,84 +1787,50 @@ int ssl_derive_ntls(SSL *s, EVP_PKEY *privkey, EVP_PKEY *pubkey, int gensecret)
         params_to_engine.peer_cert_pub = peer_cert_pub;   /* 对端证书公钥 */
         params_to_engine.self_eph_priv = privkey;         /* 本端临时私钥 */
         params_to_engine.peer_eph_pub = pubkey;           /* 对端临时公钥 */
-
+        
         /*
-         * Get self certificate public key and ephemeral public key.
-         * These are needed for SM2DHE agreement per GM/T 0003.3-2012.
-         * For ENGINE-based implementation, we can pass the same EVP_PKEY objects
-         * since the ENGINE will extract the public key components from them.
+         * Note: Standard EVP_PKEY_SM2DHE_PARAMS structure only contains private keys
+         * for self and public keys for peer. The ENGINE will extract public key
+         * components from the private key objects when needed.
          */
 
-        /* Get self certificate public key from server certificate */
-        X509 *self_x509 = s->cert->pkeys[SSL_PKEY_SM2_ENC].x509;
-        if (self_x509 == NULL) {
-            printf("DEBUG ssl_derive_ntls: Server certificate not found\n");
-            SSLfatal_ntls(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
-            goto err;
-        }
-        params_to_engine.self_cert_pub = X509_get0_pubkey(self_x509);
-        if (params_to_engine.self_cert_pub == NULL) {
-            printf("DEBUG ssl_derive_ntls: Failed to get public key from server certificate\n");
-            SSLfatal_ntls(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
-            goto err;
-        }
-
-        /*
-         * Get self ephemeral public key.
-         * Extract the public key component from the ephemeral private key (privkey).
-         * Since EVP_PKEY contains both private and public key data, we can use the same object.
-         * The ENGINE will extract the public key part when needed.
-         */
-        params_to_engine.self_eph_pub = privkey;  /* EVP_PKEY contains both priv and pub */
-
-        printf("DEBUG ssl_derive_ntls: Calling EVP_PKEY_derive_init (ENGINE path)...\n");
-        fflush(stdout);
+        TLOG_DEBUG("调用 EVP_PKEY_derive_init (Calling EVP_PKEY_derive_init)");
         if (EVP_PKEY_derive_init(pctx) <= 0) {
-            printf("DEBUG ssl_derive_ntls: EVP_PKEY_derive_init FAILED\n");
-            fflush(stdout);
+            TLOG_ERROR("EVP_PKEY_derive_init 失败 (EVP_PKEY_derive_init failed)");
             SSLfatal_ntls(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
             goto err;
         }
-        printf("DEBUG ssl_derive_ntls: EVP_PKEY_derive_init succeeded\n");
-        fflush(stdout);
+        TLOG_DEBUG("EVP_PKEY_derive_init 成功 (EVP_PKEY_derive_init succeeded)");
 
-        /* Pass SM2DHE parameters via ENGINE ctrl */
-        printf("DEBUG ssl_derive_ntls: Setting SM2DHE params via EVP_PKEY_CTX_ctrl...\n");
-        fflush(stdout);
+        /* Pass SM2DHE parameters via standard control interface */
+        TLOG_DEBUG("设置 SM2DHE 参数 (Setting SM2DHE parameters)");
         /* Use -1 for keytype to skip type checking, allowing both EVP_PKEY_EC and EVP_PKEY_SM2 */
         if (EVP_PKEY_CTX_ctrl(pctx, -1, EVP_PKEY_OP_DERIVE,
-                             SDF_PKEY_CTRL_SET_SM2DHE_PARAMS, 0, &params_to_engine) <= 0) {
-            printf("DEBUG ssl_derive_ntls: EVP_PKEY_CTX_ctrl SET_SM2DHE_PARAMS FAILED\n");
-            fflush(stdout);
+                             EVP_PKEY_CTRL_SM2DHE_SET_PARAMS, 0, &params_to_engine) <= 0) {
+            TLOG_ERROR("设置 SM2DHE 参数失败 (Setting SM2DHE parameters failed)");
             SSLfatal_ntls(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
             goto err;
         }
-        printf("DEBUG ssl_derive_ntls: SM2DHE params set successfully\n");
-        fflush(stdout);
+        TLOG_DEBUG("SM2DHE 参数设置成功 (SM2DHE parameters set successfully)");
 
-        printf("DEBUG ssl_derive_ntls: Calling EVP_PKEY_derive_set_peer (ENGINE path)...\n");
-        fflush(stdout);
         /* Use -1 for keytype to skip type checking */
+        TLOG_DEBUG("设置对端公钥 (Setting peer public key)");
         if (EVP_PKEY_CTX_ctrl(pctx, -1, EVP_PKEY_OP_DERIVE,
                              EVP_PKEY_CTRL_PEER_KEY, 0, pubkey) <= 0) {
-            printf("DEBUG ssl_derive_ntls: EVP_PKEY_CTX_ctrl PEER_KEY FAILED\n");
-            fflush(stdout);
+            TLOG_ERROR("设置对端公钥失败 (Setting peer public key failed)");
             SSLfatal_ntls(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
             goto err;
         }
-        printf("DEBUG ssl_derive_ntls: EVP_PKEY_derive_set_peer succeeded\n");
-        fflush(stdout);
+        TLOG_DEBUG("对端公钥设置成功 (Peer public key set successfully)");
 
-        printf("DEBUG ssl_derive_ntls: Calling EVP_PKEY_derive (ENGINE path)...\n");
-        fflush(stdout);
+        TLOG_INFO("开始计算共享密钥 (Starting to derive shared secret)");
         if (EVP_PKEY_derive(pctx, pms, &pmslen) <= 0) {
-            printf("DEBUG ssl_derive_ntls: EVP_PKEY_derive FAILED\n");
-            fflush(stdout);
+            TLOG_ERROR("计算共享密钥失败 (Deriving shared secret failed)");
             SSLfatal_ntls(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
             goto err;
         }
-        printf("DEBUG ssl_derive_ntls: EVP_PKEY_derive succeeded, pmslen=%zu\n", pmslen);
-        fflush(stdout);
+        TLOG_INFO("共享密钥计算成功，长度=%zu (Shared secret derived successfully, length=%zu)", pmslen, pmslen);
+        TLOG_DEBUG_HEX("共享密钥 (Shared Secret)", pms, pmslen);
         
         /* 
          * For client side (responder), ENGINE generates ephemeral key pair DURING derive.
@@ -1907,46 +1851,32 @@ int ssl_derive_ntls(SSL *s, EVP_PKEY *privkey, EVP_PKEY *pubkey, int gensecret)
             out_params.pub = &sdf_pub;
             out_params.pub_len = &sdf_pub_len;
             
-            printf("DEBUG ssl_derive_ntls: Attempting to get ENGINE-generated ephemeral public key AFTER derive...\n");
-            fflush(stdout);
-            
-            /* Call ENGINE control to get ENGINE-generated ephemeral public key */
+            /* Call ENGINE control to get ENGINE-generated ephemeral public key using standard interface */
+            TLOG_DEBUG("获取 ENGINE 生成的临时公钥 (Getting ENGINE-generated ephemeral public key)");
             /* Use -1 for keytype to skip type checking, allowing both EVP_PKEY_EC and EVP_PKEY_SM2 */
             if (EVP_PKEY_CTX_ctrl(pctx, -1, EVP_PKEY_OP_DERIVE,
-                                 65538 /* SDF_PKEY_CTRL_GET_SDF_GENERATED_EPH_PUB */, 0, &out_params) > 0) {
+                                 EVP_PKEY_CTRL_SM2DHE_GET_EPH_PUB, 0, &out_params) > 0) {
                 if (sdf_pub && sdf_pub_len > 0) {
-                    printf("DEBUG ssl_derive_ntls: Got ENGINE-generated ephemeral public key, len=%zu\n", sdf_pub_len);
-                    fflush(stdout);
-                    
+                    TLOG_INFO("成功获取 ENGINE 临时公钥，长度=%zu (Got ENGINE ephemeral public key, length=%zu)", sdf_pub_len, sdf_pub_len);
+                    TLOG_DEBUG_HEX("ENGINE 临时公钥 (ENGINE Ephemeral Public Key)", sdf_pub, sdf_pub_len);
                     /* Save to SSL structure for later use */
                     if (s->s3.tmp.engine_eph_pub) {
                         OPENSSL_free(s->s3.tmp.engine_eph_pub);
                     }
                     s->s3.tmp.engine_eph_pub = OPENSSL_memdup(sdf_pub, sdf_pub_len);
                     s->s3.tmp.engine_eph_pub_len = sdf_pub_len;
-                    
-                    if (!s->s3.tmp.engine_eph_pub) {
-                        printf("DEBUG ssl_derive_ntls: Failed to allocate memory for engine_eph_pub\n");
-                        fflush(stdout);
-                    } else {
-                        printf("DEBUG ssl_derive_ntls: Saved ENGINE ephemeral public key to s->s3.tmp.engine_eph_pub\n");
-                        fflush(stdout);
-                    }
                 } else {
-                    printf("DEBUG ssl_derive_ntls: ENGINE returned NULL or zero-length key\n");
-                    fflush(stdout);
+                    TLOG_WARN("ENGINE 返回空的临时公钥 (ENGINE returned NULL ephemeral public key)");
                 }
             } else {
-                printf("DEBUG ssl_derive_ntls: ENGINE control failed or not supported\n");
-                fflush(stdout);
+                TLOG_WARN("获取 ENGINE 临时公钥失败 (Failed to get ENGINE ephemeral public key)");
             }
         }
     } else {
         /*
          * Provider-based SM2DHE: Use OSSL_PARAMs
          */
-        printf("DEBUG ssl_derive_ntls: Using provider-based SM2DHE path\n");
-        fflush(stdout);
+        TLOG_INFO("使用 Provider 路径进行 SM2DHE 密钥协商 (Using Provider path for SM2DHE)");
 
         /* for NTLS, server is initiator(Z_A), client is responder(Z_B) */
         *p++ = OSSL_PARAM_construct_int(OSSL_EXCHANGE_PARAM_INITIATOR,
@@ -1967,50 +1897,15 @@ int ssl_derive_ntls(SSL *s, EVP_PKEY *privkey, EVP_PKEY *pubkey, int gensecret)
                                                 "SM3", 0);
         *p++ = OSSL_PARAM_construct_size_t(OSSL_EXCHANGE_PARAM_OUTLEN, &pmslen);
         *p = OSSL_PARAM_construct_end();
-		//以下代码ECDHE-SM2-SM4-CBC-SM3 SDF引擎可以通过，软件实现不行，怀疑是EVP_PKEY_derive_init_ex的问题
-        //printf("DEBUG ssl_derive_ntls: Calling EVP_PKEY_derive_init_ex...\n");
-        //fflush(stdout);
-
-        //if (EVP_PKEY_derive_init_ex(pctx, params) <= 0) {
-        //    printf("DEBUG ssl_derive_ntls: EVP_PKEY_derive_init_ex FAILED\n");
-        //    fflush(stdout);
-        //    SSLfatal_ntls(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
-        //    goto err;
-        //}
-        //printf("DEBUG ssl_derive_ntls: EVP_PKEY_derive_init_ex succeeded\n");
-        //fflush(stdout);
-
-        //printf("DEBUG ssl_derive_ntls: Calling EVP_PKEY_derive_set_peer...\n");
-        //fflush(stdout);
-        //if (EVP_PKEY_derive_set_peer(pctx, pubkey) <= 0) {
-        //    printf("DEBUG ssl_derive_ntls: EVP_PKEY_derive_set_peer FAILED\n");
-        //    fflush(stdout);
-        //    SSLfatal_ntls(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
-        //    goto err;
-        //}
-        //printf("DEBUG ssl_derive_ntls: EVP_PKEY_derive_set_peer succeeded\n");
-        //fflush(stdout);
-
-        //printf("DEBUG ssl_derive_ntls: Calling EVP_PKEY_derive...\n");
-        //fflush(stdout);
-        //if (EVP_PKEY_derive(pctx, pms, &pmslen) <= 0) {
-        //    printf("DEBUG ssl_derive_ntls: EVP_PKEY_derive FAILED\n");
-        //    fflush(stdout);
             if (EVP_PKEY_derive_init_ex(pctx, params) <= 0
                 || EVP_PKEY_derive_set_peer(pctx, pubkey) <= 0
                 || EVP_PKEY_derive(pctx, pms, &pmslen) <= 0) {
             SSLfatal_ntls(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
             goto err;
         }
-        printf("DEBUG ssl_derive_ntls: EVP_PKEY_derive succeeded, pmslen=%zu\n", pmslen);
-        fflush(stdout);
+    TLOG_INFO("SM2DHE 密钥协商成功 (SM2DHE key exchange successful)");
+    TLOG_DEBUG_HEX("SM2DHE 共享密钥 (SM2DHE shared secret)", pms, pmslen > 48 ? 48 : pmslen);
     }
-    printf("DEBUG ssl_derive_ntls: EVP_PKEY_derive succeeded, pmslen=%zu\n", pmslen);
-    printf("DEBUG ssl_derive_ntls: Premaster secret (48 bytes): ");
-    for (size_t i = 0; i < pmslen && i < 48; i++) {
-        printf("%02X ", pms[i]);
-    }
-    printf("\n");
 
     if (gensecret) {
         rv = ssl_gensecret(s, pms, pmslen);

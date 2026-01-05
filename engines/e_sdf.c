@@ -94,6 +94,11 @@
 #ifndef EVP_PKEY_CTRL_USER
 #define EVP_PKEY_CTRL_USER (EVP_PKEY_ALG_CTRL + 100)
 #endif
+
+/* 标准 SM2DHE 接口（定义在 include/crypto/sm2dhe.h） */
+#include "crypto/sm2dhe.h"
+
+/* 向后兼容的 SDF 特定控制命令（已废弃，保留用于兼容性） */
 #define SDF_PKEY_CTRL_SET_SM2DHE_PARAMS 65537
 #define SDF_PKEY_CTRL_GET_SDF_GENERATED_EPH_PUB 65538
 
@@ -4908,8 +4913,10 @@ static int sdf_pkey_ec_ctrl(EVP_PKEY_CTX* ctx, int type, int p1, void* p2) {
 	case EVP_PKEY_CTRL_CMS_SIGN:
 		return 1;
 
+	case EVP_PKEY_CTRL_SM2DHE_SET_PARAMS:
 	case SDF_PKEY_CTRL_SET_SM2DHE_PARAMS:
-		SDF_INFO("pkey_ec_ctrl: SDF_PKEY_CTRL_SET_SM2DHE_PARAMS received");
+		/* Support both standard and legacy SDF-specific control commands */
+		SDF_INFO("pkey_ec_ctrl: SM2DHE_SET_PARAMS received (cmd=%d)", type);
 		if (!dctx) {
 			SDF_ERR("pkey_ec_ctrl: dctx is NULL");
 			return 0;
@@ -4936,27 +4943,15 @@ static int sdf_pkey_ec_ctrl(EVP_PKEY_CTX* ctx, int type, int p1, void* p2) {
 		 * 2. params->self_eph_pub - 传入的临时公钥（这才是真正保存了 deferred_keygen 的 pkey）
 		 */
 		
-		/* 先定义 params 以便访问 self_eph_pub */
-		struct {
-			EVP_PKEY* self_eph_priv;
-			EVP_PKEY* peer_eph_pub;
-			EVP_PKEY* self_cert_priv;
-			EVP_PKEY* peer_cert_pub;
-			EVP_PKEY* self_cert_pub;
-			EVP_PKEY* self_eph_pub;
-			const unsigned char* self_id;
-			size_t self_id_len;
-			const unsigned char* peer_id;
-			size_t peer_id_len;
-			int initiator;
-		} *params = p2;
+		/* Use standard EVP_PKEY_SM2DHE_PARAMS structure */
+		EVP_PKEY_SM2DHE_PARAMS *params = (EVP_PKEY_SM2DHE_PARAMS *)p2;
 
-		/* 尝试从 self_eph_pub 恢复 deferred_keygen（这是临时密钥） */
-		if (params->self_eph_pub && !saved_deferred_keygen) {
-			int* deferred_flag = (int*)EVP_PKEY_get_ex_data(params->self_eph_pub, 2);
+		/* 尝试从 self_eph_priv 恢复 deferred_keygen（这是临时密钥） */
+		if (params->self_eph_priv && !saved_deferred_keygen) {
+			int* deferred_flag = (int*)EVP_PKEY_get_ex_data(params->self_eph_priv, 2);
 			if (deferred_flag && *deferred_flag) {
 				saved_deferred_keygen = *deferred_flag;
-				SDF_INFO("pkey_ec_ctrl: Restored deferred_keygen=%d from self_eph_pub ex_data", saved_deferred_keygen);
+				SDF_INFO("pkey_ec_ctrl: Restored deferred_keygen=%d from self_eph_priv ex_data", saved_deferred_keygen);
 			}
 		}
 		
@@ -4982,18 +4977,23 @@ static int sdf_pkey_ec_ctrl(EVP_PKEY_CTX* ctx, int type, int p1, void* p2) {
 		 */
 		/* params already defined above for deferred_keygen recovery */
 
-		/* Copy only the fields from SDF_SM2DHE_PARAMS */
+		/* Copy fields from standard EVP_PKEY_SM2DHE_PARAMS */
 		dctx->sm2dhe.self_eph_priv = params->self_eph_priv;
 		dctx->sm2dhe.peer_eph_pub = params->peer_eph_pub;
 		dctx->sm2dhe.self_cert_priv = params->self_cert_priv;
 		dctx->sm2dhe.peer_cert_pub = params->peer_cert_pub;
-		dctx->sm2dhe.self_cert_pub = params->self_cert_pub;
-		dctx->sm2dhe.self_eph_pub = params->self_eph_pub;
 		dctx->sm2dhe.self_id = params->self_id;
 		dctx->sm2dhe.self_id_len = params->self_id_len;
 		dctx->sm2dhe.peer_id = params->peer_id;
 		dctx->sm2dhe.peer_id_len = params->peer_id_len;
 		dctx->sm2dhe.initiator = params->initiator;
+		
+		/*
+		 * Note: Standard EVP_PKEY_SM2DHE_PARAMS only contains private keys for self.
+		 * Extract public keys from private key objects when needed.
+		 */
+		dctx->sm2dhe.self_cert_pub = params->self_cert_priv;  /* Will extract pubkey from privkey */
+		dctx->sm2dhe.self_eph_pub = params->self_eph_priv;    /* Will extract pubkey from privkey */
 
 		/* Restore internal fields that are managed by ENGINE */
 		dctx->sm2dhe.agreement_handle = saved_agreement_handle;
@@ -5186,8 +5186,10 @@ static int sdf_pkey_ec_ctrl(EVP_PKEY_CTX* ctx, int type, int p1, void* p2) {
 
 		return 1;
 
+	case EVP_PKEY_CTRL_SM2DHE_GET_EPH_PUB:
 	case SDF_PKEY_CTRL_GET_SDF_GENERATED_EPH_PUB:
-		SDF_INFO("pkey_ec_ctrl: SDF_PKEY_CTRL_GET_SDF_GENERATED_EPH_PUB received");
+		/* Support both standard and legacy SDF-specific control commands */
+		SDF_INFO("pkey_ec_ctrl: SM2DHE_GET_EPH_PUB received (cmd=%d)", type);
 		if (!dctx) {
 			SDF_ERR("pkey_ec_ctrl: dctx is NULL");
 			return 0;
@@ -5204,7 +5206,7 @@ static int sdf_pkey_ec_ctrl(EVP_PKEY_CTX* ctx, int type, int p1, void* p2) {
 			if (out && out->pub && out->pub_len) {
 				*out->pub = dctx->sm2dhe.sdf_generated_eph_pub;
 				*out->pub_len = dctx->sm2dhe.sdf_generated_eph_pub_len;
-				SDF_INFO("pkey_ec_ctrl: Returning SDF-generated ephemeral public key, len=%zu", *out->pub_len);
+				SDF_INFO("pkey_ec_ctrl: Returning ENGINE-generated ephemeral public key, len=%zu", *out->pub_len);
 				return 1;
 			}
 		}

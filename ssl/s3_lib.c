@@ -21,6 +21,7 @@
 #include <openssl/core_names.h>
 #include "internal/cryptlib.h"
 #include "internal/tlsgroups.h"
+#include "internal/tlog.h"
 
 #define TLS13_NUM_CIPHERS       OSSL_NELEM(tls13_ciphers)
 #define SSL3_NUM_CIPHERS        OSSL_NELEM(ssl3_ciphers)
@@ -3947,12 +3948,9 @@ int ssl_generate_master_secret(SSL *s, unsigned char *pms, size_t pmslen,
             /* SSLfatal() already called */
             goto err;
         }
-        printf("DEBUG ssl_generate_master_secret: Master secret (%d bytes): ",
+        TLOG_DEBUG("ssl_generate_master_secret: Master secret (%d bytes): ",
                s->session->master_key_length);
-        for (int i = 0; i < s->session->master_key_length; i++) {
-            printf("%02X ", s->session->master_key[i]);
-        }
-        printf("\n");
+        TLOG_DEBUG_HEX("Master secret", s->session->master_key, s->session->master_key_length);
     }
 
     ret = 1;

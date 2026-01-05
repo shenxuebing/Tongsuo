@@ -23,6 +23,8 @@
 #include <openssl/dh.h>
 #include <openssl/bn.h>
 #include <openssl/md5.h>
+#include "crypto/sm2dhe.h"
+#include "internal/tlog.h"
 
 #define TICKET_NONCE_SIZE       8
 
@@ -1615,63 +1617,48 @@ int tls_construct_server_key_exchange_ntls(SSL *s, WPACKET *pkt)
         /* Cache the group used in the SSL_SESSION */
         s->session->kex_group = curve_id;
         /* Generate a new key for this curve */
-        fprintf(stderr, "DEBUG: Generating temporary ECDHE key for curve_id=%u\n", curve_id);
+        TLOG_INFO("服务端生成临时密钥对，曲线ID=%u (Server generating ephemeral key pair, curve_id=%u)", curve_id, curve_id);
         s->s3.tmp.pkey = ssl_generate_pkey_group(s, curve_id);
         if (s->s3.tmp.pkey == NULL) {
+            TLOG_ERROR("服务端生成临时密钥对失败 (Server failed to generate ephemeral key pair)");
             /* SSLfatal() already called */
-            fprintf(stderr, "ERROR: ssl_generate_pkey_group FAILED!\n");
-            ERR_print_errors_fp(stderr);
             goto err;
         }
-        fprintf(stderr, "DEBUG: Temporary ECDHE key generated successfully, pkey=%p\n", s->s3.tmp.pkey);
+        TLOG_DEBUG("服务端临时密钥对生成成功 (Server ephemeral key pair generated successfully)");
 
         /*
-         * For SDF ENGINE with SM2DHE: trigger SDF to generate the real ephemeral key
+         * For ENGINE-based SM2DHE: trigger ENGINE to generate the real ephemeral key
          * before encoding the public key for ServerKeyExchange.
+         * This uses the standard SM2DHE interface defined in crypto/sm2dhe.h
          */
         if (type & SSL_kSM2DHE) {
             EVP_PKEY_CTX *tmp_ctx = EVP_PKEY_CTX_new(s->s3.tmp.pkey, NULL);
             if (tmp_ctx) {
-                /* Define the control command if not already defined */
-                #ifndef SDF_PKEY_CTRL_SET_SM2DHE_PARAMS
-                #define SDF_PKEY_CTRL_SET_SM2DHE_PARAMS 65537
-                #endif
-                
                 /* Initialize for derive operation to set up the context properly */
                 if (EVP_PKEY_derive_init(tmp_ctx) > 0) {
-                    /* Prepare SM2DHE parameters for SDF ENGINE */
-                    struct {
-                        EVP_PKEY *self_eph_priv;
-                        EVP_PKEY *peer_eph_pub;
-                        EVP_PKEY *self_cert_priv;
-                        EVP_PKEY *peer_cert_pub;
-                        EVP_PKEY *self_cert_pub;
-                        EVP_PKEY *self_eph_pub;
-                        unsigned char *self_id;
-                        size_t self_id_len;
-                        unsigned char *peer_id;
-                        size_t peer_id_len;
-                        int initiator;
-                    } sdf_params = {0};
+                    /* Prepare SM2DHE parameters using standard EVP_PKEY_SM2DHE_PARAMS structure */
+                    EVP_PKEY_SM2DHE_PARAMS params = {0};
                     
                     /* Server is initiator */
-                    sdf_params.initiator = 1;
-                    sdf_params.self_eph_pub = s->s3.tmp.pkey;
-                    sdf_params.self_cert_priv = s->cert->pkeys[SSL_PKEY_SM2_ENC].privatekey;
-                    sdf_params.self_cert_pub = s->cert->pkeys[SSL_PKEY_SM2_ENC].privatekey;
-                    sdf_params.self_id = (unsigned char *)"1234567812345678";
-                    sdf_params.self_id_len = 16;
+                    params.initiator = 1;
+                    params.self_eph_priv = s->s3.tmp.pkey;
+                    params.self_cert_priv = s->cert->pkeys[SSL_PKEY_SM2_ENC].privatekey;
+                    params.self_id = SM2_DEFAULT_ID;
+                    params.self_id_len = SM2_DEFAULT_ID_LEN;
                     
-                    fprintf(stderr, "DEBUG: Triggering SDF to generate real ephemeral key for server...\n");
+                    /*
+                     * Note: Standard EVP_PKEY_SM2DHE_PARAMS only contains private keys for self.
+                     * The ENGINE will extract public key components from private key objects.
+                     */
                     
-                    /* This will trigger SDF ENGINE to generate the real ephemeral key */
+                    /* Trigger ENGINE to generate the real ephemeral key using standard interface */
+                    TLOG_INFO("触发 ENGINE 生成真实的临时密钥 (Triggering ENGINE to generate real ephemeral key)");
                     /* Use -1 for keytype to skip type checking, allowing both EVP_PKEY_EC and EVP_PKEY_SM2 */
-                    int ctrl_ret = EVP_PKEY_CTX_ctrl(tmp_ctx, -1, EVP_PKEY_OP_DERIVE,
-                                                     SDF_PKEY_CTRL_SET_SM2DHE_PARAMS, 0, &sdf_params);
-                    if (ctrl_ret > 0) {
-                        fprintf(stderr, "DEBUG: SDF ephemeral key generation triggered successfully\n");
+                    if (EVP_PKEY_CTX_ctrl(tmp_ctx, -1, EVP_PKEY_OP_DERIVE,
+                                         EVP_PKEY_CTRL_SM2DHE_SET_PARAMS, 0, &params) > 0) {
+                        TLOG_DEBUG("ENGINE 临时密钥生成触发成功 (ENGINE ephemeral key generation triggered successfully)");
                     } else {
-                        fprintf(stderr, "DEBUG: SDF ctrl returned %d (may be software path)\n", ctrl_ret);
+                        TLOG_WARN("ENGINE 控制命令返回失败，可能是软件路径 (ENGINE control returned failure, may be software path)");
                     }
                 }
                 
@@ -1680,16 +1667,16 @@ int tls_construct_server_key_exchange_ntls(SSL *s, WPACKET *pkt)
         }
 
         /* Encode the public key. */
-        fprintf(stderr, "DEBUG: Encoding temporary ECDHE public key...\n");
+        TLOG_DEBUG("编码服务端临时公钥 (Encoding server ephemeral public key)");
         encodedlen = EVP_PKEY_get1_encoded_public_key(s->s3.tmp.pkey,
                                                       &encodedPoint);
         if (encodedlen == 0) {
-            fprintf(stderr, "ERROR: EVP_PKEY_get1_encoded_public_key FAILED!\n");
-            ERR_print_errors_fp(stderr);
+            TLOG_ERROR("编码服务端临时公钥失败 (Failed to encode server ephemeral public key)");
             SSLfatal_ntls(s, SSL_AD_INTERNAL_ERROR, ERR_R_EVP_LIB);
             goto err;
         }
-        fprintf(stderr, "DEBUG: Public key encoded, len=%zu\n", encodedlen);
+        TLOG_INFO("服务端临时公钥编码成功，长度=%zu (Server ephemeral public key encoded, length=%zu)",encodedlen, encodedlen);
+        TLOG_DEBUG_HEX("服务端临时公钥 (Server Ephemeral Public Key)", encodedPoint, encodedlen);
         /*
          * We only support named (not generic) curves. In this situation, the
          * ServerKeyExchange message has: [1 byte CurveType], [2 byte CurveName]
@@ -1784,21 +1771,15 @@ int tls_construct_server_key_exchange_ntls(SSL *s, WPACKET *pkt)
             OPENSSL_free(buf);
             goto err;
         }
-
         /* DEBUG: 输出 TBS 数据用于调试 */
         {
-            size_t i;
-            fprintf(stderr, "SERVER: TBS data for signing (%zu bytes):\n", tbslen);
-            fprintf(stderr, "  client_random (32 bytes): ");
-            for (i = 0; i < 32; i++) fprintf(stderr, "%02X ", tbs[i]);
-            fprintf(stderr, "\n  server_random (32 bytes): ");
-            for (i = 32; i < 64; i++) fprintf(stderr, "%02X ", tbs[i]);
-            fprintf(stderr, "\n  params (%zu bytes): ", tbslen - 64);
-            for (i = 64; i < tbslen && i < 128; i++) fprintf(stderr, "%02X ", tbs[i]);
-            if (tbslen > 128) fprintf(stderr, "...");
-            fprintf(stderr, "\n");
+            TLOG_DEBUG("SERVER: TBS data for signing (%zu bytes):\n", tbslen);
+            TLOG_DEBUG_HEX("SERVER: TBS data for signing (TBS data for signing)", tbs, 32);
+            TLOG_DEBUG("\n  server_random (32 bytes): ");
+            TLOG_DEBUG_HEX("SERVER: TBS data for signing (server_random)", tbs, 32);
+            TLOG_DEBUG("\n  params (%zu bytes): ", tbslen - 64);
+            TLOG_DEBUG_HEX("SERVER: TBS data for signing (params)", tbs+64, tbslen-64);        
         }
-
         OPENSSL_free(buf);
 
         if (EVP_DigestSign(md_ctx, NULL, &siglen, tbs, tbslen) <=0
