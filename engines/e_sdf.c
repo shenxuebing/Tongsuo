@@ -3559,6 +3559,7 @@ static int sdf_pkey_ec_derive(EVP_PKEY_CTX* ctx, unsigned char* key,
 			 */
 			unsigned char shared_secret[48] = { 0 };
 			unsigned int secret_len = sizeof(shared_secret);  /* 48字节 */
+			unsigned int key_bits = SSL_MAX_MASTER_KEY_LENGTH * 8;  /* 48 * 8 = 384 bits */
 
 			/* 转换公钥格式：从 EC_KEY 到 ECCrefPublicKey */
 			memset(&sponsor_pub, 0, sizeof(sponsor_pub));
@@ -3710,7 +3711,7 @@ static int sdf_pkey_ec_derive(EVP_PKEY_CTX* ctx, unsigned char* key,
 						ret = key_ctx->sdf_ctx->sdfList.SDF_GenerateAgreementDataWithECCEx(
 							key_ctx->sdf_ctx->hSession,
 							key_ctx->key_index,
-							sponsor_pub.bits, /* 使用动态密钥长度 */
+							key_bits, /* 使用动态密钥长度 */
 							dctx->sm2dhe.self_id,
 							dctx->sm2dhe.self_id_len,
 							&sponsor_pub,
@@ -3952,6 +3953,7 @@ static int sdf_pkey_ec_derive(EVP_PKEY_CTX* ctx, unsigned char* key,
 					 */
 					unsigned char shared_secret[48] = { 0 };
 					unsigned int secret_len = sizeof(shared_secret);  /* 48字节 */
+					unsigned int key_bits = SSL_MAX_MASTER_KEY_LENGTH * 8;  /* 48 * 8 = 384 bits */
 
 					/* 转换公钥格式：从 EC_KEY 到 ECCrefPublicKey */
 					memset(&sponsor_pub, 0, sizeof(sponsor_pub));
@@ -4019,7 +4021,7 @@ static int sdf_pkey_ec_derive(EVP_PKEY_CTX* ctx, unsigned char* key,
 								ret = key_ctx->sdf_ctx->sdfList.SDF_GenerateAgreementDataWithECCEx(
 									key_ctx->sdf_ctx->hSession,
 									key_ctx->key_index,
-									sponsor_pub.bits,
+									key_bits,
 									dctx->sm2dhe.self_id,
 									dctx->sm2dhe.self_id_len,
 									&sponsor_pub,
@@ -5072,17 +5074,21 @@ static int sdf_pkey_ec_ctrl(EVP_PKEY_CTX* ctx, int type, int p1, void* p2) {
 				return 0;
 			}
 
+			unsigned int key_bits = SSL_MAX_MASTER_KEY_LENGTH * 8;  /* 48 * 8 = 384 bits */
+		
 			SDF_INFO("pkey_ec_ctrl: Calling SDF_GenerateAgreementDataWithECCEx for initiator");
 			SDF_INFO("  key_index=%u, self_id=%.*s (len=%zu)",
 				key_ctx->key_index,
 				dctx->sm2dhe.self_id_len, dctx->sm2dhe.self_id, dctx->sm2dhe.self_id_len);
 			SDF_INFO("  sponsor_pub.bits=%d", sponsor_pub.bits);
 			SDF_INFO("  sponsor_tmp_pub.bits=%d", sponsor_tmp_pub.bits);
+			SDF_INFO("  Requesting key length: %u bits (%u bytes) for SSL_MAX_MASTER_KEY_LENGTH compatibility",
+				key_bits, SSL_MAX_MASTER_KEY_LENGTH);
 
 			ret = key_ctx->sdf_ctx->sdfList.SDF_GenerateAgreementDataWithECCEx(
 				key_ctx->sdf_ctx->hSession,
 				key_ctx->key_index,
-				sponsor_pub.bits,
+				key_bits,  /* SSL_MAX_MASTER_KEY_LENGTH * 8 = 384 bits */
 				dctx->sm2dhe.self_id,
 				dctx->sm2dhe.self_id_len,
 				&sponsor_pub,

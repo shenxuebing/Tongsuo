@@ -448,7 +448,6 @@ int sm2dh_derive(void *vpecdhctx, unsigned char *secret,
         ERR_raise(ERR_LIB_PROV, PROV_R_MISSING_KEY);
         return 0;
     }
-#ifdef TLOG_DEBUG
     /* Debug: Print SM2_compute_key parameters */
     TLOG_DEBUG("sm2dh_derive: Calling SM2_compute_key with:\n");
     TLOG_DEBUG("  initiator=%d\n", pecdhctx->initiator);
@@ -468,7 +467,6 @@ int sm2dh_derive(void *vpecdhctx, unsigned char *secret,
 
     TLOG_DEBUG("sm2dh_derive: SM2_compute_key succeeded, secret len=%zu\n", pecdhctx->outlen);
     TLOG_DEBUG_HEX("Shared secret", secret, pecdhctx->outlen);
-#endif
     *psecretlen = pecdhctx->outlen;
 
     return 1;
