@@ -435,7 +435,8 @@ int ssl_cipher_get_evp(SSL_CTX *ctx, const SSL_SESSION *s,
         ctmp.id = s->compress_meth;
         if (ssl_comp_methods != NULL) {
             i = sk_SSL_COMP_find(ssl_comp_methods, &ctmp);
-            *comp = sk_SSL_COMP_value(ssl_comp_methods, i);
+            if (i >= 0)
+                *comp = sk_SSL_COMP_value(ssl_comp_methods, i);
         }
         /* If were only interested in comp then return success */
         if ((enc == NULL) && (md == NULL))
@@ -458,11 +459,14 @@ int ssl_cipher_get_evp(SSL_CTX *ctx, const SSL_SESSION *s,
         if (c->algorithm_mac == SSL_AEAD)
             mac_pkey_type = NULL;
     } else {
-        if (!ssl_evp_md_up_ref(ctx->ssl_digest_methods[i])) {
+        const EVP_MD *digest = ctx->ssl_digest_methods[i];
+
+        if (digest == NULL
+                || !ssl_evp_md_up_ref(digest)) {
             ssl_evp_cipher_free(*enc);
             return 0;
         }
-        *md = ctx->ssl_digest_methods[i];
+        *md = digest;
         if (mac_pkey_type != NULL)
             *mac_pkey_type = ctx->ssl_mac_pkey_id[i];
         if (mac_secret_size != NULL)
@@ -962,9 +966,7 @@ static int ssl_cipher_process_rulestr(const char *rule_str,
                  * alphanumeric, so we call this an error.
                  */
                 ERR_raise(ERR_LIB_SSL, SSL_R_INVALID_COMMAND);
-                retval = found = 0;
-                l++;
-                break;
+                return 0;
             }
 
             if (rule == CIPHER_SPECIAL) {

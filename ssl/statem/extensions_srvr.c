@@ -652,7 +652,14 @@ int tls_parse_ctos_key_share(SSL *s, PACKET *pkt, unsigned int context, X509 *x,
         }
 
         /* Check if this share is for a group we can use */
-        if (!check_in_list(s, group_id, srvrgroups, srvr_num_groups, 1)) {
+        if (!check_in_list(s, group_id, srvrgroups, srvr_num_groups, 1)
+                || !tls_group_allowed(s, group_id, SSL_SECOP_CURVE_SUPPORTED)
+                   /*
+                    * We tolerate but ignore a group id that we don't think is
+                    * suitable for TLSv1.3
+                    */
+                || !tls_valid_group(s, group_id, TLS1_3_VERSION, TLS1_3_VERSION,
+                                    0, NULL)) {
             /* Share not suitable */
             continue;
         }
@@ -1207,7 +1214,11 @@ int tls_parse_ctos_psk(SSL *s, PACKET *pkt, unsigned int context, X509 *x,
         }
 
         md = ssl_md(s->ctx, sess->cipher->algorithm2);
-        if (!EVP_MD_is_a(md,
+        if (md == NULL) {
+            SSLfatal(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+            goto err;
+        }
+	if (!EVP_MD_is_a(md,
                 EVP_MD_get0_name(ssl_md(s->ctx,
                                         s->s3.tmp.new_cipher->algorithm2)))) {
             /* The ciphersuite is not compatible with this session. */

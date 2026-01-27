@@ -15,8 +15,10 @@ use strict;
 use warnings;
 use Getopt::Std;
 use File::Basename;
+use File::Spec;
 use IPC::Cmd;
 use POSIX;
+use Config;
 use Carp;
 
 # These control our behavior.
@@ -32,6 +34,7 @@ my $SYSTEM;
 my $VERSION;
 my $CCVENDOR;
 my $CCVER;
+my $CL_ARCH;
 my $GCC_BITS;
 my $GCC_ARCH;
 
@@ -49,12 +52,15 @@ my @c_compilers = qw(clang gcc cc);
 my @cc_version =
     (
      clang => sub {
-         my $v = `$CROSS_COMPILE$CC -v 2>&1`;
+         return undef unless IPC::Cmd::can_run("$CROSS_COMPILE$CC");
+  	 my $v = `$CROSS_COMPILE$CC -v 2>&1`;
          $v =~ m/(?:(?:clang|LLVM) version|.*based on LLVM)\s+([0-9]+\.[0-9]+)/;
          return $1;
      },
      gnu => sub {
-         my $v = `$CROSS_COMPILE$CC -dumpversion 2>/dev/null`;
+         return undef unless IPC::Cmd::can_run("$CROSS_COMPILE$CC");
+         my $nul = File::Spec->devnull();
+         my $v = `$CROSS_COMPILE$CC -dumpversion 2> $nul`;
          # Strip off whatever prefix egcs prepends the number with.
          # Hopefully, this will work for any future prefixes as well.
          $v =~ s/^[a-zA-Z]*\-//;
@@ -365,6 +371,22 @@ sub determine_compiler_settings {
                 $CCVER = $v;
             }
         }
+
+        # 'Windows NT' is the system name according to POSIX::uname()!
+        if ( $SYSTEM eq "Windows NT" ) {
+            # favor vendor cl over gcc
+            if (IPC::Cmd::can_run('cl')) {
+                $CC = 'cl';
+                $CCVENDOR = ''; # Determine later
+                $CCVER = 0;
+
+                my $v = `cl 2>&1`;
+                if ( $v =~ /Microsoft .* Version ([0-9\.]+) for (x86|x64|ARM|ia64)/ ) {
+                    $CCVER = $1;
+                    $CL_ARCH = $2;
+                }
+            }
+        }
     }
 
     # If no C compiler has been determined at this point, we die.  Hard.
@@ -649,6 +671,7 @@ EOF
       [ 'ia64-.*-.*bsd.*',        { target => "BSD-ia64" } ],
       [ 'x86_64-.*-dragonfly.*',  { target => "BSD-x86_64" } ],
       [ 'amd64-.*-.*bsd.*',       { target => "BSD-x86_64" } ],
+      [ 'arm64-.*-.*bsd.*',       { target => "BSD-aarch64" } ],
       [ '.*86.*-.*-.*bsd.*',
         sub {
             # mimic ld behaviour when it's looking for libc...
@@ -724,14 +747,38 @@ EOF
             } else {
                 $config{disable} = [ 'asm' ];
             }
-            return %config;
+            return { %config };
         }
       ],
 
       # Windows values found by looking at Perl 5's win32/win32.c
-      [ 'amd64-.*?-Windows NT',   { target => 'VC-WIN64A' } ],
-      [ 'ia64-.*?-Windows NT',    { target => 'VC-WIN64I' } ],
-      [ 'x86-.*?-Windows NT',     { target => 'VC-WIN32'  } ],
+      [ '(amd64|ia64|x86|ARM)-.*?-Windows NT',
+        sub {
+            # If we determined the arch by asking cl, take that value,
+            # otherwise the SYSTEM we got from from POSIX::uname().
+            my $arch = $CL_ARCH // $1;
+            my $config;
+
+            if ($arch) {
+                $config = { 'amd64' => { target => 'VC-WIN64A'    },
+                            'ia64'  => { target => 'VC-WIN64I'    },
+                            'x86'   => { target => 'VC-WIN32'     },
+                            'x64'   => { target => 'VC-WIN64A'    },
+                            'ARM'   => { target => 'VC-WIN64-ARM' },
+                          } -> {$arch};
+                die <<_____ unless defined $config;
+ERROR
+I do not know how to handle ${arch}.
+_____
+            }
+            die <<_____ unless defined $config;
+ERROR
+Could not figure out the architecture.
+_____
+
+            return $config;
+        }
+      ],
 
       # TODO: There are a few more choices among OpenSSL config targets, but
       # reaching them involves a bit more than just a host tripet.  Select

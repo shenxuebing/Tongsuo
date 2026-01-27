@@ -21,6 +21,7 @@
 #include <openssl/pem.h>
 #include <openssl/provider.h>
 #include <openssl/rsa.h>
+#include <openssl/dh.h>
 #include <openssl/core_names.h>
 #include "testutil.h"
 #include "internal/nelem.h"
@@ -525,6 +526,42 @@ static int test_alternative_default(void)
     return ok;
 }
 
+static int test_provider_unload_effective(int testid)
+{
+    EVP_MD *sha256 = NULL;
+    OSSL_PROVIDER *provider = NULL;
+    int ok = 0;
+
+    if (!TEST_ptr(provider = OSSL_PROVIDER_load(NULL, "default"))
+        || !TEST_ptr(sha256 = EVP_MD_fetch(NULL, "SHA2-256", NULL)))
+        goto err;
+
+    if (testid > 0) {
+        OSSL_PROVIDER_unload(provider);
+        provider = NULL;
+        EVP_MD_free(sha256);
+        sha256 = NULL;
+    } else {
+        EVP_MD_free(sha256);
+        sha256 = NULL;
+        OSSL_PROVIDER_unload(provider);
+        provider = NULL;
+    }
+
+    /*
+     * setup_tests() loaded the "null" provider in the current default, and
+     * we unloaded it above after the load so we know this fetch should fail.
+     */
+    if (!TEST_ptr_null(sha256 = EVP_MD_fetch(NULL, "SHA2-256", NULL)))
+        goto err;
+
+    ok = 1;
+ err:
+    EVP_MD_free(sha256);
+    OSSL_PROVIDER_unload(provider);
+    return ok;
+}
+
 static int test_d2i_PrivateKey_ex(int testid)
 {
     int ok = 0;
@@ -1026,6 +1063,34 @@ static int test_evp_md_ctx_copy(void)
     return ret;
 }
 
+#if !defined OPENSSL_NO_DES && !defined OPENSSL_NO_MD5
+static int test_evp_pbe_alg_add(void)
+{
+    int ret = 0;
+    int cipher_nid = 0, md_nid = 0;
+    EVP_PBE_KEYGEN_EX *keygen_ex = NULL;
+    EVP_PBE_KEYGEN *keygen = NULL;
+
+    if (!TEST_true(EVP_PBE_alg_add(NID_pbeWithMD5AndDES_CBC, EVP_des_cbc(), EVP_md5(),
+                                   PKCS5_PBE_keyivgen)))
+        goto err;
+
+    if (!TEST_true(EVP_PBE_find_ex(EVP_PBE_TYPE_OUTER, NID_pbeWithMD5AndDES_CBC,
+                                   &cipher_nid, &md_nid, &keygen, &keygen_ex)))
+        goto err;
+
+    if (!TEST_true(keygen != NULL))
+        goto err;
+    if (!TEST_true(keygen_ex == NULL))
+        goto err;
+
+    ret = 1;
+
+err:
+    return ret;
+}
+#endif
+
 int setup_tests(void)
 {
     if (!test_get_libctx(&mainctx, &nullprov, NULL, NULL, NULL)) {
@@ -1064,6 +1129,10 @@ int setup_tests(void)
     ADD_ALL_TESTS(test_PEM_read_bio_negative, OSSL_NELEM(keydata));
     ADD_TEST(test_rsa_pss_sign);
     ADD_TEST(test_evp_md_ctx_copy);
+    ADD_ALL_TESTS(test_provider_unload_effective, 2);
+#if !defined OPENSSL_NO_DES && !defined OPENSSL_NO_MD5
+    ADD_TEST(test_evp_pbe_alg_add);
+#endif
     return 1;
 }
 

@@ -390,8 +390,8 @@ sm2 1                               : sm2Signature
 sm2 2                               : sm2Keyagreement
 sm2 3                               : sm2Encrypt
 
-# From GM/T 0091-2020
-sm3 3 1			:			: hmacWithSM3
+# From GM/T 0006-2023
+sm3 2			:			: hmacWithSM3
 
 # ZUC stream cipher
 sm-scheme 201           : ZUC                   : zuc

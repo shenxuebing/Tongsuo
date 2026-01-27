@@ -32,6 +32,11 @@ IF[{- !$disabled{asm} -}]
 
   $ECASM_c64xplus=
 
+  IF[{- !$disabled{'ec_sm2p_64_gcc_128'} -}]
+    $ECASM_loongarch64=ecp_sm2p256.c ecp_sm2p256-loongarch64.s
+    $ECDEF_loongarch64=ECP_SM2P256_ASM ECP_SM2P256_LOONGARCH64_ASM
+  ENDIF
+
   # Now that we have defined all the arch specific variables, use the
   # appropriate one, and define the appropriate macros
   IF[$ECASM_{- $target{asm_arch} -}]
@@ -73,6 +78,14 @@ SOURCE[../../providers/libfips.a]=$COMMON
 # need to be applied to all affected libraries and modules.
 DEFINE[../../libcrypto]=$ECDEF
 DEFINE[../../providers/libfips.a]=$ECDEF
+DEFINE[../../providers/libdefault.a]=$ECDEF
+# We only need to include the ECDEF stuff in the legacy provider when
+# it's a separate module and it's dynamically linked with libcrypto.
+# Otherwise, it already gets everything that the static libcrypto.a
+# has, and doesn't need it added again.
+IF[{- !$disabled{module} && !$disabled{shared} -}]
+  DEFINE[../providers/liblegacy.a]=$ECDEF
+ENDIF
 
 GENERATE[ecp_nistz256-x86.s]=asm/ecp_nistz256-x86.pl
 
@@ -91,6 +104,9 @@ INCLUDE[ecp_nistz256-armv8.o]=..
 GENERATE[ecp_nistz256-ppc64.s]=asm/ecp_nistz256-ppc64.pl
 
 GENERATE[ecp_nistp521-ppc64.s]=asm/ecp_nistp521-ppc64.pl
+
+GENERATE[ecp_sm2p256-loongarch64.s]=asm/ecp_sm2p256-loongarch64.S
+INCLUDE[ecp_sm2p256-loongarch64.o]=..
 
 GENERATE[x25519-x86_64.s]=asm/x25519-x86_64.pl
 GENERATE[x25519-ppc64.s]=asm/x25519-ppc64.pl

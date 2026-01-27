@@ -976,6 +976,16 @@ EC_GROUP *EC_GROUP_new_from_ecparameters(const ECPARAMETERS *params)
 
     /* extract seed (optional) */
     if (params->curve->seed != NULL) {
+        /*
+         * This happens for instance with
+         * fuzz/corpora/asn1/65cf44e85614c62f10cf3b7a7184c26293a19e4a
+         * and causes the OPENSSL_malloc below to choke on the
+         * zero length allocation request.
+         */
+        if (params->curve->seed->length == 0) {
+            ERR_raise(ERR_LIB_EC, EC_R_ASN1_ERROR);
+            goto err;
+        }
         OPENSSL_free(ret->seed);
         if ((ret->seed = OPENSSL_malloc(params->curve->seed->length)) == NULL) {
             ERR_raise(ERR_LIB_EC, ERR_R_MALLOC_FAILURE);
@@ -1009,7 +1019,7 @@ EC_GROUP *EC_GROUP_new_from_ecparameters(const ECPARAMETERS *params)
     }
 
     /* extract the order */
-    if ((a = ASN1_INTEGER_to_BN(params->order, a)) == NULL) {
+    if (ASN1_INTEGER_to_BN(params->order, a) == NULL) {
         ERR_raise(ERR_LIB_EC, ERR_R_ASN1_LIB);
         goto err;
     }
@@ -1026,7 +1036,7 @@ EC_GROUP *EC_GROUP_new_from_ecparameters(const ECPARAMETERS *params)
     if (params->cofactor == NULL) {
         BN_free(b);
         b = NULL;
-    } else if ((b = ASN1_INTEGER_to_BN(params->cofactor, b)) == NULL) {
+    } else if (ASN1_INTEGER_to_BN(params->cofactor, b) == NULL) {
         ERR_raise(ERR_LIB_EC, ERR_R_ASN1_LIB);
         goto err;
     }

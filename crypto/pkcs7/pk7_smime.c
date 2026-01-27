@@ -124,7 +124,8 @@ int PKCS7_final(PKCS7 *p7, BIO *data, int flags)
         return 0;
     }
 
-    SMIME_crlf_copy(data, p7bio, flags);
+    if (!SMIME_crlf_copy(data, p7bio, flags))
+        goto err;
 
     (void)BIO_flush(p7bio);
 
@@ -320,7 +321,8 @@ int PKCS7_verify(PKCS7 *p7, STACK_OF(X509) *certs, X509_STORE *store,
                     ERR_raise(ERR_LIB_PKCS7, ERR_R_X509_LIB);
                     goto err;
                 }
-                X509_STORE_CTX_set_default(cert_ctx, "smime_sign");
+                if (!X509_STORE_CTX_set_default(cert_ctx, "smime_sign"))
+                    goto err;
             } else if (!X509_STORE_CTX_init(cert_ctx, store, signer, NULL)) {
                 ERR_raise(ERR_LIB_PKCS7, ERR_R_X509_LIB);
                 goto err;
@@ -730,7 +732,7 @@ int PKCS7_decrypt(PKCS7 *p7, EVP_PKEY *pkey, X509 *cert, BIO *data, int flags)
         }
         ret = SMIME_text(bread, data);
         if (ret > 0 && BIO_method_type(tmpmem) == BIO_TYPE_CIPHER) {
-            if (!BIO_get_cipher_status(tmpmem))
+            if (BIO_get_cipher_status(tmpmem) <= 0)
                 ret = 0;
         }
         BIO_free_all(bread);
@@ -745,7 +747,7 @@ int PKCS7_decrypt(PKCS7 *p7, EVP_PKEY *pkey, X509 *cert, BIO *data, int flags)
         if (i <= 0) {
             ret = 1;
             if (BIO_method_type(tmpmem) == BIO_TYPE_CIPHER) {
-                if (!BIO_get_cipher_status(tmpmem))
+                if (BIO_get_cipher_status(tmpmem) <= 0)
                     ret = 0;
             }
 
