@@ -16,6 +16,7 @@
 #include "crypto/sm2.h"
 #include "crypto/ec.h" /* ecdh_KDF_X9_63() */
 #include "crypto/sm2err.h"
+#include "internal/tlog.h"
 
 
 int SM2_compute_key(void *out, size_t outlen, int initiator,
@@ -73,31 +74,25 @@ int SM2_compute_key(void *out, size_t outlen, int initiator,
     }
 
     /* Debug: Print the keys being used for SM2DHE */
-    printf("DEBUG SM2_compute_key: initiator=%d\n", initiator);
-    printf("  self_ecdhe_key (Rs, r)=%p, peer_ecdhe_key (Rp)=%p\n", self_ecdhe_key, peer_ecdhe_key);
-    printf("  self_eckey (long term)=%p, peer_pub_key (long term)=%p\n", self_eckey, peer_pub_key);
+    TLOG_DEBUG("DEBUG SM2_compute_key: initiator=%d\n", initiator);
+    TLOG_DEBUG("  self_ecdhe_key (Rs, r)=%p, peer_ecdhe_key (Rp)=%p\n", self_ecdhe_key, peer_ecdhe_key);
+    TLOG_DEBUG("  self_eckey (long term)=%p, peer_pub_key (long term)=%p\n", self_eckey, peer_pub_key);
 
     /* Print public key coordinates */
     BIGNUM *x = BN_new(), *y = BN_new();
     if (EC_POINT_get_affine_coordinates(EC_KEY_get0_group(self_ecdhe_key), Rs, x, y, ctx)) {
         unsigned char xbuf[32], ybuf[32];
         BN_bn2binpad(x, xbuf, 32);
-        BN_bn2binpad(y, ybuf, 32);
-        printf("  Rs (self temp pub) X: ");
-        for (int i = 0; i < 32; i++) printf("%02X ", xbuf[i]);
-        printf("\n  Rs (self temp pub) Y: ");
-        for (int i = 0; i < 32; i++) printf("%02X ", ybuf[i]);
-        printf("\n");
+		BN_bn2binpad(y, ybuf, 32);
+		TLOG_DEBUG_HEX("  Rs (self temp pub) X: ", xbuf, 32);
+		TLOG_DEBUG_HEX("  Rs (self temp pub) Y: ", ybuf, 32);
     }
     if (EC_POINT_get_affine_coordinates(EC_KEY_get0_group(peer_ecdhe_key), Rp, x, y, ctx)) {
         unsigned char xbuf[32], ybuf[32];
         BN_bn2binpad(x, xbuf, 32);
         BN_bn2binpad(y, ybuf, 32);
-        printf("  Rp (peer temp pub) X: ");
-        for (int i = 0; i < 32; i++) printf("%02X ", xbuf[i]);
-        printf("\n  Rp (peer temp pub) Y: ");
-        for (int i = 0; i < 32; i++) printf("%02X ", ybuf[i]);
-        printf("\n");
+		TLOG_DEBUG_HEX("  Rp (peer temp pub) X: ", xbuf, 32);
+		TLOG_DEBUG_HEX("  Rp (peer temp pub) Y: ", ybuf, 32);
     }
     BN_free(x);
     BN_free(y);
@@ -267,29 +262,17 @@ int SM2_compute_key(void *out, size_t outlen, int initiator,
     }
 
     /* Debug: Print KDF input for comparison */
-    printf("DEBUG: Tongsuo software SM2DHE KDF input (%zu bytes):\n", idx);
-    printf("  Vx (32 bytes): ");
-    for (int i = 0; i < 32; i++) printf("%02X ", buf[i]);
-    printf("\n");
-    printf("  Vy (32 bytes): ");
-    for (int i = 32; i < 64; i++) printf("%02X ", buf[i]);
-    printf("\n");
+    TLOG_DEBUG("DEBUG: Tongsuo software SM2DHE KDF input (%zu bytes):\n", idx);
+	TLOG_DEBUG_HEX("  Vx (32 bytes): ", buf, 32);
+	TLOG_DEBUG_HEX("  Vy (32 bytes): ", buf + 32, 32);
     if (initiator) {
-        printf("  ZA (32 bytes): ");
-        for (int i = 64; i < 96; i++) printf("%02X ", buf[i]);
-        printf("\n");
-        printf("  ZB (32 bytes): ");
-        for (int i = 96; i < 128; i++) printf("%02X ", buf[i]);
-        printf("\n");
+        TLOG_DEBUG_HEX("  ZA (32 bytes): ", buf + 64, 32);
+        TLOG_DEBUG_HEX("  ZA (32 bytes): ", buf + 96, 32);
     } else {
-        printf("  ZB (32 bytes): ");
-        for (int i = 64; i < 96; i++) printf("%02X ", buf[i]);
-        printf("\n");
-        printf("  ZA (32 bytes): ");
-        for (int i = 96; i < 128; i++) printf("%02X ", buf[i]);
-        printf("\n");
+		TLOG_DEBUG_HEX("  ZB (32 bytes): ", buf + 64, 32);
+		TLOG_DEBUG_HEX("  ZA (32 bytes): ", buf + 96, 32);
     }
-    printf("DEBUG: Role: %s\n", initiator ? "initiator" : "responder");
+    TLOG_DEBUG("DEBUG: Role: %s\n", initiator ? "initiator" : "responder");
 
     if (!ossl_ecdh_kdf_X9_63(out, outlen, buf, idx, NULL, 0, md, libctx,
                              propq)) {
@@ -298,9 +281,8 @@ int SM2_compute_key(void *out, size_t outlen, int initiator,
     }
     
     /* Debug: Print output */
-    printf("DEBUG: Tongsuo software SM2DHE output (%zu bytes): ", outlen);
-    for (size_t i = 0; i < outlen; i++) printf("%02X ", ((unsigned char*)out)[i]);
-    printf("\n");
+    TLOG_DEBUG("DEBUG: Tongsuo software SM2DHE output (%zu bytes): ", outlen);
+    TLOG_DEBUG_HEX("", ((unsigned char*)out), outlen)
 
     ret = outlen;
 
