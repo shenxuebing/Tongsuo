@@ -97,7 +97,7 @@ static int sm2_asym_encrypt(void *vpsm2ctx, unsigned char *out, size_t *outlen,
         return 1;
     }
 
-    return ossl_sm2_encrypt(psm2ctx->key, md, in, inlen, out, outlen);
+    return ossl_sm2_encrypt(psm2ctx->key, md, in, inlen, out, outlen, 0);
 }
 
 static int sm2_asym_decrypt(void *vpsm2ctx, unsigned char *out, size_t *outlen,
@@ -111,12 +111,12 @@ static int sm2_asym_decrypt(void *vpsm2ctx, unsigned char *out, size_t *outlen,
         return 0;
 
     if (out == NULL) {
-        if (!ossl_sm2_plaintext_size(in, inlen, outlen))
+        if (!ossl_sm2_plaintext_size(in, inlen, outlen, 0))
             return 0;
         return 1;
     }
 
-    return ossl_sm2_decrypt(psm2ctx->key, md, in, inlen, out, outlen);
+    return ossl_sm2_decrypt(psm2ctx->key, md, in, inlen, out, outlen, 0);
 }
 
 static void sm2_freectx(void *vpsm2ctx)
