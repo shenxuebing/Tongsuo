@@ -42,6 +42,7 @@ X9-57 4			: X9cm			: X9.57 CM ?
 member-body 156         : ISO-CN        : ISO CN Member Body
 ISO-CN 10197            : oscca
 oscca 1                 : sm-scheme
+oscca 6                 : sm-pkcs
 
 !Cname dsa
 X9cm 1			: DSA			: dsaEncryption
@@ -358,6 +359,10 @@ pkcs12-pbeids 2		: PBE-SHA1-RC4-40	: pbeWithSHA1And40BitRC4
 pkcs12-pbeids 3		: PBE-SHA1-3DES		: pbeWithSHA1And3-KeyTripleDES-CBC
 !Cname pbe-WithSHA1And2_Key_TripleDES-CBC
 pkcs12-pbeids 4		: PBE-SHA1-2DES		: pbeWithSHA1And2-KeyTripleDES-CBC
+!Cname pbe-WithSHA1And128BitRC2-CBC
+pkcs12-pbeids 5		: PBE-SHA1-RC2-128	: pbeWithSHA1And128BitRC2-CBC
+!Cname pbe-WithSHA1And40BitRC2-CBC
+pkcs12-pbeids 6		: PBE-SHA1-RC2-40	: pbeWithSHA1And40BitRC2-CBC
 
 !Alias pkcs12-Version1 pkcs12 10
 !Alias pkcs12-BagIds pkcs12-Version1 1
@@ -380,10 +385,28 @@ sm-scheme 504           : RSA-SM3		: sm3WithRSAEncryption
 
 sm-scheme 501           : SM2-SM3               : SM2-with-SM3
 
+# From GM/T 0010-2012
+sm-pkcs 1 4 2    : sm-pkcs7                      : china pkcs7 series
+
+sm-pkcs7 1       : pkcs7_sm2_data                : pkcs7_sm2_data
+sm-pkcs7 2       : pkcs7_sm2_signed              : pkcs7_sm2_signed
+sm-pkcs7 3       : pkcs7_sm2_enveloped           : pkcs7_sm2_enveloped
+sm-pkcs7 4       : pkcs7_sm2_signedAndEnveloped  : pkcs7_sm2_signedAndEnveloped
+sm-pkcs7 5       : pkcs7_sm2_encryptedData       : pkcs7_sm2_encryptedData
+sm-pkcs7 6       : pkcs7_sm2_keyAgreementInfo    : pkcs7_sm2_keyAgreementInfo
+
+# From GM/T 0006-2012
+sm2 1                               : sm2Signature
+sm2 2                               : sm2Keyagreement
+sm2 3                               : sm2Encrypt
+
 # ZUC stream cipher
 sm-scheme 201           : ZUC                   : zuc
 sm-scheme 801           : ZUC-128-EEA3          : zuc-128-eea3
 sm-scheme 802           : ZUC-128-EIA3          : zuc-128-eia3
+
+# SM2DH-MLKEM768-hybrid key exchange
+sm-scheme 1001          : SM2DH-MLKEM768-HYBRID : sm2dh-mlkem768-hybrid
 
 # From GM/T 0091-2020
 sm3 3 1			:			: hmacWithSM3
@@ -398,6 +421,14 @@ rsadsi 2 11		:			: hmacWithSHA512
 rsadsi 2 12             :                       : hmacWithSHA512-224
 rsadsi 2 13             :                       : hmacWithSHA512-256
 
+rsadsi 3 2		: RC2-CBC		: rc2-cbc
+			: RC2-ECB		: rc2-ecb
+!Cname rc2-cfb64
+			: RC2-CFB		: rc2-cfb
+!Cname rc2-ofb64
+			: RC2-OFB		: rc2-ofb
+			: RC2-40-CBC		: rc2-40-cbc
+			: RC2-64-CBC		: rc2-64-cbc
 rsadsi 3 4		: RC4			: rc4
 			: RC4-40		: rc4-40
 rsadsi 3 7		: DES-EDE3-CBC		: des-ede3-cbc
@@ -1374,6 +1405,11 @@ sm-scheme 104 7         : SM4-CTR             : sm4-ctr
 sm-scheme 104 8         : SM4-GCM             : sm4-gcm
 sm-scheme 104 9         : SM4-CCM             : sm4-ccm
 sm-scheme 104 10        : SM4-XTS             : sm4-xts
+
+# Definitions for SM1 cipher (GM/T 0006-2023)
+
+sm-scheme 101 1         : SM1-ECB             : sm1-ecb
+sm-scheme 101 2         : SM1-CBC             : sm1-cbc
 
 # There is no OID that just denotes "HMAC" oddly enough...
 
