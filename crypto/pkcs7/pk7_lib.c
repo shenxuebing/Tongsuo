@@ -1,5 +1,5 @@
 /*
- * Copyright 1995-2025 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 1995-2021 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the Apache License 2.0 (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -27,12 +27,7 @@ long PKCS7_ctrl(PKCS7 *p7, int cmd, long larg, char *parg)
     switch (cmd) {
     /* NOTE(emilia): does not support detached digested data. */
     case PKCS7_OP_SET_DETACHED_SIGNATURE:
-        if (nid == NID_pkcs7_signed) {
-            if (p7->d.sign == NULL) {
-                ERR_raise(ERR_LIB_PKCS7, PKCS7_R_NO_CONTENT);
-                ret = 0;
-                break;
-            }
+        if (nid == NID_pkcs7_signed || nid == NID_pkcs7_sm2_signed) {
             ret = p7->detached = (int)larg;
             if (ret && PKCS7_type_is_data(p7->d.sign->contents)) {
                 ASN1_OCTET_STRING *os;
@@ -47,8 +42,8 @@ long PKCS7_ctrl(PKCS7 *p7, int cmd, long larg, char *parg)
         }
         break;
     case PKCS7_OP_GET_DETACHED_SIGNATURE:
-        if (nid == NID_pkcs7_signed) {
-            if (p7->d.sign == NULL || p7->d.sign->contents->d.ptr == NULL)
+        if (nid == NID_pkcs7_signed || nid == NID_pkcs7_sm2_signed) {
+            if (!p7->d.sign || !p7->d.sign->contents->d.ptr)
                 ret = 1;
             else
                 ret = 0;
@@ -92,6 +87,7 @@ int PKCS7_set_content(PKCS7 *p7, PKCS7 *p7_data)
     i = OBJ_obj2nid(p7->type);
     switch (i) {
     case NID_pkcs7_signed:
+    case NID_pkcs7_sm2_signed:
         PKCS7_free(p7->d.sign->contents);
         p7->d.sign->contents = p7_data;
         break;
@@ -100,8 +96,11 @@ int PKCS7_set_content(PKCS7 *p7, PKCS7 *p7_data)
         p7->d.digest->contents = p7_data;
         break;
     case NID_pkcs7_data:
+    case NID_pkcs7_sm2_data:
     case NID_pkcs7_enveloped:
+	case NID_pkcs7_sm2_enveloped:
     case NID_pkcs7_signedAndEnveloped:
+	case NID_pkcs7_sm2_signedAndEnveloped:
     case NID_pkcs7_encrypted:
     default:
         ERR_raise(ERR_LIB_PKCS7, PKCS7_R_UNSUPPORTED_CONTENT_TYPE);
@@ -123,6 +122,7 @@ int PKCS7_set_type(PKCS7 *p7, int type)
 
     switch (type) {
     case NID_pkcs7_signed:
+    case NID_pkcs7_sm2_signed:
         p7->type = obj;
         if ((p7->d.sign = PKCS7_SIGNED_new()) == NULL)
             goto err;
@@ -133,28 +133,44 @@ int PKCS7_set_type(PKCS7 *p7, int type)
         }
         break;
     case NID_pkcs7_data:
+    case NID_pkcs7_sm2_data:
         p7->type = obj;
         if ((p7->d.data = ASN1_OCTET_STRING_new()) == NULL)
             goto err;
         break;
     case NID_pkcs7_signedAndEnveloped:
+    case NID_pkcs7_sm2_signedAndEnveloped:
         p7->type = obj;
         if ((p7->d.signed_and_enveloped = PKCS7_SIGN_ENVELOPE_new())
             == NULL)
             goto err;
         if (!ASN1_INTEGER_set(p7->d.signed_and_enveloped->version, 1))
             goto err;
-        p7->d.signed_and_enveloped->enc_data->content_type
-            = OBJ_nid2obj(NID_pkcs7_data);
+        
+        if (type == NID_pkcs7_sm2_signedAndEnveloped) { //add by gu on 20180706 for pkcs7 support sm2
+            p7->d.signed_and_enveloped->enc_data->content_type
+                = OBJ_nid2obj(NID_pkcs7_sm2_data);
+        }
+        else {
+            p7->d.signed_and_enveloped->enc_data->content_type
+                = OBJ_nid2obj(NID_pkcs7_data);
+        }
         break;
     case NID_pkcs7_enveloped:
+    case NID_pkcs7_sm2_enveloped:
         p7->type = obj;
         if ((p7->d.enveloped = PKCS7_ENVELOPE_new())
             == NULL)
             goto err;
         if (!ASN1_INTEGER_set(p7->d.enveloped->version, 0))
             goto err;
-        p7->d.enveloped->enc_data->content_type = OBJ_nid2obj(NID_pkcs7_data);
+
+        if(type == NID_pkcs7_sm2_enveloped){ //add by gu on 20180706 for pkcs7 support sm2
+		p7->d.enveloped->enc_data->content_type = OBJ_nid2obj(NID_pkcs7_sm2_data);
+	}
+	else{
+        	p7->d.enveloped->enc_data->content_type = OBJ_nid2obj(NID_pkcs7_data);
+	}
         break;
     case NID_pkcs7_encrypted:
         p7->type = obj;
@@ -201,10 +217,12 @@ int PKCS7_add_signer(PKCS7 *p7, PKCS7_SIGNER_INFO *psi)
     i = OBJ_obj2nid(p7->type);
     switch (i) {
     case NID_pkcs7_signed:
+    case NID_pkcs7_sm2_signed:
         signer_sk = p7->d.sign->signer_info;
         md_sk = p7->d.sign->md_algs;
         break;
     case NID_pkcs7_signedAndEnveloped:
+    case NID_pkcs7_sm2_signedAndEnveloped:
         signer_sk = p7->d.signed_and_enveloped->signer_info;
         md_sk = p7->d.signed_and_enveloped->md_algs;
         break;
@@ -229,7 +247,7 @@ int PKCS7_add_signer(PKCS7 *p7, PKCS7_SIGNER_INFO *psi)
         if ((alg = X509_ALGOR_new()) == NULL
             || (alg->parameter = ASN1_TYPE_new()) == NULL) {
             X509_ALGOR_free(alg);
-            ERR_raise(ERR_LIB_PKCS7, ERR_R_ASN1_LIB);
+            ERR_raise(ERR_LIB_PKCS7, ERR_R_MALLOC_FAILURE);
             return 0;
         }
         /*
@@ -261,9 +279,11 @@ int PKCS7_add_certificate(PKCS7 *p7, X509 *x509)
     i = OBJ_obj2nid(p7->type);
     switch (i) {
     case NID_pkcs7_signed:
+    case NID_pkcs7_sm2_signed:
         sk = &(p7->d.sign->cert);
         break;
     case NID_pkcs7_signedAndEnveloped:
+    case NID_pkcs7_sm2_signedAndEnveloped:
         sk = &(p7->d.signed_and_enveloped->cert);
         break;
     default:
@@ -282,9 +302,11 @@ int PKCS7_add_crl(PKCS7 *p7, X509_CRL *crl)
     i = OBJ_obj2nid(p7->type);
     switch (i) {
     case NID_pkcs7_signed:
+    case NID_pkcs7_sm2_signed:
         sk = &(p7->d.sign->crl);
         break;
     case NID_pkcs7_signedAndEnveloped:
+    case NID_pkcs7_sm2_signedAndEnveloped:
         sk = &(p7->d.signed_and_enveloped->crl);
         break;
     default:
@@ -295,12 +317,11 @@ int PKCS7_add_crl(PKCS7 *p7, X509_CRL *crl)
     if (*sk == NULL)
         *sk = sk_X509_CRL_new_null();
     if (*sk == NULL) {
-        ERR_raise(ERR_LIB_PKCS7, ERR_R_CRYPTO_LIB);
+        ERR_raise(ERR_LIB_PKCS7, ERR_R_MALLOC_FAILURE);
         return 0;
     }
 
-    if (!X509_CRL_up_ref(crl))
-        return 0;
+    X509_CRL_up_ref(crl);
     if (!sk_X509_CRL_push(*sk, crl)) {
         X509_CRL_free(crl);
         return 0;
@@ -311,7 +332,7 @@ int PKCS7_add_crl(PKCS7 *p7, X509_CRL *crl)
 static int pkcs7_ecdsa_or_dsa_sign_verify_setup(PKCS7_SIGNER_INFO *si,
                                                 int verify)
 {
-    if (!verify) {
+    if (verify == 0) {
         int snid, hnid;
         X509_ALGOR *alg1, *alg2;
         EVP_PKEY *pkey = si->pkey;
@@ -324,20 +345,19 @@ static int pkcs7_ecdsa_or_dsa_sign_verify_setup(PKCS7_SIGNER_INFO *si,
             return -1;
         if (!OBJ_find_sigid_by_algs(&snid, hnid, EVP_PKEY_get_id(pkey)))
             return -1;
-        return X509_ALGOR_set0(alg2, OBJ_nid2obj(snid), V_ASN1_UNDEF, NULL);
+        X509_ALGOR_set0(alg2, OBJ_nid2obj(snid), V_ASN1_NULL, 0);
     }
     return 1;
 }
 
 static int pkcs7_rsa_sign_verify_setup(PKCS7_SIGNER_INFO *si, int verify)
 {
-    if (!verify) {
+    if (verify == 0) {
         X509_ALGOR *alg = NULL;
 
         PKCS7_SIGNER_INFO_get0_algs(si, NULL, NULL, &alg);
         if (alg != NULL)
-            return X509_ALGOR_set0(alg, OBJ_nid2obj(NID_rsaEncryption),
-                                   V_ASN1_NULL, NULL);
+            X509_ALGOR_set0(alg, OBJ_nid2obj(NID_rsaEncryption), V_ASN1_NULL, 0);
     }
     return 1;
 }
@@ -349,10 +369,10 @@ int PKCS7_SIGNER_INFO_set(PKCS7_SIGNER_INFO *p7i, X509 *x509, EVP_PKEY *pkey,
 
     /* We now need to add another PKCS7_SIGNER_INFO entry */
     if (!ASN1_INTEGER_set(p7i->version, 1))
-        return 0;
+        goto err;
     if (!X509_NAME_set(&p7i->issuer_and_serial->issuer,
                        X509_get_issuer_name(x509)))
-        return 0;
+        goto err;
 
     /*
      * because ASN1_INTEGER_set is used to set a 'long' we will do things the
@@ -361,23 +381,20 @@ int PKCS7_SIGNER_INFO_set(PKCS7_SIGNER_INFO *p7i, X509 *x509, EVP_PKEY *pkey,
     ASN1_INTEGER_free(p7i->issuer_and_serial->serial);
     if (!(p7i->issuer_and_serial->serial =
           ASN1_INTEGER_dup(X509_get0_serialNumber(x509))))
-        return 0;
+        goto err;
 
     /* lets keep the pkey around for a while */
-    if (!EVP_PKEY_up_ref(pkey))
-        return 0;
-
+    EVP_PKEY_up_ref(pkey);
     p7i->pkey = pkey;
 
     /* Set the algorithms */
 
-    if (!X509_ALGOR_set0(p7i->digest_alg, OBJ_nid2obj(EVP_MD_get_type(dgst)),
-                         V_ASN1_NULL, NULL))
-        return 0;
+    X509_ALGOR_set0(p7i->digest_alg, OBJ_nid2obj(EVP_MD_get_type(dgst)),
+                    V_ASN1_NULL, NULL);
 
-    if (EVP_PKEY_is_a(pkey, "EC")
-            || EVP_PKEY_is_a(pkey, "DSA")
-            || EVP_PKEY_is_a(pkey, "SM2"))
+    if (EVP_PKEY_is_a(pkey, "EC") 
+        || EVP_PKEY_is_a(pkey, "DSA")
+        || EVP_PKEY_is_a(pkey, "SM2"))
         return pkcs7_ecdsa_or_dsa_sign_verify_setup(p7i, 0);
     if (EVP_PKEY_is_a(pkey, "RSA"))
         return pkcs7_rsa_sign_verify_setup(p7i, 0);
@@ -392,6 +409,7 @@ int PKCS7_SIGNER_INFO_set(PKCS7_SIGNER_INFO *p7i, X509 *x509, EVP_PKEY *pkey,
         }
     }
     ERR_raise(ERR_LIB_PKCS7, PKCS7_R_SIGNING_NOT_SUPPORTED_FOR_THIS_KEY_TYPE);
+ err:
     return 0;
 }
 
@@ -423,7 +441,7 @@ PKCS7_SIGNER_INFO *PKCS7_add_signature(PKCS7 *p7, X509 *x509, EVP_PKEY *pkey,
     return NULL;
 }
 
-STACK_OF(X509) *pkcs7_get0_certificates(const PKCS7 *p7)
+static STACK_OF(X509) *pkcs7_get_signer_certs(const PKCS7 *p7)
 {
     if (p7->d.ptr == NULL)
         return NULL;
@@ -464,7 +482,7 @@ void ossl_pkcs7_resolve_libctx(PKCS7 *p7)
 
     rinfos = pkcs7_get_recipient_info(p7);
     sinfos = PKCS7_get_signer_info(p7);
-    certs = pkcs7_get0_certificates(p7);
+    certs = pkcs7_get_signer_certs(p7);
 
     for (i = 0; i < sk_X509_num(certs); i++)
         ossl_x509_set0_libctx(sk_X509_value(certs, i), libctx, propq);
@@ -501,8 +519,10 @@ int ossl_pkcs7_set1_propq(PKCS7 *p7, const char *propq)
     }
     if (propq != NULL) {
         p7->ctx.propq = OPENSSL_strdup(propq);
-        if (p7->ctx.propq == NULL)
+        if (p7->ctx.propq == NULL) {
+            ERR_raise(ERR_LIB_PROV, ERR_R_MALLOC_FAILURE);
             return 0;
+        }
     }
     return 1;
 }
@@ -530,7 +550,7 @@ int PKCS7_set_digest(PKCS7 *p7, const EVP_MD *md)
 {
     if (PKCS7_type_is_digest(p7)) {
         if ((p7->d.digest->md->parameter = ASN1_TYPE_new()) == NULL) {
-            ERR_raise(ERR_LIB_PKCS7, ERR_R_ASN1_LIB);
+            ERR_raise(ERR_LIB_PKCS7, ERR_R_MALLOC_FAILURE);
             return 0;
         }
         p7->d.digest->md->parameter->type = V_ASN1_NULL;
@@ -596,9 +616,11 @@ int PKCS7_add_recipient_info(PKCS7 *p7, PKCS7_RECIP_INFO *ri)
     i = OBJ_obj2nid(p7->type);
     switch (i) {
     case NID_pkcs7_signedAndEnveloped:
+    case NID_pkcs7_sm2_signedAndEnveloped:
         sk = p7->d.signed_and_enveloped->recipientinfo;
         break;
     case NID_pkcs7_enveloped:
+    case NID_pkcs7_sm2_enveloped:
         sk = p7->d.enveloped->recipientinfo;
         break;
     default:
@@ -615,13 +637,24 @@ static int pkcs7_rsa_encrypt_decrypt_setup(PKCS7_RECIP_INFO *ri, int decrypt)
 {
     X509_ALGOR *alg = NULL;
 
-    if (!decrypt) {
+    if (decrypt == 0) {
         PKCS7_RECIP_INFO_get0_alg(ri, &alg);
         if (alg != NULL)
-            return X509_ALGOR_set0(alg, OBJ_nid2obj(NID_rsaEncryption),
-                                   V_ASN1_NULL, NULL);
+            X509_ALGOR_set0(alg, OBJ_nid2obj(NID_rsaEncryption), V_ASN1_NULL, 0);
     }
     return 1;
+}
+
+static int pkcs7_sm2_encrypt_decrypt_setup(PKCS7_RECIP_INFO* ri, int decrypt)
+{
+	X509_ALGOR* alg = NULL;
+
+	if (decrypt == 0) {
+		PKCS7_RECIP_INFO_get0_alg(ri, &alg);
+		if (alg != NULL)
+			X509_ALGOR_set0(alg, OBJ_nid2obj(NID_sm2Encrypt), V_ASN1_NULL, 0);
+	}
+	return 1;
 }
 
 int PKCS7_RECIP_INFO_set(PKCS7_RECIP_INFO *p7i, X509 *x509)
@@ -650,6 +683,17 @@ int PKCS7_RECIP_INFO_set(PKCS7_RECIP_INFO *p7i, X509 *x509)
             goto err;
         goto finished;
     }
+    else if (EVP_PKEY_is_a(pkey, "EC"))
+    {
+       // if (!EVP_PKEY_set_type(pkey, EVP_PKEY_EC))
+       //     goto err;
+	}
+	else if (EVP_PKEY_is_a(pkey, "SM2"))
+	{
+		if (pkcs7_sm2_encrypt_decrypt_setup(p7i, 0) <= 0)
+			goto err;
+        goto finished;
+	}
 
     if (pkey->ameth == NULL || pkey->ameth->pkey_ctrl == NULL) {
         ERR_raise(ERR_LIB_PKCS7,
@@ -668,9 +712,7 @@ int PKCS7_RECIP_INFO_set(PKCS7_RECIP_INFO *p7i, X509 *x509)
         goto err;
     }
 finished:
-    if (!X509_up_ref(x509))
-        goto err;
-
+    X509_up_ref(x509);
     p7i->cert = x509;
 
     return 1;
@@ -681,7 +723,7 @@ finished:
 
 X509 *PKCS7_cert_from_signer_info(PKCS7 *p7, PKCS7_SIGNER_INFO *si)
 {
-    if (PKCS7_type_is_signed(p7))
+    if (PKCS7_type_is_signed(p7) || PKCS7_type_is_signedAndEnveloped(p7))
         return (X509_find_by_issuer_and_serial(p7->d.sign->cert,
                                                si->issuer_and_serial->issuer,
                                                si->
@@ -698,9 +740,11 @@ int PKCS7_set_cipher(PKCS7 *p7, const EVP_CIPHER *cipher)
     i = OBJ_obj2nid(p7->type);
     switch (i) {
     case NID_pkcs7_signedAndEnveloped:
+    case NID_pkcs7_sm2_signedAndEnveloped:
         ec = p7->d.signed_and_enveloped->enc_data;
         break;
     case NID_pkcs7_enveloped:
+    case NID_pkcs7_sm2_enveloped:
         ec = p7->d.enveloped->enc_data;
         break;
     default:
@@ -727,10 +771,12 @@ int PKCS7_stream(unsigned char ***boundary, PKCS7 *p7)
 
     switch (OBJ_obj2nid(p7->type)) {
     case NID_pkcs7_data:
+    case NID_pkcs7_sm2_data:
         os = p7->d.data;
         break;
 
     case NID_pkcs7_signedAndEnveloped:
+    case NID_pkcs7_sm2_signedAndEnveloped:
         os = p7->d.signed_and_enveloped->enc_data->enc_data;
         if (os == NULL) {
             os = ASN1_OCTET_STRING_new();
@@ -739,6 +785,7 @@ int PKCS7_stream(unsigned char ***boundary, PKCS7 *p7)
         break;
 
     case NID_pkcs7_enveloped:
+    case NID_pkcs7_sm2_enveloped:
         os = p7->d.enveloped->enc_data->enc_data;
         if (os == NULL) {
             os = ASN1_OCTET_STRING_new();
@@ -747,6 +794,7 @@ int PKCS7_stream(unsigned char ***boundary, PKCS7 *p7)
         break;
 
     case NID_pkcs7_signed:
+    case NID_pkcs7_sm2_signed:
         os = p7->d.sign->contents->d.data;
         break;
 

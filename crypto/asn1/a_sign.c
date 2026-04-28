@@ -195,6 +195,10 @@ int ASN1_item_sign_ctx(const ASN1_ITEM *it, X509_ALGOR *algor1,
                 ERR_raise(ERR_LIB_ASN1, ERR_R_INTERNAL_ERROR);
                 goto err;
             }
+            /* GMT 0015-2023: 签名算法为SM2时，算法标识需要追加 NULL 参数 (05 00) */
+            if (algor1->algorithm->nid == NID_SM2_with_SM3) {
+                X509_ALGOR_set0(algor1, OBJ_nid2obj(NID_SM2_with_SM3), V_ASN1_NULL, NULL);
+            }
         }
 
         if (algor2 != NULL) {
@@ -203,6 +207,10 @@ int ASN1_item_sign_ctx(const ASN1_ITEM *it, X509_ALGOR *algor1,
             if (d2i_X509_ALGOR(&algor2, &pp, aid_len) == NULL) {
                 ERR_raise(ERR_LIB_ASN1, ERR_R_INTERNAL_ERROR);
                 goto err;
+            }
+            /* GMT 0015-2023: 签名算法为SM2时，算法标识需要追加 NULL 参数 (05 00) */
+            if (algor2->algorithm->nid == NID_SM2_with_SM3) {
+                X509_ALGOR_set0(algor2, OBJ_nid2obj(NID_SM2_with_SM3), V_ASN1_NULL, NULL);
             }
         }
 
@@ -243,14 +251,19 @@ int ASN1_item_sign_ctx(const ASN1_ITEM *it, X509_ALGOR *algor1,
             goto err;
         }
 
-        paramtype = pkey->ameth->pkey_flags & ASN1_PKEY_SIGPARAM_NULL ?
-            V_ASN1_NULL : V_ASN1_UNDEF;
-        if (algor1 != NULL
-            && !X509_ALGOR_set0(algor1, OBJ_nid2obj(signid), paramtype, NULL))
-            goto err;
-        if (algor2 != NULL
-            && !X509_ALGOR_set0(algor2, OBJ_nid2obj(signid), paramtype, NULL))
-            goto err;
+        /* GMT 0015-2023: SM2签名算法需要追加 NULL 参数 (05 00) */
+        if (EVP_PKEY_get_id(pkey) == NID_sm2) {
+            paramtype = V_ASN1_NULL;
+        } else {
+            if (pkey->ameth->pkey_flags & ASN1_PKEY_SIGPARAM_NULL)
+                paramtype = V_ASN1_NULL;
+            else
+                paramtype = V_ASN1_UNDEF;
+        }
+        if (algor1 != NULL)
+            X509_ALGOR_set0(algor1, OBJ_nid2obj(signid), paramtype, NULL);
+        if (algor2 != NULL)
+            X509_ALGOR_set0(algor2, OBJ_nid2obj(signid), paramtype, NULL);
     }
 
     buf_len = ASN1_item_i2d(data, &buf_in, it);
