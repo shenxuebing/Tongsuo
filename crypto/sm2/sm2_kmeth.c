@@ -16,6 +16,7 @@
 #include "crypto/sm2.h"
 #include "crypto/ec.h" /* ecdh_KDF_X9_63() */
 #include "crypto/sm2err.h"
+#include "internal/tlog.h"
 
 
 int SM2_compute_key(void *out, size_t outlen, int initiator,
@@ -70,6 +71,34 @@ int SM2_compute_key(void *out, size_t outlen, int initiator,
     if (ctx == NULL) {
         ERR_raise(ERR_LIB_SM2, ERR_R_MALLOC_FAILURE);
         goto err;
+    }
+
+    /* Debug: Print the keys being used for SM2DHE */
+    TLOG_DEBUG("DEBUG SM2_compute_key: initiator=%d\n", initiator);
+    TLOG_DEBUG("  self_ecdhe_key (Rs, r)=%p, peer_ecdhe_key (Rp)=%p\n", self_ecdhe_key, peer_ecdhe_key);
+    TLOG_DEBUG("  self_eckey (long term)=%p, peer_pub_key (long term)=%p\n", self_eckey, peer_pub_key);
+
+    /* Print public key coordinates */
+    {
+        BIGNUM *x = BN_new(), *y = BN_new();
+        if (x != NULL && y != NULL) {
+            if (EC_POINT_get_affine_coordinates(EC_KEY_get0_group(self_ecdhe_key), Rs, x, y, ctx)) {
+                unsigned char xbuf[32], ybuf[32];
+                BN_bn2binpad(x, xbuf, 32);
+                BN_bn2binpad(y, ybuf, 32);
+                TLOG_DEBUG_HEX("  Rs (self temp pub) X: ", xbuf, 32);
+                TLOG_DEBUG_HEX("  Rs (self temp pub) Y: ", ybuf, 32);
+            }
+            if (EC_POINT_get_affine_coordinates(EC_KEY_get0_group(peer_ecdhe_key), Rp, x, y, ctx)) {
+                unsigned char xbuf[32], ybuf[32];
+                BN_bn2binpad(x, xbuf, 32);
+                BN_bn2binpad(y, ybuf, 32);
+                TLOG_DEBUG_HEX("  Rp (peer temp pub) X: ", xbuf, 32);
+                TLOG_DEBUG_HEX("  Rp (peer temp pub) Y: ", ybuf, 32);
+            }
+            BN_free(x);
+            BN_free(y);
+        }
     }
 
     BN_CTX_start(ctx);
@@ -236,11 +265,28 @@ int SM2_compute_key(void *out, size_t outlen, int initiator,
         idx += md_len;
     }
 
+    /* Debug: Print KDF input for comparison */
+    TLOG_DEBUG("DEBUG: Tongsuo software SM2DHE KDF input (%zu bytes):\n", idx);
+    TLOG_DEBUG_HEX("  Vx (32 bytes): ", buf, 32);
+    TLOG_DEBUG_HEX("  Vy (32 bytes): ", buf + 32, 32);
+    if (initiator) {
+        TLOG_DEBUG_HEX("  ZA (32 bytes): ", buf + 64, 32);
+        TLOG_DEBUG_HEX("  ZB (32 bytes): ", buf + 96, 32);
+    } else {
+        TLOG_DEBUG_HEX("  ZB (32 bytes): ", buf + 64, 32);
+        TLOG_DEBUG_HEX("  ZA (32 bytes): ", buf + 96, 32);
+    }
+    TLOG_DEBUG("DEBUG: Role: %s\n", initiator ? "initiator" : "responder");
+
     if (!ossl_ecdh_kdf_X9_63(out, outlen, buf, idx, NULL, 0, md, libctx,
                              propq)) {
         ERR_raise(ERR_LIB_SM2, ERR_R_INTERNAL_ERROR);
         goto err;
     }
+
+    /* Debug: Print output */
+    TLOG_DEBUG("DEBUG: Tongsuo software SM2DHE output (%zu bytes): ", outlen);
+    TLOG_DEBUG_HEX("", ((unsigned char *)out), outlen);
 
     ret = outlen;
 

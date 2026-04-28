@@ -209,6 +209,25 @@ static BIGNUM *sm2_compute_msg_hash(const EVP_MD *digest,
     return e;
 }
 
+#include <crypto/bn/bn_local.h>
+static unsigned char getBigNumByteInternal(const BIGNUM* bn, int index) {
+    int num_bytes = BN_num_bytes(bn);
+    if (index >= num_bytes) return 0;
+
+    /* OpenSSL internally uses BN_ULONG array for storage, need to reverse byte order */
+    const BN_ULONG* words = bn->d;
+    int word_size = sizeof(BN_ULONG);
+
+    int word_index = (num_bytes - 1 - index) / word_size;
+    int byte_in_word = (num_bytes - 1 - index) % word_size;
+
+    if (word_index < bn->top) {
+        BN_ULONG word = words[word_index];
+        return (word >> (byte_in_word * 8)) & 0xFF;
+    }
+    return 0;
+}
+
 static ECDSA_SIG *sm2_sig_gen(const EC_KEY *key, const BIGNUM *e)
 {
     const BIGNUM *dA = EC_KEY_get0_private_key(key);
@@ -285,8 +304,8 @@ static ECDSA_SIG *sm2_sig_gen(const EC_KEY *key, const BIGNUM *e)
             goto done;
         }
 
-        /* try again if r == 0 or r+k == n */
-        if (BN_is_zero(r))
+        /* try again if r == 0 or r+k == n or r[0]==0 && (r[1]& 0x80) ==0 */
+        if (BN_is_zero(r) ||(BN_num_bytes(r) == 248 && (getBigNumByteInternal(r, 1) & 0x80) == 0x00))
             continue;
 
         if (!BN_add(rk, r, k)) {
@@ -306,8 +325,8 @@ static ECDSA_SIG *sm2_sig_gen(const EC_KEY *key, const BIGNUM *e)
             goto done;
         }
 
-        /* try again if s == 0 */
-        if (BN_is_zero(s))
+        /* try again if s == 0 or s[0]==0 && (s[1]& 0x80) ==0 */
+        if (BN_is_zero(s) || (BN_num_bytes(s) == 248 && (getBigNumByteInternal(s, 1) & 0x80) == 0x00))
             continue;
 
         sig = ECDSA_SIG_new();
@@ -541,5 +560,269 @@ int ossl_sm2_internal_verify(const unsigned char *dgst, int dgstlen,
     OPENSSL_free(der);
     BN_free(e);
     ECDSA_SIG_free(s);
+    return ret;
+}
+
+int sm2_sig_verifyEx(const EC_KEY *key, const BIGNUM *r, const BIGNUM *s,
+    const BIGNUM *e)
+{
+    int ret = 0;
+    const EC_GROUP *group = EC_KEY_get0_group(key);
+    const BIGNUM *order = EC_GROUP_get0_order(group);
+    BN_CTX *ctx = NULL;
+    EC_POINT *pt = NULL;
+    BIGNUM *t = NULL;
+    BIGNUM *x1 = NULL;
+    OSSL_LIB_CTX *libctx = ossl_ec_key_get_libctx(key);
+
+    ctx = BN_CTX_new_ex(libctx);
+    pt = EC_POINT_new(group);
+    if (ctx == NULL || pt == NULL) {
+        ERR_raise(ERR_LIB_SM2, ERR_R_MALLOC_FAILURE);
+        goto done;
+    }
+
+    BN_CTX_start(ctx);
+    t = BN_CTX_get(ctx);
+    x1 = BN_CTX_get(ctx);
+    if (x1 == NULL) {
+        ERR_raise(ERR_LIB_SM2, ERR_R_MALLOC_FAILURE);
+        goto done;
+    }
+
+    /*
+     * B1: verify whether r' in [1,n-1], verification failed if not
+     * B2: verify whether s' in [1,n-1], verification failed if not
+     * B3: set M'~=ZA || M'
+     * B4: calculate e'=Hv(M'~)
+     * B5: calculate t = (r' + s') modn, verification failed if t=0
+     * B6: calculate the point (x1', y1')=[s']G + [t]PA
+     * B7: calculate R=(e'+x1') modn, verification pass if yes, otherwise failed
+     */
+
+    if (BN_cmp(r, BN_value_one()) < 0
+        || BN_cmp(s, BN_value_one()) < 0
+        || BN_cmp(order, r) <= 0
+        || BN_cmp(order, s) <= 0) {
+        ERR_raise(ERR_LIB_SM2, SM2_R_BAD_SIGNATURE);
+        goto done;
+    }
+
+    if (!BN_mod_add(t, r, s, order, ctx)) {
+        ERR_raise(ERR_LIB_SM2, ERR_R_BN_LIB);
+        goto done;
+    }
+
+    if (BN_is_zero(t)) {
+        ERR_raise(ERR_LIB_SM2, SM2_R_BAD_SIGNATURE);
+        goto done;
+    }
+
+    if (!EC_POINT_mul(group, pt, s, EC_KEY_get0_public_key(key), t, ctx)
+        || !EC_POINT_get_affine_coordinates(group, pt, x1, NULL, ctx)) {
+        ERR_raise(ERR_LIB_SM2, ERR_R_EC_LIB);
+        goto done;
+    }
+
+    if (!BN_mod_add(t, e, x1, order, ctx)) {
+        ERR_raise(ERR_LIB_SM2, ERR_R_BN_LIB);
+        goto done;
+    }
+
+    if (BN_cmp(r, t) == 0)
+        ret = 1;
+
+done:
+    BN_CTX_end(ctx);
+    EC_POINT_free(pt);
+    BN_CTX_free(ctx);
+    return ret;
+}
+
+int sm2_sig_verify_fast(const EC_GROUP *group,
+    const BIGNUM *pub_key_x,
+    const BIGNUM *pub_key_y,
+    const BIGNUM *r,
+    const BIGNUM *s,
+    const BIGNUM *e)
+{
+    int ret = 0;
+    const BIGNUM *order = EC_GROUP_get0_order(group);
+    BN_CTX *ctx = NULL;
+    EC_POINT *pt = NULL;
+    EC_POINT *pub_key_point = NULL;
+    BIGNUM *t = NULL;
+    BIGNUM *x1 = NULL;
+
+    ctx = BN_CTX_new();
+    pt = EC_POINT_new(group);
+    pub_key_point = EC_POINT_new(group);
+
+    if (ctx == NULL || pt == NULL || pub_key_point == NULL) {
+        ERR_raise(ERR_LIB_SM2, ERR_R_MALLOC_FAILURE);
+        goto done;
+    }
+
+    BN_CTX_start(ctx);
+    t = BN_CTX_get(ctx);
+    x1 = BN_CTX_get(ctx);
+    if (x1 == NULL) {
+        ERR_raise(ERR_LIB_SM2, ERR_R_MALLOC_FAILURE);
+        goto done;
+    }
+
+    /* Reconstruct public key point from x,y coordinates */
+    if (!EC_POINT_set_affine_coordinates(group, pub_key_point, pub_key_x, pub_key_y, ctx)) {
+        ERR_raise(ERR_LIB_SM2, SM2_R_BAD_SIGNATURE);
+        goto done;
+    }
+
+    /* Verify key point is on curve */
+    if (!EC_POINT_is_on_curve(group, pub_key_point, ctx)) {
+        ERR_raise(ERR_LIB_SM2, SM2_R_BAD_SIGNATURE);
+        goto done;
+    }
+
+    /*
+     * B1: verify whether r' in [1,n-1], verification failed if not
+     * B2: verify whether s' in [1,n-1], verification failed if not
+     * B3: set M'~=ZA || M'
+     * B4: calculate e'=Hv(M'~)
+     * B5: calculate t = (r' + s') modn, verification failed if t=0
+     * B6: calculate the point (x1', y1')=[s']G + [t]PA
+     * B7: calculate R=(e'+x1') modn, verification pass if yes, otherwise failed
+     */
+    if (BN_cmp(r, BN_value_one()) < 0
+        || BN_cmp(s, BN_value_one()) < 0
+        || BN_cmp(order, r) <= 0
+        || BN_cmp(order, s) <= 0) {
+        ERR_raise(ERR_LIB_SM2, SM2_R_BAD_SIGNATURE);
+        goto done;
+    }
+
+    if (!BN_mod_add(t, r, s, order, ctx)) {
+        ERR_raise(ERR_LIB_SM2, ERR_R_BN_LIB);
+        goto done;
+    }
+
+    if (BN_is_zero(t)) {
+        ERR_raise(ERR_LIB_SM2, SM2_R_BAD_SIGNATURE);
+        goto done;
+    }
+
+    /* Use reconstructed public key point for point multiplication */
+    if (!EC_POINT_mul(group, pt, s, pub_key_point, t, ctx)
+        || !EC_POINT_get_affine_coordinates(group, pt, x1, NULL, ctx)) {
+        ERR_raise(ERR_LIB_SM2, ERR_R_EC_LIB);
+        goto done;
+    }
+
+    if (!BN_mod_add(t, e, x1, order, ctx)) {
+        ERR_raise(ERR_LIB_SM2, ERR_R_BN_LIB);
+        goto done;
+    }
+
+    if (BN_cmp(r, t) == 0)
+        ret = 1;
+
+done:
+    EC_POINT_free(pt);
+    EC_POINT_free(pub_key_point);
+    BN_CTX_free(ctx);
+    return ret;
+}
+
+int sm2_sig_fast(const EC_KEY *key, const BIGNUM *e, BIGNUM *r, BIGNUM *s)
+{
+    int ret = 0;
+    const BIGNUM *dA = EC_KEY_get0_private_key(key);
+    const EC_GROUP *group = EC_KEY_get0_group(key);
+    const BIGNUM *order = EC_GROUP_get0_order(group);
+    EC_POINT *kG = NULL;
+    BN_CTX *ctx = NULL;
+    BIGNUM *k = NULL;
+    BIGNUM *rk = NULL;
+    BIGNUM *x1 = NULL;
+    BIGNUM *tmp = NULL;
+    OSSL_LIB_CTX *libctx = ossl_ec_key_get_libctx(key);
+
+    kG = EC_POINT_new(group);
+    ctx = BN_CTX_new_ex(libctx);
+    if (kG == NULL || ctx == NULL) {
+        ERR_raise(ERR_LIB_SM2, ERR_R_MALLOC_FAILURE);
+        goto done;
+    }
+
+    BN_CTX_start(ctx);
+    k = BN_CTX_get(ctx);
+    rk = BN_CTX_get(ctx);
+    x1 = BN_CTX_get(ctx);
+    tmp = BN_CTX_get(ctx);
+    if (tmp == NULL) {
+        ERR_raise(ERR_LIB_SM2, ERR_R_MALLOC_FAILURE);
+        goto done;
+    }
+
+    if (r == NULL || s == NULL) {
+        ERR_raise(ERR_LIB_SM2, ERR_R_PASSED_NULL_PARAMETER);
+        goto done;
+    }
+
+    /*
+     * A3: Generate a random number k in [1,n-1] using random number generators;
+     * A4: Compute (x1,y1)=[k]G, and convert the type of data x1 to be integer
+     *     as specified in clause 4.2.8 of GM/T 0003.1-2012;
+     * A5: Compute r=(e+x1) mod n. If r=0 or r+k=n, then go to A3;
+     * A6: Compute s=(1/(1+dA)*(k-r*dA)) mod n. If s=0, then go to A3;
+     * A7: Convert the type of data (r,s) to be bit strings according to the details
+     *     in clause 4.2.2 of GM/T 0003.1-2012. Then the signature of message M is (r,s).
+     */
+    for (;;) {
+        if (!BN_priv_rand_range_ex(k, order, 0, ctx)) {
+            ERR_raise(ERR_LIB_SM2, ERR_R_INTERNAL_ERROR);
+            goto done;
+        }
+
+        if (!EC_POINT_mul(group, kG, k, NULL, NULL, ctx)
+                || !EC_POINT_get_affine_coordinates(group, kG, x1, NULL,
+                                                    ctx)
+                || !BN_mod_add(r, e, x1, order, ctx)) {
+            ERR_raise(ERR_LIB_SM2, ERR_R_INTERNAL_ERROR);
+            goto done;
+        }
+
+        /* try again if r == 0 or r+k == n */
+        if (BN_is_zero(r))
+            continue;
+
+        if (!BN_add(rk, r, k)) {
+            ERR_raise(ERR_LIB_SM2, ERR_R_INTERNAL_ERROR);
+            goto done;
+        }
+
+        if (BN_cmp(rk, order) == 0)
+            continue;
+
+        if (!BN_add(s, dA, BN_value_one())
+                || !ossl_ec_group_do_inverse_ord(group, s, s, ctx)
+                || !BN_mod_mul(tmp, dA, r, order, ctx)
+                || !BN_sub(tmp, k, tmp)
+                || !BN_mod_mul(s, s, tmp, order, ctx)) {
+            ERR_raise(ERR_LIB_SM2, ERR_R_BN_LIB);
+            goto done;
+        }
+
+        /* try again if s == 0 */
+        if (BN_is_zero(s))
+            continue;
+
+        ret = 1;
+        break;
+    }
+
+ done:
+    BN_CTX_end(ctx);
+    BN_CTX_free(ctx);
+    EC_POINT_free(kG);
     return ret;
 }
