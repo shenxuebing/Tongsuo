@@ -766,7 +766,7 @@ static int ts_RESP_sign(TS_RESP_CTX *ctx)
 
     if (!ts_TST_INFO_content_new(p7))
         goto err;
-    if ((p7bio = PKCS7_dataInit(p7, NULL, 0)) == NULL) {
+    if ((p7bio = PKCS7_dataInit(p7, NULL, 2)) == NULL) {
         ERR_raise(ERR_LIB_TS, ERR_R_PKCS7_LIB);
         goto err;
     }
