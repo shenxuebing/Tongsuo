@@ -377,8 +377,8 @@ static size_t ec_field_size(const EC_GROUP *group)
     return BN_num_bytes(p);
 }
 
-int ossl_sm2_plaintext_size(const unsigned char *ct, size_t ct_size,
-                            size_t *pt_size, int encdata_format)
+int ossl_sm2_plaintext_size_ex(const unsigned char *ct, size_t ct_size,
+                               size_t *pt_size, int encdata_format)
 {
     struct SM2_Ciphertext_st *sm2_ctext = NULL;
     struct SM2_CiphertextEx_st* sm2_ctextEx = NULL;
@@ -425,10 +425,11 @@ int ossl_sm2_ciphertext_size(const EC_KEY *key, const EVP_MD *digest,
     return 1;
 }
 
-int ossl_sm2_encrypt(const EC_KEY *key,
-                     const EVP_MD *digest,
-                     const uint8_t *msg, size_t msg_len,
-                     uint8_t *ciphertext_buf, size_t *ciphertext_len, int encdata_format)
+int ossl_sm2_encrypt_ex(const EC_KEY *key,
+                        const EVP_MD *digest,
+                        const uint8_t *msg, size_t msg_len,
+                        uint8_t *ciphertext_buf, size_t *ciphertext_len,
+                        int encdata_format)
 {
     int rc = 0, ciphertext_leni;
     size_t i;
@@ -600,10 +601,11 @@ int ossl_sm2_encrypt(const EC_KEY *key,
     return rc;
 }
 
-int ossl_sm2_decrypt(const EC_KEY *key,
-                     const EVP_MD *digest,
-                     const uint8_t *ciphertext, size_t ciphertext_len,
-                     uint8_t *ptext_buf, size_t *ptext_len, int encdata_format)
+int ossl_sm2_decrypt_ex(const EC_KEY *key,
+                        const EVP_MD *digest,
+                        const uint8_t *ciphertext, size_t ciphertext_len,
+                        uint8_t *ptext_buf, size_t *ptext_len,
+                        int encdata_format)
 {
     int rc = 0;
     int i;
@@ -750,6 +752,29 @@ int ossl_sm2_decrypt(const EC_KEY *key,
     return rc;
 }
 
+int ossl_sm2_plaintext_size(const unsigned char *ct, size_t ct_size,
+                            size_t *pt_size)
+{
+    return ossl_sm2_plaintext_size_ex(ct, ct_size, pt_size, 1);
+}
+
+int ossl_sm2_encrypt(const EC_KEY *key,
+                     const EVP_MD *digest,
+                     const uint8_t *msg, size_t msg_len,
+                     uint8_t *ciphertext_buf, size_t *ciphertext_len)
+{
+    return ossl_sm2_encrypt_ex(key, digest, msg, msg_len, ciphertext_buf,
+                               ciphertext_len, 1);
+}
+
+int ossl_sm2_decrypt(const EC_KEY *key,
+                     const EVP_MD *digest,
+                     const uint8_t *ciphertext, size_t ciphertext_len,
+                     uint8_t *ptext_buf, size_t *ptext_len)
+{
+    return ossl_sm2_decrypt_ex(key, digest, ciphertext, ciphertext_len,
+                               ptext_buf, ptext_len, 1);
+}
 unsigned char *ossl_sm2_ciphertext_encode(const BIGNUM *C1x, const BIGNUM *C1y,
                                           const uint8_t *C2_data, size_t C2_len,
                                           const uint8_t *C3_data, size_t C3_len,

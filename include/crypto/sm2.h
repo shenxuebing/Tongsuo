@@ -94,19 +94,32 @@ int ossl_sm2_ciphertext_size(const EC_KEY *key, const EVP_MD *digest,
                              size_t msg_len, size_t *ct_size);
 
 int ossl_sm2_plaintext_size(const unsigned char *ct, size_t ct_size,
-                            size_t *pt_size, int en);
+                            size_t *pt_size);
 
 int ossl_sm2_encrypt(const EC_KEY *key,
                      const EVP_MD *digest,
                      const uint8_t *msg, size_t msg_len,
-                     uint8_t *ciphertext_buf, size_t *ciphertext_len,
-                     int encdata_format);
+                     uint8_t *ciphertext_buf, size_t *ciphertext_len);
 
 int ossl_sm2_decrypt(const EC_KEY *key,
                      const EVP_MD *digest,
                      const uint8_t *ciphertext, size_t ciphertext_len,
-                     uint8_t *ptext_buf, size_t *ptext_len,
-                     int encdata_format);
+                     uint8_t *ptext_buf, size_t *ptext_len);
+
+int ossl_sm2_plaintext_size_ex(const unsigned char *ct, size_t ct_size,
+                               size_t *pt_size, int encdata_format);
+
+int ossl_sm2_encrypt_ex(const EC_KEY *key,
+                        const EVP_MD *digest,
+                        const uint8_t *msg, size_t msg_len,
+                        uint8_t *ciphertext_buf, size_t *ciphertext_len,
+                        int encdata_format);
+
+int ossl_sm2_decrypt_ex(const EC_KEY *key,
+                        const EVP_MD *digest,
+                        const uint8_t *ciphertext, size_t ciphertext_len,
+                        uint8_t *ptext_buf, size_t *ptext_len,
+                        int encdata_format);
 
 unsigned char *ossl_sm2_ciphertext_encode(const BIGNUM *C1x, const BIGNUM *C1y,
                                           const uint8_t *C2_data, size_t C2_len,
