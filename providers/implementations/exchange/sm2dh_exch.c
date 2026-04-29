@@ -28,7 +28,6 @@
 #include "crypto/evp.h"
 #include "crypto/ec.h"
 #include "crypto/sm2.h"
-#include "internal/tlog.h"
 
 static OSSL_FUNC_keyexch_newctx_fn sm2dh_newctx;
 static OSSL_FUNC_keyexch_init_fn sm2dh_init;
@@ -448,24 +447,14 @@ int sm2dh_derive(void *vpecdhctx, unsigned char *secret,
         ERR_raise(ERR_LIB_PROV, PROV_R_MISSING_KEY);
         return 0;
     }
-    TLOG_DEBUG("sm2dh_derive: initiator=%d, peer_id_len=%zu, id_len=%zu",
-               pecdhctx->initiator, pecdhctx->peer_id_len, pecdhctx->id_len);
-    TLOG_DEBUG("sm2dh_derive: peerk=%p, k=%p, enc_peerk=%p, enc_k=%p",
-               pecdhctx->peerk, pecdhctx->k, pecdhctx->enc_peerk, pecdhctx->enc_k);
 
     if (SM2_compute_key(secret, pecdhctx->outlen, pecdhctx->initiator,
                         pecdhctx->peer_id, pecdhctx->peer_id_len,
                         pecdhctx->id, pecdhctx->id_len,
                         pecdhctx->peerk, pecdhctx->k,
                         pecdhctx->enc_peerk, pecdhctx->enc_k,
-                        pecdhctx->md, pecdhctx->libctx, NULL) <= 0) {
-        TLOG_DEBUG("sm2dh_derive: SM2_compute_key FAILED");
+                        pecdhctx->md, pecdhctx->libctx, NULL) <= 0)
         return 0;
-    }
-
-    TLOG_DEBUG("sm2dh_derive: SM2_compute_key succeeded, secret len=%zu",
-               pecdhctx->outlen);
-    TLOG_DEBUG_HEX("Shared secret", secret, pecdhctx->outlen);
 
     *psecretlen = pecdhctx->outlen;
 
