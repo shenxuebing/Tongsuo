@@ -418,6 +418,16 @@ static int ec_pkey_ctrl(EVP_PKEY *pkey, int op, long arg1, void *arg2)
             X509_ALGOR_set0(alg2, OBJ_nid2obj(snid), V_ASN1_NULL, 0);
         }
         return 1;
+#ifndef OPENSSL_NO_SM2
+    case ASN1_PKEY_CTRL_PKCS7_ENCRYPT:
+        if (arg1 == 0) {
+            X509_ALGOR *alg = NULL;
+            PKCS7_RECIP_INFO_get0_alg(arg2, &alg);
+            if (alg)
+                X509_ALGOR_set0(alg, OBJ_nid2obj(NID_sm2Encrypt), V_ASN1_NULL, 0);
+        }
+        return 1;
+#endif
     case ASN1_PKEY_CTRL_DEFAULT_MD_NID:
         if (EVP_PKEY_get_id(pkey) == EVP_PKEY_SM2) {
             /* For SM2, the only valid digest-alg is SM3 */

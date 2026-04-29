@@ -44,6 +44,7 @@ typedef struct {
     OSSL_LIB_CTX *libctx;
     EC_KEY *key;
     PROV_DIGEST md;
+    int encdata_format;         /* 0=C1C3C2 (default), 1=C1C2C3 */
 } PROV_SM2_CTX;
 
 static void *sm2_newctx(void *provctx)
@@ -97,7 +98,8 @@ static int sm2_asym_encrypt(void *vpsm2ctx, unsigned char *out, size_t *outlen,
         return 1;
     }
 
-    return ossl_sm2_encrypt(psm2ctx->key, md, in, inlen, out, outlen);
+    return ossl_sm2_encrypt_ex(psm2ctx->key, md, in, inlen, out, outlen,
+                               psm2ctx->encdata_format);
 }
 
 static int sm2_asym_decrypt(void *vpsm2ctx, unsigned char *out, size_t *outlen,
@@ -111,12 +113,14 @@ static int sm2_asym_decrypt(void *vpsm2ctx, unsigned char *out, size_t *outlen,
         return 0;
 
     if (out == NULL) {
-        if (!ossl_sm2_plaintext_size(in, inlen, outlen))
+        if (!ossl_sm2_plaintext_size_ex(in, inlen, outlen,
+                                         psm2ctx->encdata_format))
             return 0;
         return 1;
     }
 
-    return ossl_sm2_decrypt(psm2ctx->key, md, in, inlen, out, outlen);
+    return ossl_sm2_decrypt_ex(psm2ctx->key, md, in, inlen, out, outlen,
+                               psm2ctx->encdata_format);
 }
 
 static void sm2_freectx(void *vpsm2ctx)
@@ -188,6 +192,7 @@ static const OSSL_PARAM *sm2_gettable_ctx_params(ossl_unused void *vpsm2ctx,
 static int sm2_set_ctx_params(void *vpsm2ctx, const OSSL_PARAM params[])
 {
     PROV_SM2_CTX *psm2ctx = (PROV_SM2_CTX *)vpsm2ctx;
+    const OSSL_PARAM *p;
 
     if (psm2ctx == NULL)
         return 0;
@@ -198,6 +203,12 @@ static int sm2_set_ctx_params(void *vpsm2ctx, const OSSL_PARAM params[])
                                            psm2ctx->libctx))
         return 0;
 
+    p = OSSL_PARAM_locate_const(params, "sm2_encdata_format");
+    if (p != NULL) {
+        if (!OSSL_PARAM_get_int(p, &psm2ctx->encdata_format))
+            return 0;
+    }
+
     return 1;
 }
 
@@ -205,6 +216,7 @@ static const OSSL_PARAM known_settable_ctx_params[] = {
     OSSL_PARAM_utf8_string(OSSL_ASYM_CIPHER_PARAM_DIGEST, NULL, 0),
     OSSL_PARAM_utf8_string(OSSL_ASYM_CIPHER_PARAM_PROPERTIES, NULL, 0),
     OSSL_PARAM_utf8_string(OSSL_ASYM_CIPHER_PARAM_ENGINE, NULL, 0),
+    OSSL_PARAM_int("sm2_encdata_format", NULL),
     OSSL_PARAM_END
 };
 
