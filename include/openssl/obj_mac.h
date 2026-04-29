@@ -131,6 +131,10 @@
 #define NID_sm_scheme           1142
 #define OBJ_sm_scheme           OBJ_oscca,1L
 
+#define SN_sm_pkcs              "sm-pkcs"
+#define NID_sm_pkcs             1515
+#define OBJ_sm_pkcs             OBJ_oscca,6L
+
 #define SN_dsa          "DSA"
 #define LN_dsa          "dsaEncryption"
 #define NID_dsa         116
@@ -1099,6 +1103,16 @@
 #define NID_pbe_WithSHA1And2_Key_TripleDES_CBC          147
 #define OBJ_pbe_WithSHA1And2_Key_TripleDES_CBC          OBJ_pkcs12_pbeids,4L
 
+#define SN_pbe_WithSHA1And128BitRC2_CBC         "PBE-SHA1-RC2-128"
+#define LN_pbe_WithSHA1And128BitRC2_CBC         "pbeWithSHA1And128BitRC2-CBC"
+#define NID_pbe_WithSHA1And128BitRC2_CBC                1516
+#define OBJ_pbe_WithSHA1And128BitRC2_CBC                OBJ_pkcs12_pbeids,5L
+
+#define SN_pbe_WithSHA1And40BitRC2_CBC          "PBE-SHA1-RC2-40"
+#define LN_pbe_WithSHA1And40BitRC2_CBC          "pbeWithSHA1And40BitRC2-CBC"
+#define NID_pbe_WithSHA1And40BitRC2_CBC         1517
+#define OBJ_pbe_WithSHA1And40BitRC2_CBC         OBJ_pkcs12_pbeids,6L
+
 #define OBJ_pkcs12_Version1             OBJ_pkcs12,10L
 
 #define OBJ_pkcs12_BagIds               OBJ_pkcs12_Version1,1L
@@ -1164,6 +1178,53 @@
 #define NID_SM2_with_SM3                1204
 #define OBJ_SM2_with_SM3                OBJ_sm_scheme,501L
 
+#define SN_sm_pkcs7             "sm-pkcs7"
+#define LN_sm_pkcs7             "china pkcs7 series"
+#define NID_sm_pkcs7            1518
+#define OBJ_sm_pkcs7            OBJ_sm_pkcs,1L,4L,2L
+
+#define SN_pkcs7_sm2_data               "pkcs7_sm2_data"
+#define LN_pkcs7_sm2_data               "pkcs7_sm2_data"
+#define NID_pkcs7_sm2_data              1519
+#define OBJ_pkcs7_sm2_data              OBJ_sm_pkcs7,1L
+
+#define SN_pkcs7_sm2_signed             "pkcs7_sm2_signed"
+#define LN_pkcs7_sm2_signed             "pkcs7_sm2_signed"
+#define NID_pkcs7_sm2_signed            1520
+#define OBJ_pkcs7_sm2_signed            OBJ_sm_pkcs7,2L
+
+#define SN_pkcs7_sm2_enveloped          "pkcs7_sm2_enveloped"
+#define LN_pkcs7_sm2_enveloped          "pkcs7_sm2_enveloped"
+#define NID_pkcs7_sm2_enveloped         1521
+#define OBJ_pkcs7_sm2_enveloped         OBJ_sm_pkcs7,3L
+
+#define SN_pkcs7_sm2_signedAndEnveloped         "pkcs7_sm2_signedAndEnveloped"
+#define LN_pkcs7_sm2_signedAndEnveloped         "pkcs7_sm2_signedAndEnveloped"
+#define NID_pkcs7_sm2_signedAndEnveloped                1522
+#define OBJ_pkcs7_sm2_signedAndEnveloped                OBJ_sm_pkcs7,4L
+
+#define SN_pkcs7_sm2_encryptedData              "pkcs7_sm2_encryptedData"
+#define LN_pkcs7_sm2_encryptedData              "pkcs7_sm2_encryptedData"
+#define NID_pkcs7_sm2_encryptedData             1523
+#define OBJ_pkcs7_sm2_encryptedData             OBJ_sm_pkcs7,5L
+
+#define SN_pkcs7_sm2_keyAgreementInfo           "pkcs7_sm2_keyAgreementInfo"
+#define LN_pkcs7_sm2_keyAgreementInfo           "pkcs7_sm2_keyAgreementInfo"
+#define NID_pkcs7_sm2_keyAgreementInfo          1524
+#define OBJ_pkcs7_sm2_keyAgreementInfo          OBJ_sm_pkcs7,6L
+
+#define SN_sm2Signature         "sm2Signature"
+#define NID_sm2Signature                1525
+#define OBJ_sm2Signature                OBJ_sm2,1L
+
+#define SN_sm2Keyagreement              "sm2Keyagreement"
+#define NID_sm2Keyagreement             1526
+#define OBJ_sm2Keyagreement             OBJ_sm2,2L
+
+#define SN_sm2Encrypt           "sm2Encrypt"
+#define NID_sm2Encrypt          1527
+#define OBJ_sm2Encrypt          OBJ_sm2,3L
+
 #define SN_zuc          "ZUC"
 #define LN_zuc          "zuc"
 #define NID_zuc         1487
@@ -1178,6 +1239,16 @@
 #define LN_zuc_128_eia3         "zuc-128-eia3"
 #define NID_zuc_128_eia3                1492
 #define OBJ_zuc_128_eia3                OBJ_sm_scheme,802L
+
+#define SN_sm2dh_mlkem768_hybrid                "SM2DH-MLKEM768-HYBRID"
+#define LN_sm2dh_mlkem768_hybrid                "sm2dh-mlkem768-hybrid"
+#define NID_sm2dh_mlkem768_hybrid               1528
+#define OBJ_sm2dh_mlkem768_hybrid               OBJ_sm_scheme,1001L
+
+#define SN_hmac_sm3_gmt0006             "HMAC-SM3-GMT0006"
+#define LN_hmac_sm3_gmt0006             "hmac-sm3-gmt0006"
+#define NID_hmac_sm3_gmt0006            1540
+#define OBJ_hmac_sm3_gmt0006            OBJ_sm3,2L
 
 #define LN_hmacWithSM3          "hmacWithSM3"
 #define NID_hmacWithSM3         1281
@@ -1206,6 +1277,31 @@
 #define LN_hmacWithSHA512_256           "hmacWithSHA512-256"
 #define NID_hmacWithSHA512_256          1194
 #define OBJ_hmacWithSHA512_256          OBJ_rsadsi,2L,13L
+
+#define SN_rc2_cbc              "RC2-CBC"
+#define LN_rc2_cbc              "rc2-cbc"
+#define NID_rc2_cbc             1529
+#define OBJ_rc2_cbc             OBJ_rsadsi,3L,2L
+
+#define SN_rc2_ecb              "RC2-ECB"
+#define LN_rc2_ecb              "rc2-ecb"
+#define NID_rc2_ecb             1530
+
+#define SN_rc2_cfb64            "RC2-CFB"
+#define LN_rc2_cfb64            "rc2-cfb"
+#define NID_rc2_cfb64           1531
+
+#define SN_rc2_ofb64            "RC2-OFB"
+#define LN_rc2_ofb64            "rc2-ofb"
+#define NID_rc2_ofb64           1532
+
+#define SN_rc2_40_cbc           "RC2-40-CBC"
+#define LN_rc2_40_cbc           "rc2-40-cbc"
+#define NID_rc2_40_cbc          1533
+
+#define SN_rc2_64_cbc           "RC2-64-CBC"
+#define LN_rc2_64_cbc           "rc2-64-cbc"
+#define NID_rc2_64_cbc          1534
 
 #define SN_rc4          "RC4"
 #define LN_rc4          "rc4"
@@ -4402,6 +4498,31 @@
 #define LN_sm4_xts              "sm4-xts"
 #define NID_sm4_xts             1290
 #define OBJ_sm4_xts             OBJ_sm_scheme,104L,10L
+
+#define SN_sm1_ecb              "SM1-ECB"
+#define LN_sm1_ecb              "sm1-ecb"
+#define NID_sm1_ecb             1535
+#define OBJ_sm1_ecb             OBJ_sm_scheme,101L,1L
+
+#define SN_sm1_cbc              "SM1-CBC"
+#define LN_sm1_cbc              "sm1-cbc"
+#define NID_sm1_cbc             1536
+#define OBJ_sm1_cbc             OBJ_sm_scheme,101L,2L
+
+#define SN_sm1_cfb              "SM1-CFB"
+#define LN_sm1_cfb              "sm1-cfb"
+#define NID_sm1_cfb             1537
+#define OBJ_sm1_cfb             OBJ_sm_scheme,101L,3L
+
+#define SN_sm1_ofb              "SM1-OFB"
+#define LN_sm1_ofb              "sm1-ofb"
+#define NID_sm1_ofb             1538
+#define OBJ_sm1_ofb             OBJ_sm_scheme,101L,4L
+
+#define SN_sm1_mac              "SM1-MAC"
+#define LN_sm1_mac              "sm1-mac"
+#define NID_sm1_mac             1539
+#define OBJ_sm1_mac             OBJ_sm_scheme,101L,5L
 
 #define SN_hmac         "HMAC"
 #define LN_hmac         "hmac"
