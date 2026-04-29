@@ -61,6 +61,17 @@ void openssl_add_all_ciphers_int(void)
 # endif
 #endif
 
+#ifndef OPENSSL_NO_RC2
+    EVP_add_cipher(EVP_rc2_ecb());
+    EVP_add_cipher(EVP_rc2_cbc());
+    EVP_add_cipher(EVP_rc2_40_cbc());
+    EVP_add_cipher(EVP_rc2_64_cbc());
+    EVP_add_cipher(EVP_rc2_cfb());
+    EVP_add_cipher(EVP_rc2_ofb());
+    EVP_add_cipher_alias(SN_rc2_cbc, "rc2");
+    EVP_add_cipher_alias(SN_rc2_cbc, "RC2");
+#endif
+
 #ifndef OPENSSL_NO_SM4
     EVP_add_cipher(EVP_sm4_ecb());
     EVP_add_cipher(EVP_sm4_cbc());

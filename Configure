@@ -669,7 +669,6 @@ our %disabled = ( # "what"         => "comment"
                   "mdc2"                => "default", # MDC2 has been removed
                   "md4"                 => "default", # MD4 has been removed
                   "gost"                => "default", # GOST has been removed
-                  "rc2"                 => "default", # RC2 has been removed
                   "rmd160"              => "default", # RIPEMD has been removed
                   "ripemd"              => "default", # RIPEMD has been removed
                   "seed"                => "default", # SEED has been removed

@@ -1524,6 +1524,12 @@ int EVP_CIPHER_CTX_ctrl(EVP_CIPHER_CTX *ctx, int type, int arg, void *ptr)
         i = (unsigned int)arg;
         params[0] = OSSL_PARAM_construct_uint(OSSL_CIPHER_PARAM_ROUNDS, &i);
         break;
+    case EVP_CTRL_GET_RC2_KEY_BITS:
+        set_params = 0; /* Fall thru */
+    case EVP_CTRL_SET_RC2_KEY_BITS:
+        params[0] = OSSL_PARAM_construct_size_t(OSSL_CIPHER_PARAM_RC2_KEYBITS,
+                                                &sz);
+        break;
     case EVP_CTRL_SET_SPEED:
         if (arg < 0)
             return 0;
