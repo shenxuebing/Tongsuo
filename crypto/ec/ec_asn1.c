@@ -98,6 +98,14 @@ typedef struct ec_privatekey_st {
     ASN1_BIT_STRING *publicKey;
 } EC_PRIVATEKEY;
 
+/* SEC1 ECPrivateKey with INTEGER private key (for special PFX format) */
+typedef struct ec_privatekey_int_st {
+    int32_t version;
+    ASN1_INTEGER *privateKey;
+    ECPKPARAMETERS *parameters;
+    ASN1_BIT_STRING *publicKey;
+} EC_PRIVATEKEY_INT;
+
 /* the OpenSSL ASN.1 definitions */
 ASN1_SEQUENCE(X9_62_PENTANOMIAL) = {
         ASN1_EMBED(X9_62_PENTANOMIAL, k1, INT32),
@@ -175,6 +183,126 @@ ASN1_SEQUENCE(EC_PRIVATEKEY) = {
 DECLARE_ASN1_FUNCTIONS(EC_PRIVATEKEY)
 DECLARE_ASN1_ENCODE_FUNCTIONS_name(EC_PRIVATEKEY, EC_PRIVATEKEY)
 IMPLEMENT_ASN1_FUNCTIONS(EC_PRIVATEKEY)
+
+/* ASN1 template for EC_PRIVATEKEY_INT (INTEGER private key variant) */
+ASN1_SEQUENCE(EC_PRIVATEKEY_INT) = {
+        ASN1_EMBED(EC_PRIVATEKEY_INT, version, INT32),
+        ASN1_SIMPLE(EC_PRIVATEKEY_INT, privateKey, ASN1_INTEGER),
+        ASN1_EXP_OPT(EC_PRIVATEKEY_INT, parameters, ECPKPARAMETERS, 0),
+        ASN1_EXP_OPT(EC_PRIVATEKEY_INT, publicKey, ASN1_BIT_STRING, 1)
+} static_ASN1_SEQUENCE_END(EC_PRIVATEKEY_INT)
+
+DECLARE_ASN1_FUNCTIONS(EC_PRIVATEKEY_INT)
+DECLARE_ASN1_ENCODE_FUNCTIONS_name(EC_PRIVATEKEY_INT, EC_PRIVATEKEY_INT)
+IMPLEMENT_ASN1_FUNCTIONS(EC_PRIVATEKEY_INT)
+
+/* Convert EC_PRIVATEKEY_INT (INTEGER privateKey) to EC_PRIVATEKEY (OCTET STRING privateKey) */
+static EC_PRIVATEKEY *EC_PRIVATEKEY_INT2EC_PRIVATEKEY(EC_PRIVATEKEY_INT *intkey)
+{
+    EC_PRIVATEKEY *eckey = NULL;
+    BIGNUM *priv = NULL;
+    unsigned char *priv_data = NULL;
+    int priv_len = 0;
+
+    if (intkey == NULL) {
+        ERR_raise(ERR_LIB_EC, ERR_R_PASSED_NULL_PARAMETER);
+        return NULL;
+    }
+
+    eckey = EC_PRIVATEKEY_new();
+    if (eckey == NULL) {
+        ERR_raise(ERR_LIB_EC, ERR_R_MALLOC_FAILURE);
+        return NULL;
+    }
+
+    eckey->version = intkey->version;
+
+    /* Copy parameters */
+    if (intkey->parameters != NULL) {
+        if (eckey->parameters != NULL) {
+            ECPKPARAMETERS_free(eckey->parameters);
+            eckey->parameters = NULL;
+        }
+        eckey->parameters = ECPKPARAMETERS_new();
+        if (eckey->parameters == NULL)
+            goto err;
+
+        eckey->parameters->type = intkey->parameters->type;
+
+        if (intkey->parameters->type == ECPKPARAMETERS_TYPE_NAMED) {
+            eckey->parameters->value.named_curve =
+                OBJ_dup(intkey->parameters->value.named_curve);
+            if (eckey->parameters->value.named_curve == NULL)
+                goto err;
+        } else if (intkey->parameters->type == ECPKPARAMETERS_TYPE_EXPLICIT) {
+            ERR_raise(ERR_LIB_EC, EC_R_NOT_IMPLEMENTED);
+            goto err;
+        } else if (intkey->parameters->type == ECPKPARAMETERS_TYPE_IMPLICIT) {
+            eckey->parameters->value.implicitlyCA = ASN1_NULL_new();
+            if (eckey->parameters->value.implicitlyCA == NULL)
+                goto err;
+        }
+    }
+
+    /* Copy publicKey */
+    if (intkey->publicKey != NULL) {
+        if (eckey->publicKey == NULL) {
+            eckey->publicKey = ASN1_BIT_STRING_new();
+            if (eckey->publicKey == NULL)
+                goto err;
+        }
+        if (!ASN1_STRING_set(eckey->publicKey,
+                             ASN1_STRING_get0_data(intkey->publicKey),
+                             ASN1_STRING_length(intkey->publicKey)))
+            goto err;
+        eckey->publicKey->flags = intkey->publicKey->flags;
+    }
+
+    /* Convert INTEGER privateKey to OCTET STRING */
+    if (intkey->privateKey != NULL) {
+        priv = ASN1_INTEGER_to_BN(intkey->privateKey, NULL);
+        if (priv == NULL)
+            goto err;
+
+        priv_len = BN_num_bytes(priv);
+        if (priv_len <= 0) {
+            ERR_raise(ERR_LIB_EC, EC_R_INVALID_PRIVATE_KEY);
+            goto err;
+        }
+
+        priv_data = OPENSSL_malloc(priv_len);
+        if (priv_data == NULL)
+            goto err;
+
+        if (BN_bn2bin(priv, priv_data) != priv_len) {
+            OPENSSL_clear_free(priv_data, priv_len);
+            goto err;
+        }
+
+        if (eckey->privateKey == NULL) {
+            eckey->privateKey = ASN1_OCTET_STRING_new();
+            if (eckey->privateKey == NULL) {
+                OPENSSL_clear_free(priv_data, priv_len);
+                goto err;
+            }
+        }
+        if (!ASN1_OCTET_STRING_set(eckey->privateKey, priv_data, priv_len)) {
+            OPENSSL_clear_free(priv_data, priv_len);
+            goto err;
+        }
+        OPENSSL_clear_free(priv_data, priv_len);
+        priv_data = NULL;
+    }
+
+    BN_clear_free(priv);
+    return eckey;
+
+ err:
+    OPENSSL_clear_free(priv_data, priv_len);
+    BN_clear_free(priv);
+    EC_PRIVATEKEY_free(eckey);
+    return NULL;
+}
 
 /* some declarations of internal function */
 
@@ -937,10 +1065,31 @@ EC_KEY *d2i_ECPrivateKey(EC_KEY **a, const unsigned char **in, long len)
 {
     EC_KEY *ret = NULL;
     EC_PRIVATEKEY *priv_key = NULL;
+    EC_PRIVATEKEY_INT *priv_key_int = NULL;
     const unsigned char *p = *in;
+    const unsigned char *p_backup = *in;
 
-    if ((priv_key = d2i_EC_PRIVATEKEY(NULL, &p, len)) == NULL)
-        return NULL;
+    /* Clear any accumulated errors at entry */
+    ERR_clear_error();
+
+    /* First try standard EC_PRIVATEKEY format (OCTET STRING private key) */
+    priv_key = d2i_EC_PRIVATEKEY(NULL, &p, len);
+
+    /* If standard format fails, try INTEGER encoded private key format */
+    if (priv_key == NULL) {
+        ERR_clear_error();
+        p = p_backup;
+        priv_key_int = d2i_EC_PRIVATEKEY_INT(NULL, &p, len);
+        if (priv_key_int == NULL)
+            goto err;
+        priv_key = EC_PRIVATEKEY_INT2EC_PRIVATEKEY(priv_key_int);
+        EC_PRIVATEKEY_INT_free(priv_key_int);
+        priv_key_int = NULL;
+        if (priv_key == NULL) {
+            ERR_raise(ERR_LIB_EC, EC_R_DECODE_ERROR);
+            goto err;
+        }
+    }
 
     if (a == NULL || *a == NULL) {
         if ((ret = EC_KEY_new()) == NULL) {

@@ -27,6 +27,7 @@
 # define PKCS7_R_CONTENT_AND_DATA_PRESENT                 118
 # define PKCS7_R_CTRL_ERROR                               152
 # define PKCS7_R_DECRYPT_ERROR                            119
+# define PKCS7_R_DECRYPT_VERIFY_ERROR                     115
 # define PKCS7_R_DIGEST_FAILURE                           101
 # define PKCS7_R_ENCRYPTION_CTRL_FAILURE                  149
 # define PKCS7_R_ENCRYPTION_NOT_SUPPORTED_FOR_THIS_KEY_TYPE 150

@@ -10,7 +10,7 @@
  */
 
 /* Serialized OID's */
-static const unsigned char so[8024] = {
+static const unsigned char so[8202] = {
     0x2A,0x86,0x48,0x86,0xF7,0x0D,                 /* [    0] OBJ_rsadsi */
     0x2A,0x86,0x48,0x86,0xF7,0x0D,0x01,            /* [    6] OBJ_pkcs */
     0x2A,0x86,0x48,0x86,0xF7,0x0D,0x02,0x05,       /* [   13] OBJ_md5 */
@@ -1159,9 +1159,29 @@ static const unsigned char so[8024] = {
     0x2A,0x81,0x1C,0xCF,0x55,0x01,0x86,0x21,       /* [ 7998] OBJ_zuc_128_eea3 */
     0x2A,0x81,0x1C,0xCF,0x55,0x01,0x86,0x22,       /* [ 8006] OBJ_zuc_128_eia3 */
     0x2B,0x06,0x01,0x04,0x01,0x82,0xDA,0x4B,0x2C,  /* [ 8014] OBJ_delegation_usage */
+    0x2A,0x81,0x1C,0xCF,0x55,0x06,                 /* [ 8023] OBJ_sm_pkcs */
+    0x2A,0x86,0x48,0x86,0xF7,0x0D,0x01,0x0C,0x01,0x05,  /* [ 8029] OBJ_pbe_WithSHA1And128BitRC2_CBC */
+    0x2A,0x86,0x48,0x86,0xF7,0x0D,0x01,0x0C,0x01,0x06,  /* [ 8039] OBJ_pbe_WithSHA1And40BitRC2_CBC */
+    0x2A,0x81,0x1C,0xCF,0x55,0x06,0x01,0x04,0x02,  /* [ 8049] OBJ_sm_pkcs7 */
+    0x2A,0x81,0x1C,0xCF,0x55,0x06,0x01,0x04,0x02,0x01,  /* [ 8058] OBJ_pkcs7_sm2_data */
+    0x2A,0x81,0x1C,0xCF,0x55,0x06,0x01,0x04,0x02,0x02,  /* [ 8068] OBJ_pkcs7_sm2_signed */
+    0x2A,0x81,0x1C,0xCF,0x55,0x06,0x01,0x04,0x02,0x03,  /* [ 8078] OBJ_pkcs7_sm2_enveloped */
+    0x2A,0x81,0x1C,0xCF,0x55,0x06,0x01,0x04,0x02,0x04,  /* [ 8088] OBJ_pkcs7_sm2_signedAndEnveloped */
+    0x2A,0x81,0x1C,0xCF,0x55,0x06,0x01,0x04,0x02,0x05,  /* [ 8098] OBJ_pkcs7_sm2_encryptedData */
+    0x2A,0x81,0x1C,0xCF,0x55,0x06,0x01,0x04,0x02,0x06,  /* [ 8108] OBJ_pkcs7_sm2_keyAgreementInfo */
+    0x2A,0x81,0x1C,0xCF,0x55,0x01,0x82,0x2D,0x01,  /* [ 8118] OBJ_sm2Signature */
+    0x2A,0x81,0x1C,0xCF,0x55,0x01,0x82,0x2D,0x02,  /* [ 8127] OBJ_sm2Keyagreement */
+    0x2A,0x81,0x1C,0xCF,0x55,0x01,0x82,0x2D,0x03,  /* [ 8136] OBJ_sm2Encrypt */
+    0x2A,0x81,0x1C,0xCF,0x55,0x01,0x87,0x69,       /* [ 8145] OBJ_sm2dh_mlkem768_hybrid */
+    0x2A,0x86,0x48,0x86,0xF7,0x0D,0x03,0x02,       /* [ 8153] OBJ_rc2_cbc */
+    0x2A,0x81,0x1C,0xCF,0x55,0x01,0x65,0x01,       /* [ 8161] OBJ_sm1_ecb */
+    0x2A,0x81,0x1C,0xCF,0x55,0x01,0x65,0x02,       /* [ 8169] OBJ_sm1_cbc */
+    0x2A,0x81,0x1C,0xCF,0x55,0x01,0x65,0x03,       /* [ 8177] OBJ_sm1_cfb */
+    0x2A,0x81,0x1C,0xCF,0x55,0x01,0x65,0x04,       /* [ 8185] OBJ_sm1_ofb */
+    0x2A,0x81,0x1C,0xCF,0x55,0x01,0x65,0x05,       /* [ 8193] OBJ_sm1_mac */
 };
 
-#define NUM_NID 1515
+#define NUM_NID 1540
 static const ASN1_OBJECT nid_objs[NUM_NID] = {
     {"UNDEF", "undefined", NID_undef},
     {"rsadsi", "RSA Data Security, Inc.", NID_rsadsi, 6, &so[0]},
@@ -2678,9 +2698,34 @@ static const ASN1_OBJECT nid_objs[NUM_NID] = {
     {"WBSM4-WSISE-CTR", "wbsm4-wsise-ctr", NID_wbsm4_wsise_ctr},
     {"WBSM4-WSISE-GCM", "wbsm4-wsise-gcm", NID_wbsm4_wsise_gcm},
     {"WBSM4-WSISE-CCM", "wbsm4-wsise-ccm", NID_wbsm4_wsise_ccm},
+    {"sm-pkcs", "sm-pkcs", NID_sm_pkcs, 6, &so[8023]},
+    {"PBE-SHA1-RC2-128", "pbeWithSHA1And128BitRC2-CBC", NID_pbe_WithSHA1And128BitRC2_CBC, 10, &so[8029]},
+    {"PBE-SHA1-RC2-40", "pbeWithSHA1And40BitRC2-CBC", NID_pbe_WithSHA1And40BitRC2_CBC, 10, &so[8039]},
+    {"sm-pkcs7", "china pkcs7 series", NID_sm_pkcs7, 9, &so[8049]},
+    {"pkcs7_sm2_data", "pkcs7_sm2_data", NID_pkcs7_sm2_data, 10, &so[8058]},
+    {"pkcs7_sm2_signed", "pkcs7_sm2_signed", NID_pkcs7_sm2_signed, 10, &so[8068]},
+    {"pkcs7_sm2_enveloped", "pkcs7_sm2_enveloped", NID_pkcs7_sm2_enveloped, 10, &so[8078]},
+    {"pkcs7_sm2_signedAndEnveloped", "pkcs7_sm2_signedAndEnveloped", NID_pkcs7_sm2_signedAndEnveloped, 10, &so[8088]},
+    {"pkcs7_sm2_encryptedData", "pkcs7_sm2_encryptedData", NID_pkcs7_sm2_encryptedData, 10, &so[8098]},
+    {"pkcs7_sm2_keyAgreementInfo", "pkcs7_sm2_keyAgreementInfo", NID_pkcs7_sm2_keyAgreementInfo, 10, &so[8108]},
+    {"sm2Signature", "sm2Signature", NID_sm2Signature, 9, &so[8118]},
+    {"sm2Keyagreement", "sm2Keyagreement", NID_sm2Keyagreement, 9, &so[8127]},
+    {"sm2Encrypt", "sm2Encrypt", NID_sm2Encrypt, 9, &so[8136]},
+    {"SM2DH-MLKEM768-HYBRID", "sm2dh-mlkem768-hybrid", NID_sm2dh_mlkem768_hybrid, 8, &so[8145]},
+    {"RC2-CBC", "rc2-cbc", NID_rc2_cbc, 8, &so[8153]},
+    {"RC2-ECB", "rc2-ecb", NID_rc2_ecb},
+    {"RC2-CFB", "rc2-cfb", NID_rc2_cfb64},
+    {"RC2-OFB", "rc2-ofb", NID_rc2_ofb64},
+    {"RC2-40-CBC", "rc2-40-cbc", NID_rc2_40_cbc},
+    {"RC2-64-CBC", "rc2-64-cbc", NID_rc2_64_cbc},
+    {"SM1-ECB", "sm1-ecb", NID_sm1_ecb, 8, &so[8161]},
+    {"SM1-CBC", "sm1-cbc", NID_sm1_cbc, 8, &so[8169]},
+    {"SM1-CFB", "sm1-cfb", NID_sm1_cfb, 8, &so[8177]},
+    {"SM1-OFB", "sm1-ofb", NID_sm1_ofb, 8, &so[8185]},
+    {"SM1-MAC", "sm1-mac", NID_sm1_mac, 8, &so[8193]},
 };
 
-#define NUM_SN 1265
+#define NUM_SN 1290
 static const unsigned int sn_objs[NUM_SN] = {
      364,    /* "AD_DVCS" */
      419,    /* "AES-128-CBC" */
@@ -2810,6 +2855,8 @@ static const unsigned int sn_objs[NUM_SN] = {
      147,    /* "PBE-SHA1-2DES" */
      146,    /* "PBE-SHA1-3DES" */
      170,    /* "PBE-SHA1-DES" */
+    1516,    /* "PBE-SHA1-RC2-128" */
+    1517,    /* "PBE-SHA1-RC2-40" */
      144,    /* "PBE-SHA1-RC4-128" */
      145,    /* "PBE-SHA1-RC4-40" */
      161,    /* "PBES2" */
@@ -2818,6 +2865,12 @@ static const unsigned int sn_objs[NUM_SN] = {
      127,    /* "PKIX" */
      935,    /* "PSPECIFIED" */
     1061,    /* "Poly1305" */
+    1533,    /* "RC2-40-CBC" */
+    1534,    /* "RC2-64-CBC" */
+    1529,    /* "RC2-CBC" */
+    1531,    /* "RC2-CFB" */
+    1530,    /* "RC2-ECB" */
+    1532,    /* "RC2-OFB" */
        5,    /* "RC4" */
       97,    /* "RC4-40" */
      915,    /* "RC4-HMAC-MD5" */
@@ -2854,8 +2907,14 @@ static const unsigned int sn_objs[NUM_SN] = {
     1095,    /* "SHA512-256" */
     1100,    /* "SHAKE128" */
     1101,    /* "SHAKE256" */
+    1536,    /* "SM1-CBC" */
+    1537,    /* "SM1-CFB" */
+    1535,    /* "SM1-ECB" */
+    1539,    /* "SM1-MAC" */
+    1538,    /* "SM1-OFB" */
     1172,    /* "SM2" */
     1204,    /* "SM2-SM3" */
+    1528,    /* "SM2DH-MLKEM768-HYBRID" */
     1143,    /* "SM3" */
     1134,    /* "SM4-CBC" */
     1249,    /* "SM4-CCM" */
@@ -3522,6 +3581,12 @@ static const unsigned int sn_objs[NUM_SN] = {
       23,    /* "pkcs7-envelopedData" */
       24,    /* "pkcs7-signedAndEnvelopedData" */
       22,    /* "pkcs7-signedData" */
+    1519,    /* "pkcs7_sm2_data" */
+    1523,    /* "pkcs7_sm2_encryptedData" */
+    1521,    /* "pkcs7_sm2_enveloped" */
+    1524,    /* "pkcs7_sm2_keyAgreementInfo" */
+    1520,    /* "pkcs7_sm2_signed" */
+    1522,    /* "pkcs7_sm2_signedAndEnveloped" */
      151,    /* "pkcs8ShroudedKeyBag" */
       47,    /* "pkcs9" */
      401,    /* "policyConstraints" */
@@ -3753,7 +3818,12 @@ static const unsigned int sn_objs[NUM_SN] = {
      454,    /* "simpleSecurityObject" */
      496,    /* "singleLevelQuality" */
     1309,    /* "singleUse" */
+    1515,    /* "sm-pkcs" */
+    1518,    /* "sm-pkcs7" */
     1142,    /* "sm-scheme" */
+    1527,    /* "sm2Encrypt" */
+    1526,    /* "sm2Keyagreement" */
+    1525,    /* "sm2Signature" */
      387,    /* "snmpv2" */
      660,    /* "street" */
       85,    /* "subjectAltName" */
@@ -3949,7 +4019,7 @@ static const unsigned int sn_objs[NUM_SN] = {
     1289,    /* "zstd" */
 };
 
-#define NUM_LN 1265
+#define NUM_LN 1290
 static const unsigned int ln_objs[NUM_LN] = {
      363,    /* "AD Time Stamping" */
      405,    /* "ANSI X9.62" */
@@ -4436,6 +4506,7 @@ static const unsigned int ln_objs[NUM_LN] = {
     1018,    /* "chacha20-poly1305" */
       54,    /* "challengePassword" */
      407,    /* "characteristic-two-field" */
+    1518,    /* "china pkcs7 series" */
      395,    /* "clearance" */
      633,    /* "cleartext track 2" */
      894,    /* "cmac" */
@@ -4866,9 +4937,11 @@ static const unsigned int ln_objs[NUM_LN] = {
      374,    /* "path" */
      621,    /* "payment gateway capabilities" */
       10,    /* "pbeWithMD5AndDES-CBC" */
+    1516,    /* "pbeWithSHA1And128BitRC2-CBC" */
      144,    /* "pbeWithSHA1And128BitRC4" */
      147,    /* "pbeWithSHA1And2-KeyTripleDES-CBC" */
      146,    /* "pbeWithSHA1And3-KeyTripleDES-CBC" */
+    1517,    /* "pbeWithSHA1And40BitRC2-CBC" */
      145,    /* "pbeWithSHA1And40BitRC4" */
      170,    /* "pbeWithSHA1AndDES-CBC" */
      499,    /* "personalSignature" */
@@ -4895,6 +4968,12 @@ static const unsigned int ln_objs[NUM_LN] = {
       23,    /* "pkcs7-envelopedData" */
       24,    /* "pkcs7-signedAndEnvelopedData" */
       22,    /* "pkcs7-signedData" */
+    1519,    /* "pkcs7_sm2_data" */
+    1523,    /* "pkcs7_sm2_encryptedData" */
+    1521,    /* "pkcs7_sm2_enveloped" */
+    1524,    /* "pkcs7_sm2_keyAgreementInfo" */
+    1520,    /* "pkcs7_sm2_signed" */
+    1522,    /* "pkcs7_sm2_signedAndEnveloped" */
      151,    /* "pkcs8ShroudedKeyBag" */
       47,    /* "pkcs9" */
     1061,    /* "poly1305" */
@@ -4918,6 +4997,12 @@ static const unsigned int ln_objs[NUM_LN] = {
      286,    /* "qcStatements" */
      457,    /* "qualityLabelledData" */
      450,    /* "rFC822localPart" */
+    1533,    /* "rc2-40-cbc" */
+    1534,    /* "rc2-64-cbc" */
+    1529,    /* "rc2-cbc" */
+    1531,    /* "rc2-cfb" */
+    1530,    /* "rc2-ecb" */
+    1532,    /* "rc2-ofb" */
        5,    /* "rc4" */
       97,    /* "rc4-40" */
      915,    /* "rc4-hmac-md5" */
@@ -5128,8 +5213,18 @@ static const unsigned int ln_objs[NUM_LN] = {
      454,    /* "simpleSecurityObject" */
      496,    /* "singleLevelQuality" */
     1062,    /* "siphash" */
+    1515,    /* "sm-pkcs" */
     1142,    /* "sm-scheme" */
+    1536,    /* "sm1-cbc" */
+    1537,    /* "sm1-cfb" */
+    1535,    /* "sm1-ecb" */
+    1539,    /* "sm1-mac" */
+    1538,    /* "sm1-ofb" */
     1172,    /* "sm2" */
+    1527,    /* "sm2Encrypt" */
+    1526,    /* "sm2Keyagreement" */
+    1525,    /* "sm2Signature" */
+    1528,    /* "sm2dh-mlkem768-hybrid" */
     1143,    /* "sm3" */
     1144,    /* "sm3WithRSAEncryption" */
     1134,    /* "sm4-cbc" */
@@ -5218,7 +5313,7 @@ static const unsigned int ln_objs[NUM_LN] = {
     1492,    /* "zuc-128-eia3" */
 };
 
-#define NUM_OBJ 1155
+#define NUM_OBJ 1175
 static const unsigned int obj_objs[NUM_OBJ] = {
        0,    /* OBJ_undef                        0 */
      181,    /* OBJ_iso                          1 */
@@ -5629,6 +5724,7 @@ static const unsigned int obj_objs[NUM_OBJ] = {
     1271,    /* OBJ_id_aa_ets_archiveTimestampV3 0 4 0 1733 2 4 */
     1272,    /* OBJ_id_aa_ATSHashIndex           0 4 0 1733 2 5 */
     1142,    /* OBJ_sm_scheme                    1 2 156 10197 1 */
+    1515,    /* OBJ_sm_pkcs                      1 2 156 10197 6 */
        1,    /* OBJ_rsadsi                       1 2 840 113549 */
      185,    /* OBJ_X9cm                         1 2 840 10040 4 */
     1031,    /* OBJ_id_pkinit                    1 3 6 1 5 2 3 */
@@ -5766,6 +5862,11 @@ static const unsigned int obj_objs[NUM_OBJ] = {
     1365,    /* OBJ_tcg_at_platformConfiguration_v3 2 23 133 5 1 7 3 */
     1366,    /* OBJ_tcg_at_platformConfigUri_v3  2 23 133 5 1 7 4 */
      437,    /* OBJ_pilot                        0 9 2342 19200300 100 */
+    1535,    /* OBJ_sm1_ecb                      1 2 156 10197 1 101 1 */
+    1536,    /* OBJ_sm1_cbc                      1 2 156 10197 1 101 2 */
+    1537,    /* OBJ_sm1_cfb                      1 2 156 10197 1 101 3 */
+    1538,    /* OBJ_sm1_ofb                      1 2 156 10197 1 101 4 */
+    1539,    /* OBJ_sm1_mac                      1 2 156 10197 1 101 5 */
     1133,    /* OBJ_sm4_ecb                      1 2 156 10197 1 104 1 */
     1134,    /* OBJ_sm4_cbc                      1 2 156 10197 1 104 2 */
     1135,    /* OBJ_sm4_ofb128                   1 2 156 10197 1 104 3 */
@@ -5783,6 +5884,7 @@ static const unsigned int obj_objs[NUM_OBJ] = {
     1144,    /* OBJ_sm3WithRSAEncryption         1 2 156 10197 1 504 */
     1488,    /* OBJ_zuc_128_eea3                 1 2 156 10197 1 801 */
     1492,    /* OBJ_zuc_128_eia3                 1 2 156 10197 1 802 */
+    1528,    /* OBJ_sm2dh_mlkem768_hybrid        1 2 156 10197 1 1001 */
      186,    /* OBJ_pkcs1                        1 2 840 113549 1 1 */
       27,    /* OBJ_pkcs3                        1 2 840 113549 1 3 */
      187,    /* OBJ_pkcs5                        1 2 840 113549 1 5 */
@@ -5797,6 +5899,7 @@ static const unsigned int obj_objs[NUM_OBJ] = {
      801,    /* OBJ_hmacWithSHA512               1 2 840 113549 2 11 */
     1193,    /* OBJ_hmacWithSHA512_224           1 2 840 113549 2 12 */
     1194,    /* OBJ_hmacWithSHA512_256           1 2 840 113549 2 13 */
+    1529,    /* OBJ_rc2_cbc                      1 2 840 113549 3 2 */
        5,    /* OBJ_rc4                          1 2 840 113549 3 4 */
       44,    /* OBJ_des_ede3_cbc                 1 2 840 113549 3 7 */
      120,    /* OBJ_rc5_cbc                      1 2 840 113549 3 8 */
@@ -5989,6 +6092,10 @@ static const unsigned int obj_objs[NUM_OBJ] = {
      439,    /* OBJ_pilotAttributeSyntax         0 9 2342 19200300 100 3 */
      440,    /* OBJ_pilotObjectClass             0 9 2342 19200300 100 4 */
      441,    /* OBJ_pilotGroups                  0 9 2342 19200300 100 10 */
+    1525,    /* OBJ_sm2Signature                 1 2 156 10197 1 301 1 */
+    1526,    /* OBJ_sm2Keyagreement              1 2 156 10197 1 301 2 */
+    1527,    /* OBJ_sm2Encrypt                   1 2 156 10197 1 301 3 */
+    1518,    /* OBJ_sm_pkcs7                     1 2 156 10197 6 1 4 2 */
      782,    /* OBJ_id_PasswordBasedMAC          1 2 840 113533 7 66 13 */
      783,    /* OBJ_id_DHBasedMac                1 2 840 113533 7 66 30 */
        6,    /* OBJ_rsaEncryption                1 2 840 113549 1 1 1 */
@@ -6248,6 +6355,12 @@ static const unsigned int obj_objs[NUM_OBJ] = {
      456,    /* OBJ_pilotDSA                     0 9 2342 19200300 100 4 21 */
      457,    /* OBJ_qualityLabelledData          0 9 2342 19200300 100 4 22 */
     1281,    /* OBJ_hmacWithSM3                  1 2 156 10197 1 401 3 1 */
+    1519,    /* OBJ_pkcs7_sm2_data               1 2 156 10197 6 1 4 2 1 */
+    1520,    /* OBJ_pkcs7_sm2_signed             1 2 156 10197 6 1 4 2 2 */
+    1521,    /* OBJ_pkcs7_sm2_enveloped          1 2 156 10197 6 1 4 2 3 */
+    1522,    /* OBJ_pkcs7_sm2_signedAndEnveloped 1 2 156 10197 6 1 4 2 4 */
+    1523,    /* OBJ_pkcs7_sm2_encryptedData      1 2 156 10197 6 1 4 2 5 */
+    1524,    /* OBJ_pkcs7_sm2_keyAgreementInfo   1 2 156 10197 6 1 4 2 6 */
      189,    /* OBJ_id_smime_mod                 1 2 840 113549 1 9 16 0 */
      190,    /* OBJ_id_smime_ct                  1 2 840 113549 1 9 16 1 */
      191,    /* OBJ_id_smime_aa                  1 2 840 113549 1 9 16 2 */
@@ -6262,6 +6375,8 @@ static const unsigned int obj_objs[NUM_OBJ] = {
      145,    /* OBJ_pbe_WithSHA1And40BitRC4      1 2 840 113549 1 12 1 2 */
      146,    /* OBJ_pbe_WithSHA1And3_Key_TripleDES_CBC 1 2 840 113549 1 12 1 3 */
      147,    /* OBJ_pbe_WithSHA1And2_Key_TripleDES_CBC 1 2 840 113549 1 12 1 4 */
+    1516,    /* OBJ_pbe_WithSHA1And128BitRC2_CBC 1 2 840 113549 1 12 1 5 */
+    1517,    /* OBJ_pbe_WithSHA1And40BitRC2_CBC  1 2 840 113549 1 12 1 6 */
      171,    /* OBJ_ms_ext_req                   1 3 6 1 4 1 311 2 1 14 */
      134,    /* OBJ_ms_code_ind                  1 3 6 1 4 1 311 2 1 21 */
      135,    /* OBJ_ms_code_com                  1 3 6 1 4 1 311 2 1 22 */
