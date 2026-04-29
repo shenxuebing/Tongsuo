@@ -408,6 +408,10 @@ sm-scheme 802           : ZUC-128-EIA3          : zuc-128-eia3
 # SM2DH-MLKEM768-hybrid key exchange
 sm-scheme 1001          : SM2DH-MLKEM768-HYBRID : sm2dh-mlkem768-hybrid
 
+# From GM/T 0006-2012 (alternative OID for HMAC-SM3)
+!Cname hmac-sm3-gmt0006
+sm3 2			: HMAC-SM3-GMT0006	: hmac-sm3-gmt0006
+
 # From GM/T 0091-2020
 sm3 3 1			:			: hmacWithSM3
 

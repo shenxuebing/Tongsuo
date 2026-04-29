@@ -1307,3 +1307,4 @@ sm1_cbc		1536
 sm1_cfb		1537
 sm1_ofb		1538
 sm1_mac		1539
+hmac_sm3_gmt0006		1540
