@@ -87,6 +87,7 @@ static int x_DestroyKey(void *hSessionHandle, void *hKeyHandle)
 }
 
 static int x_InternalEncrypt_ECC(void *hSessionHandle, unsigned int uiISKIndex,
+                                  unsigned int uiAlgID,
                                   unsigned char *pucData,
                                   unsigned int uiDataLength,
                                   OSSL_ECCCipher *pucEncData)
@@ -95,6 +96,7 @@ static int x_InternalEncrypt_ECC(void *hSessionHandle, unsigned int uiISKIndex,
 }
 
 static int x_InternalDecrypt_ECC(void *hSessionHandle, unsigned int uiISKIndex,
+                                  unsigned int uiAlgID,
                                   OSSL_ECCCipher *pucEncData,
                                   unsigned char *pucData,
                                   unsigned int *puiDataLength)

@@ -15,6 +15,7 @@
 #include <openssl/x509.h>
 #include <openssl/engine.h>
 #include <openssl/sdf.h>
+#include <openssl/sgd.h>
 #include <openssl/tsapi.h>
 #include "crypto/evp.h"
 #include "internal/cryptlib.h"
@@ -701,8 +702,8 @@ static int self_test_asym_decrypt_with_sdf(const ST_KAT_ASYM_CIPHER *t,
 
     pECCCipher = TSAPI_SM2Ciphertext_to_ECCCipher(t->in, t->in_len);
 
-    if (TSAPI_SDF_InternalDecrypt_ECC(hSessionHandle, index, pECCCipher,
-                                      out, &outlen) != OSSL_SDR_OK)
+    if (TSAPI_SDF_InternalDecrypt_ECC(hSessionHandle, index, OSSL_SGD_SM2_3,
+                                      pECCCipher, out, &outlen) != OSSL_SDR_OK)
         goto end;
 
     OSSL_SELF_TEST_oncorrupt_byte(st, out);

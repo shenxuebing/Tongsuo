@@ -54,11 +54,11 @@ extern int SDF_DestroyKey(void *hSessionHandle, void *hKeyHandle)
     __attribute__((weak));
 
 extern int SDF_InternalEncrypt_ECC(void *hSessionHandle,
-    unsigned int uiISKIndex, unsigned char *pucData, unsigned int uiDataLength,
-    OSSL_ECCCipher * pucEncData);
+    unsigned int uiISKIndex, unsigned int uiAlgID, unsigned char *pucData,
+    unsigned int uiDataLength, OSSL_ECCCipher * pucEncData);
 
 extern int SDF_InternalDecrypt_ECC(void *hSessionHandle,
-    unsigned int uiISKIndex, OSSL_ECCCipher *pucEncData,
+    unsigned int uiISKIndex, unsigned int uiAlgID, OSSL_ECCCipher *pucEncData,
     unsigned char *pucData, unsigned int *puiDataLength);
 
 extern int SDF_InternalSign_ECC(void * hSessionHandle, unsigned int uiISKIndex,
@@ -114,7 +114,11 @@ DEFINE_RUN_ONCE_STATIC(ossl_sdf_lib_init)
         sdfm.Encrypt = DSO_bind_func(sdf_dso, "SDF_Encrypt");
         sdfm.Decrypt = DSO_bind_func(sdf_dso, "SDF_Decrypt");
         sdfm.CalculateMAC = DSO_bind_func(sdf_dso, "SDF_CalculateMAC");
+
+        /* SDFE_GenerateKey 是扩展函数，部分厂商 DLL 不提供，绑定失败不影响基本功能 */
+        ERR_set_mark();
         sdfm.GenerateKey = DSO_bind_func(sdf_dso, "SDFE_GenerateKey");
+        ERR_pop_to_mark();
     }
 # else
     sdfm.OpenDevice = SDF_OpenDevice;
@@ -374,6 +378,7 @@ int TSAPI_SDF_ExportEncPublicKey_ECC(void *hSessionHandle,
 }
 
 int TSAPI_SDF_InternalEncrypt_ECC(void *hSessionHandle, unsigned int uiISKIndex,
+                                  unsigned int uiAlgID,
                                   unsigned char *pucData,
                                   unsigned int uiDataLength,
                                   OSSL_ECCCipher *pucEncData)
@@ -383,11 +388,12 @@ int TSAPI_SDF_InternalEncrypt_ECC(void *hSessionHandle, unsigned int uiISKIndex,
     if (meth == NULL || meth->InternalEncrypt_ECC == NULL)
         return OSSL_SDR_NOTSUPPORT;
 
-    return meth->InternalEncrypt_ECC(hSessionHandle, uiISKIndex, pucData,
-                                     uiDataLength, pucEncData);
+    return meth->InternalEncrypt_ECC(hSessionHandle, uiISKIndex, uiAlgID,
+                                     pucData, uiDataLength, pucEncData);
 }
 
 int TSAPI_SDF_InternalDecrypt_ECC(void *hSessionHandle, unsigned int uiISKIndex,
+                                  unsigned int uiAlgID,
                                   OSSL_ECCCipher *pucEncData,
                                   unsigned char *pucData,
                                   unsigned int *puiDataLength)
@@ -397,8 +403,8 @@ int TSAPI_SDF_InternalDecrypt_ECC(void *hSessionHandle, unsigned int uiISKIndex,
     if (meth == NULL || meth->InternalDecrypt_ECC == NULL)
         return OSSL_SDR_NOTSUPPORT;
 
-    return meth->InternalDecrypt_ECC(hSessionHandle, uiISKIndex, pucEncData,
-                                     pucData, puiDataLength);
+    return meth->InternalDecrypt_ECC(hSessionHandle, uiISKIndex, uiAlgID,
+                                     pucEncData, pucData, puiDataLength);
 }
 
 int TSAPI_SDF_InternalSign_ECC(void *hSessionHandle, unsigned int uiISKIndex,

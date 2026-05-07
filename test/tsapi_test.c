@@ -322,8 +322,8 @@ static int test_TSAPI_SM2Decrypt(void)
 
     pECCCipher = TSAPI_SM2Ciphertext_to_ECCCipher(in, sizeof(in));
 
-    if (TSAPI_SDF_InternalDecrypt_ECC(hSessionHandle, index, pECCCipher,
-                                      out, &outlen) != OSSL_SDR_OK)
+    if (TSAPI_SDF_InternalDecrypt_ECC(hSessionHandle, index, OSSL_SGD_SM2_3,
+                                      pECCCipher, out, &outlen) != OSSL_SDR_OK)
         goto end;
 # else
     out = TSAPI_SM2Decrypt(key, in, sizeof(in), &outlen);

@@ -13,10 +13,10 @@
 #include <openssl/evp.h>
 #include <openssl/ec.h>
 #include <openssl/sdf.h>
+#include <openssl/sgd.h>
 #include <openssl/ec.h>
 #include <openssl/evp.h>
 #include <openssl/err.h>
-#include <openssl/sgd.h>
 #include <openssl/rand.h>
 #include <openssl/engine.h>
 #include "internal/e_os.h"
@@ -979,7 +979,8 @@ unsigned char *TSAPI_SM2DecryptWithISK(int isk, const unsigned char *in,
     if (out == NULL)
         goto end;
 
-    if (TSAPI_SDF_InternalDecrypt_ECC(hSessionHandle, isk, ecc, out, &len)
+    if (TSAPI_SDF_InternalDecrypt_ECC(hSessionHandle, isk, OSSL_SGD_SM2_3,
+                                        ecc, out, &len)
             != OSSL_SDR_OK) {
         OPENSSL_free(out);
         out = NULL;
@@ -1016,7 +1017,8 @@ unsigned char *TSAPI_SM2EncryptWithISK(int isk, const unsigned char *in,
     if (ecc == NULL)
         goto end;
 
-    if (TSAPI_SDF_InternalEncrypt_ECC(hSessionHandle, isk, (unsigned char *)in,
+    if (TSAPI_SDF_InternalEncrypt_ECC(hSessionHandle, isk, OSSL_SGD_SM2_3,
+                                      (unsigned char *)in,
                                       inlen, ecc)
             != OSSL_SDR_OK)
         goto end;

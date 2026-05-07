@@ -86,10 +86,12 @@ int TSAPI_SDF_ExportEncPublicKey_ECC(void *hSessionHandle,
                                       OSSL_ECCrefPublicKey *pucPublicKey);
 int TSAPI_SDF_DestroyKey(void *hSessionHandle, void *hKeyHandle);
 int TSAPI_SDF_InternalEncrypt_ECC(void *hSessionHandle, unsigned int uiISKIndex,
+                                  unsigned int uiAlgID,
                                   unsigned char *pucData,
                                   unsigned int uiDataLength,
                                   OSSL_ECCCipher *pucEncData);
 int TSAPI_SDF_InternalDecrypt_ECC(void *hSessionHandle, unsigned int uiISKIndex,
+                                  unsigned int uiAlgID,
                                   OSSL_ECCCipher *pucEncData,
                                   unsigned char *pucData,
                                   unsigned int *puiDataLength);

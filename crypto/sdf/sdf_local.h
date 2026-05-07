@@ -90,11 +90,11 @@ typedef int (*SDF_ExportEncPublicKey_ECC_fn)(void *hSessionHandle,
     unsigned int uiKeyIndex, OSSL_ECCrefPublicKey *pucPublicKey);
 
 typedef int (*SDF_InternalEncrypt_ECC_fn)(void *hSessionHandle,
-    unsigned int uiISKIndex, unsigned char *pucData, unsigned int uiDataLength,
-    OSSL_ECCCipher *pucEncData);
+    unsigned int uiISKIndex, unsigned int uiAlgID, unsigned char *pucData,
+    unsigned int uiDataLength, OSSL_ECCCipher *pucEncData);
 typedef int (*SDF_InternalDecrypt_ECC_fn)(void *hSessionHandle,
-    unsigned int uiISKIndex, OSSL_ECCCipher *pucEncData, unsigned char *pucData,
-    unsigned int *puiDataLength);
+    unsigned int uiISKIndex, unsigned int uiAlgID, OSSL_ECCCipher *pucEncData,
+    unsigned char *pucData, unsigned int *puiDataLength);
 
 typedef int (*SDF_InternalSign_ECC_fn)(void *hSessionHandle,
     unsigned int uiISKIndex, unsigned char *pucData, unsigned int uiDataLength,

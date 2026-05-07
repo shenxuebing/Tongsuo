@@ -217,22 +217,31 @@ int OSSL_provider_init_int(const OSSL_CORE_HANDLE *handle,
     /* Read configuration parameters from openssl.cnf provider section */
     if (c_get_params != NULL) {
         char password_buf[256] = {0};
+        char key_password_buf[256] = {0};
         OSSL_PARAM config_params[] = {
             OSSL_PARAM_utf8_string("sdf_module_password", password_buf, sizeof(password_buf) - 1),
+            OSSL_PARAM_utf8_string("sdf_key_password", key_password_buf, sizeof(key_password_buf) - 1),
             OSSL_PARAM_END
         };
 
         if (c_get_params(handle, config_params)) {
-            const OSSL_PARAM *p = OSSL_PARAM_locate_const(config_params, "sdf_module_password");
+            const OSSL_PARAM *p;
+            p = OSSL_PARAM_locate_const(config_params, "sdf_module_password");
             if (p != NULL && password_buf[0] != '\0') {
                 sdfctx->password = OPENSSL_strdup(password_buf);
+            }
+            p = OSSL_PARAM_locate_const(config_params, "sdf_key_password");
+            if (p != NULL && key_password_buf[0] != '\0') {
+                sdfctx->key_password = OPENSSL_strdup(key_password_buf);
             }
         }
     }
 
-    /* Default password if not configured */
+    /* Default passwords if not configured */
     if (sdfctx->password == NULL)
         sdfctx->password = OPENSSL_strdup("88888888");
+    if (sdfctx->key_password == NULL)
+        sdfctx->key_password = OPENSSL_strdup("11111111");
 
     sdfctx->sign_key_index = 0;
     sdfctx->enc_key_index = 0;

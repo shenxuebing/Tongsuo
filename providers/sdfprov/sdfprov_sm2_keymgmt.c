@@ -195,6 +195,48 @@ static void *sdfprov_sm2_gen(void *genctx, OSSL_CALLBACK *cb, void *cbarg)
     return key;
 }
 
+static int sdfprov_sm2_gen_set_params(void *genctx, const OSSL_PARAM params[])
+{
+    SDFPROV_GEN_CTX *gctx = genctx;
+    const OSSL_PARAM *p;
+
+    if (gctx == NULL)
+        return 0;
+
+    if (params == NULL)
+        return 1;
+
+    p = OSSL_PARAM_locate_const(params, OSSL_PKEY_PARAM_GROUP_NAME);
+    if (p != NULL) {
+        /* Accept SM2 curve name, ignore others */
+        char name[64] = {0};
+        if (!OSSL_PARAM_get_utf8_string(p, &name, sizeof(name) - 1))
+            return 0;
+        fprintf(stderr, "  [SDFPROV] sm2_gen_set_params: group=%s\n", name);
+    }
+
+    p = OSSL_PARAM_locate_const(params, OSSL_PKEY_PARAM_BITS);
+    if (p != NULL) {
+        int bits = 0;
+        if (!OSSL_PARAM_get_int(p, &bits))
+            return 0;
+        fprintf(stderr, "  [SDFPROV] sm2_gen_set_params: bits=%d\n", bits);
+    }
+
+    return 1;
+}
+
+static const OSSL_PARAM *sdfprov_sm2_gen_settable_params(
+        ossl_unused void *genctx, ossl_unused void *provctx)
+{
+    static const OSSL_PARAM params[] = {
+        OSSL_PARAM_utf8_string(OSSL_PKEY_PARAM_GROUP_NAME, NULL, 0),
+        OSSL_PARAM_int(OSSL_PKEY_PARAM_BITS, NULL),
+        OSSL_PARAM_END
+    };
+    return params;
+}
+
 static void sdfprov_sm2_gen_cleanup(void *genctx)
 {
     SDFPROV_GEN_CTX *gctx = genctx;
@@ -661,6 +703,8 @@ static const char *sdfprov_sm2_query_operation_name(int operation_id)
         return "SM2DH";
     case OSSL_OP_SIGNATURE:
         return "SM2";
+    case OSSL_OP_ASYM_CIPHER:
+        return "SM2";
     }
     return NULL;
 }
@@ -674,6 +718,10 @@ const OSSL_DISPATCH sdfprov_sm2_keymgmt_functions[] = {
     { OSSL_FUNC_KEYMGMT_GET_PARAMS, (void (*)(void))sdfprov_sm2_get_params },
     { OSSL_FUNC_KEYMGMT_GEN_INIT, (void (*)(void))sdfprov_sm2_gen_init },
     { OSSL_FUNC_KEYMGMT_GEN, (void (*)(void))sdfprov_sm2_gen },
+    { OSSL_FUNC_KEYMGMT_GEN_SET_PARAMS,
+      (void (*)(void))sdfprov_sm2_gen_set_params },
+    { OSSL_FUNC_KEYMGMT_GEN_SETTABLE_PARAMS,
+      (void (*)(void))sdfprov_sm2_gen_settable_params },
     { OSSL_FUNC_KEYMGMT_GEN_CLEANUP,
       (void (*)(void))sdfprov_sm2_gen_cleanup },
     { OSSL_FUNC_KEYMGMT_IMPORT, (void (*)(void))sdfprov_sm2_import },

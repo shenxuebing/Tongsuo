@@ -27,7 +27,8 @@ typedef struct sdfprov_ctx_st {
     /* 配置参数 */
     char *sdf_lib_path;
     char *device_name;
-    char *password;
+    char *password;          /* 模块加载口令 (BYCSM_LoadModule) */
+    char *key_password;      /* 私钥访问控制码 (GetPrivateKeyAccessRight) */
     unsigned int sign_key_index;
     unsigned int enc_key_index;
 

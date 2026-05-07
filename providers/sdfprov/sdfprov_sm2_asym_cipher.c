@@ -10,6 +10,7 @@
 #include <openssl/err.h>
 #include <openssl/proverr.h>
 #include <openssl/sdf.h>
+#include <openssl/sgd.h>
 #include "prov/provider_ctx.h"
 #include "sdfprov_internal.h"
 #include "sdfprov_utils.h"
@@ -89,6 +90,7 @@ static int sdfprov_sm2_asym_encrypt(void *vctx, unsigned char *out,
         return 0;
 
     if (TSAPI_SDF_InternalEncrypt_ECC(key->hSession, key->key_index,
+                                       OSSL_SGD_SM2_3,
                                        (unsigned char *)in,
                                        (unsigned int)inlen,
                                        cipher) != OSSL_SDR_OK) {
@@ -191,29 +193,23 @@ static int sdfprov_sm2_asym_decrypt(void *vctx, unsigned char *out,
 
     /* 获取私钥访问权限 */
     {
+        SDFPROV_CTX *sdfctx3 = sdfprov_get_global_ctx();
+        const char *pwd = (sdfctx3 != NULL && sdfctx3->key_password != NULL)
+                          ? sdfctx3->key_password : NULL;
         int auth_ret = TSAPI_SDF_GetPrivateKeyAccessRight(
-            key->hSession, key->key_index, NULL, 0);
-        fprintf(stderr, "  [SDFPROV] asym_decrypt: GetPrivateKeyAccessRight(%u) ret=%d\n",
+            key->hSession, key->key_index,
+            (unsigned char *)pwd,
+            pwd != NULL ? (unsigned int)strlen(pwd) : 0);
+        fprintf(stderr, "  [SDFPROV] asym_decrypt: GetPrivateKeyAccessRight(%u) with key_pwd ret=%d\n",
                 key->key_index, auth_ret);
-        if (auth_ret != OSSL_SDR_OK) {
-            /* 重试使用密码 */
-            SDFPROV_CTX *sdfctx3 = sdfprov_get_global_ctx();
-            if (sdfctx3 != NULL && sdfctx3->password != NULL) {
-                auth_ret = TSAPI_SDF_GetPrivateKeyAccessRight(
-                    key->hSession, key->key_index,
-                    (unsigned char *)sdfctx3->password,
-                    (unsigned int)strlen(sdfctx3->password));
-                fprintf(stderr, "  [SDFPROV] asym_decrypt: GetPrivateKeyAccessRight with pwd ret=%d\n",
-                        auth_ret);
-            }
-        }
     }
 
     /* 硬件解密 */
     plaintext_len = (unsigned int)outsize;
     int sdf_ret = TSAPI_SDF_InternalDecrypt_ECC(key->hSession, key->key_index,
-                                       cipher, out,
-                                       &plaintext_len);
+                                                  OSSL_SGD_SM2_3,
+                                                  cipher, out,
+                                                  &plaintext_len);
     fprintf(stderr, "  [SDFPROV] asym_decrypt: SDF_InternalDecrypt ret=%d, pt_len=%u\n",
             sdf_ret, plaintext_len);
     if (sdf_ret != OSSL_SDR_OK) {

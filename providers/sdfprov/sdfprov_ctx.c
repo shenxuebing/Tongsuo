@@ -102,6 +102,7 @@ void sdfprov_ctx_free(SDFPROV_CTX *ctx)
     OPENSSL_free(ctx->sdf_lib_path);
     OPENSSL_free(ctx->device_name);
     OPENSSL_free(ctx->password);
+    OPENSSL_free(ctx->key_password);
     CRYPTO_THREAD_lock_free(ctx->lock);
     OPENSSL_free(ctx);
 }
