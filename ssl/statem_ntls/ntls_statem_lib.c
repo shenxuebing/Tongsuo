@@ -23,6 +23,7 @@
 #include <openssl/x509v3.h>
 #include <openssl/trace.h>
 #include "internal/sockets.h"
+#include "internal/tlog.h"
 
 static int ssl_add_cert_to_wpacket_ntls(SSL_CONNECTION *s, WPACKET *pkt, X509 *x);
 /*
@@ -188,6 +189,7 @@ int tls_construct_cert_verify_ntls(SSL_CONNECTION *s, WPACKET *pkt)
     EVP_MD_CTX *mctx = NULL;
     EVP_MD_CTX *mctx2 = NULL;
     EVP_PKEY_CTX *pctx = NULL;
+    int pkey_sigsize = 0;
     size_t hdatalen = 0, siglen = 0;
     void *hdata;
     unsigned char *sig = NULL;
@@ -196,6 +198,8 @@ int tls_construct_cert_verify_ntls(SSL_CONNECTION *s, WPACKET *pkt)
     unsigned int outlen_tmp = 0;
     const SIGALG_LOOKUP *lu = s->s3.tmp.sigalg;
     SSL_CTX *sctx = SSL_CONNECTION_GET_CTX(s);
+
+    fprintf(stderr, "  [NTLS-CERTVRFY] construct: begin (server=%d)\n", s->server);
 
     if (lu == NULL || s->s3.tmp.sign_cert == NULL) {
         SSLfatal_ntls(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
@@ -255,16 +259,23 @@ int tls_construct_cert_verify_ntls(SSL_CONNECTION *s, WPACKET *pkt)
         }
     }
 
-    if (EVP_DigestSign(mctx, NULL, &siglen, out, outlen) <= 0) {
+    pkey_sigsize = EVP_PKEY_get_size(pkey);
+    if (pkey_sigsize <= 0) {
+        fprintf(stderr, "  [NTLS-CERTVRFY] construct: EVP_PKEY_get_size failed\n");
         SSLfatal_ntls(s, SSL_AD_INTERNAL_ERROR, ERR_R_EVP_LIB);
         goto err;
     }
+    siglen = (size_t)pkey_sigsize;
+    fprintf(stderr, "  [NTLS-CERTVRFY] construct: alloc sig buffer=%zu\n", siglen);
+
     sig = OPENSSL_malloc(siglen);
     if (sig == NULL
             || EVP_DigestSign(mctx, sig, &siglen, out, outlen) <= 0) {
+        fprintf(stderr, "  [NTLS-CERTVRFY] construct: DigestSign final failed\n");
         SSLfatal_ntls(s, SSL_AD_INTERNAL_ERROR, ERR_R_EVP_LIB);
         goto err;
     }
+    fprintf(stderr, "  [NTLS-CERTVRFY] construct: DigestSign final ok siglen=%zu\n", siglen);
 
     if (!WPACKET_sub_memcpy_u16(pkt, sig, siglen)) {
         SSLfatal_ntls(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
@@ -276,6 +287,8 @@ int tls_construct_cert_verify_ntls(SSL_CONNECTION *s, WPACKET *pkt)
         /* SSLfatal_ntls() already called */
         goto err;
     }
+
+    fprintf(stderr, "  [NTLS-CERTVRFY] construct: done\n");
 
     OPENSSL_free(sig);
     EVP_MD_CTX_free(mctx);
@@ -306,6 +319,8 @@ MSG_PROCESS_RETURN tls_process_cert_verify_ntls(SSL_CONNECTION *s, PACKET *pkt)
     size_t outlen = 0;
     unsigned int outlen_tmp = 0;
     SSL_CTX *sctx = SSL_CONNECTION_GET_CTX(s);
+
+    fprintf(stderr, "  [NTLS-CERTVRFY] process: begin (server=%d)\n", s->server);
 
     if (mctx == NULL || mctx2 == NULL) {
         SSLfatal_ntls(s, SSL_AD_INTERNAL_ERROR, ERR_R_MALLOC_FAILURE);
@@ -340,6 +355,7 @@ MSG_PROCESS_RETURN tls_process_cert_verify_ntls(SSL_CONNECTION *s, PACKET *pkt)
         SSLfatal_ntls(s, SSL_AD_DECODE_ERROR, SSL_R_LENGTH_MISMATCH);
         goto err;
     }
+    fprintf(stderr, "  [NTLS-CERTVRFY] process: sig field len=%u\n", len);
 
     if (!PACKET_get_bytes(pkt, &data, len)) {
         SSLfatal_ntls(s, SSL_AD_DECODE_ERROR, SSL_R_LENGTH_MISMATCH);
@@ -410,9 +426,12 @@ MSG_PROCESS_RETURN tls_process_cert_verify_ntls(SSL_CONNECTION *s, PACKET *pkt)
 
     j = EVP_DigestVerify(mctx, data, len, out, outlen);
     if (j <= 0) {
+        fprintf(stderr, "  [NTLS-CERTVRFY] process: DigestVerify failed\n");
         SSLfatal_ntls(s, SSL_AD_DECRYPT_ERROR, SSL_R_BAD_SIGNATURE);
         goto err;
     }
+
+    fprintf(stderr, "  [NTLS-CERTVRFY] process: DigestVerify ok\n");
 
     ret = MSG_PROCESS_CONTINUE_READING;
 
@@ -437,6 +456,8 @@ int tls_construct_finished_ntls(SSL_CONNECTION *s, WPACKET *pkt)
     size_t slen;
     SSL *ssl = SSL_CONNECTION_GET_SSL(s);
 
+    fprintf(stderr, "  [NTLS-FIN] construct: begin (server=%d)\n", s->server);
+
     /* This is a real handshake so make sure we clean it up at the end */
     if (!s->server && s->post_handshake_auth != SSL_PHA_REQUESTED)
         s->statem.cleanuphand = 1;
@@ -456,6 +477,7 @@ int tls_construct_finished_ntls(SSL_CONNECTION *s, WPACKET *pkt)
         /* SSLfatal_ntls() already called */
         return 0;
     }
+    fprintf(stderr, "  [NTLS-FIN] construct: finish_md_len=%zu\n", finish_md_len);
 
     s->s3.tmp.finish_md_len = finish_md_len;
 
@@ -491,6 +513,8 @@ int tls_construct_finished_ntls(SSL_CONNECTION *s, WPACKET *pkt)
                finish_md_len);
         s->s3.previous_server_finished_len = finish_md_len;
     }
+
+    fprintf(stderr, "  [NTLS-FIN] construct: done\n");
 
     return 1;
 }
@@ -558,6 +582,8 @@ MSG_PROCESS_RETURN tls_process_finished_ntls(SSL_CONNECTION *s, PACKET *pkt)
 {
     size_t md_len;
 
+    fprintf(stderr, "  [NTLS-FIN] process: begin (server=%d)\n", s->server);
+
     /* This is a real handshake so make sure we clean it up at the end */
     if (s->server) {
         /*
@@ -579,6 +605,8 @@ MSG_PROCESS_RETURN tls_process_finished_ntls(SSL_CONNECTION *s, PACKET *pkt)
     s->s3.change_cipher_spec = 0;
 
     md_len = s->s3.tmp.peer_finish_md_len;
+    fprintf(stderr, "  [NTLS-FIN] process: expect_md_len=%zu pkt_len=%zu\n",
+            md_len, PACKET_remaining(pkt));
 
     if (md_len != PACKET_remaining(pkt)) {
         SSLfatal_ntls(s, SSL_AD_DECODE_ERROR, SSL_R_BAD_DIGEST_LENGTH);
@@ -587,9 +615,12 @@ MSG_PROCESS_RETURN tls_process_finished_ntls(SSL_CONNECTION *s, PACKET *pkt)
 
     if (CRYPTO_memcmp(PACKET_data(pkt), s->s3.tmp.peer_finish_md,
                       md_len) != 0) {
+        fprintf(stderr, "  [NTLS-FIN] process: verify failed\n");
         SSLfatal_ntls(s, SSL_AD_DECRYPT_ERROR, SSL_R_DIGEST_CHECK_FAILED);
         return MSG_PROCESS_ERROR;
     }
+
+    fprintf(stderr, "  [NTLS-FIN] process: verify ok\n");
 
     /*
      * Copy the finished so we can use it for renegotiation checks
@@ -1687,6 +1718,9 @@ int ssl_derive_ntls(SSL_CONNECTION *s, EVP_PKEY *privkey, EVP_PKEY *pubkey, int 
     /* SM2 requires to use the private key in encryption certificate */
     cert_priv = s->cert->pkeys[SSL_PKEY_SM2_ENC].privatekey;
     if (cert_priv == NULL) {
+        fprintf(stderr,
+                "  [NTLS] ssl_derive_ntls: cert_priv NULL (server=%d)\n",
+                s->server);
         SSLfatal_ntls(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
         return 0;
     }
@@ -1712,6 +1746,13 @@ int ssl_derive_ntls(SSL_CONNECTION *s, EVP_PKEY *privkey, EVP_PKEY *pubkey, int 
     if (s->session->peer_chain == NULL
         || (peer_x509 = sk_X509_value(s->session->peer_chain, idx)) == NULL
         || (peer_cert_pub = X509_get0_pubkey(peer_x509)) == NULL) {
+        int chain_num = 0;
+
+        if (s->session->peer_chain != NULL)
+            chain_num = sk_X509_num(s->session->peer_chain);
+        fprintf(stderr,
+                "  [NTLS] ssl_derive_ntls: peer cert fetch failed (server=%d idx=%d chain_num=%d peer_x509=%p)\n",
+                s->server, idx, chain_num, (void *)peer_x509);
         SSLfatal_ntls(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
         return 0;
     }
@@ -1744,12 +1785,45 @@ int ssl_derive_ntls(SSL_CONNECTION *s, EVP_PKEY *privkey, EVP_PKEY *pubkey, int 
     *p++ = OSSL_PARAM_construct_size_t(OSSL_EXCHANGE_PARAM_OUTLEN, &pmslen);
     *p = OSSL_PARAM_construct_end();
 
-    if (EVP_PKEY_derive_init_ex(pctx, params) <= 0
-        || EVP_PKEY_derive_set_peer(pctx, pubkey) <= 0
-        || EVP_PKEY_derive(pctx, pms, &pmslen) <= 0) {
+    fprintf(stderr,
+            "  [NTLS] ssl_derive_ntls: priv_is_sm2=%d pub_is_sm2=%d cert_priv_is_sm2=%d\\n",
+            EVP_PKEY_is_a(privkey, "SM2"),
+            EVP_PKEY_is_a(pubkey, "SM2"),
+            EVP_PKEY_is_a(cert_priv, "SM2"));
+    TLOG_DEBUG("ssl_derive_ntls role=%s gensecret=%d", s->server ? "server" : "client",
+               gensecret);
+
+    if (EVP_PKEY_derive_init_ex(pctx, params) <= 0) {
+        fprintf(stderr, "  [NTLS] ssl_derive_ntls: EVP_PKEY_derive_init_ex failed\\n");
         SSLfatal_ntls(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
         goto err;
     }
+
+    fprintf(stderr, "  [NTLS] ssl_derive_ntls: EVP_PKEY_derive_init_ex ok\\n");
+
+    if (EVP_PKEY_derive_set_peer(pctx, pubkey) <= 0) {
+        fprintf(stderr, "  [NTLS] ssl_derive_ntls: EVP_PKEY_derive_set_peer failed\\n");
+        SSLfatal_ntls(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        goto err;
+    }
+
+    fprintf(stderr, "  [NTLS] ssl_derive_ntls: EVP_PKEY_derive_set_peer ok\\n");
+
+    if (EVP_PKEY_derive(pctx, pms, &pmslen) <= 0) {
+        fprintf(stderr, "  [NTLS] ssl_derive_ntls: EVP_PKEY_derive failed\\n");
+        SSLfatal_ntls(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
+        goto err;
+    }
+
+    fprintf(stderr, "  [NTLS] ssl_derive_ntls: EVP_PKEY_derive ok, pmslen=%zu\\n", pmslen);
+    if (pmslen >= 8) {
+        fprintf(stderr,
+                "  [NTLS] ssl_derive_ntls: pms[0..7]=%02X%02X%02X%02X%02X%02X%02X%02X (server=%d)\\n",
+                pms[0], pms[1], pms[2], pms[3],
+                pms[4], pms[5], pms[6], pms[7], s->server);
+    }
+    TLOG_DEBUG("ssl_derive_ntls PMS role=%s len=%zu", s->server ? "server" : "client", pmslen);
+    TLOG_DEBUG_HEX("ssl_derive_ntls PMS", pms, pmslen);
 
     if (gensecret) {
         rv = ssl_gensecret(s, pms, pmslen);

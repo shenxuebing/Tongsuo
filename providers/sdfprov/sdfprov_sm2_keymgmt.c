@@ -97,6 +97,7 @@ static const OSSL_PARAM *sdfprov_sm2_gettable_params(void *provctx)
         OSSL_PARAM_int(OSSL_PKEY_PARAM_BITS, NULL),
         OSSL_PARAM_int(OSSL_PKEY_PARAM_SECURITY_BITS, NULL),
         OSSL_PARAM_int(OSSL_PKEY_PARAM_MAX_SIZE, NULL),
+        OSSL_PARAM_octet_string(OSSL_PKEY_PARAM_ENCODED_PUBLIC_KEY, NULL, 0),
         OSSL_PARAM_octet_string(OSSL_PKEY_PARAM_PUB_KEY, NULL, 0),
         OSSL_PARAM_END
     };
@@ -140,6 +141,24 @@ static int sdfprov_sm2_get_params(void *keydata, OSSL_PARAM params[])
         OPENSSL_free(buf);
     }
 
+    p = OSSL_PARAM_locate(params, OSSL_PKEY_PARAM_ENCODED_PUBLIC_KEY);
+    if (p != NULL) {
+        unsigned char *buf = NULL;
+        int blen;
+
+        if (key->ec_key == NULL)
+            return 0;
+        blen = EC_KEY_key2buf(key->ec_key, POINT_CONVERSION_UNCOMPRESSED,
+                              &buf, NULL);
+        if (blen <= 0)
+            return 0;
+        if (!OSSL_PARAM_set_octet_string(p, buf, (size_t)blen)) {
+            OPENSSL_free(buf);
+            return 0;
+        }
+        OPENSSL_free(buf);
+    }
+
     return 1;
 }
 
@@ -163,10 +182,29 @@ static void *sdfprov_sm2_gen_init(void *provctx, int selection)
 static void *sdfprov_sm2_gen(void *genctx, OSSL_CALLBACK *cb, void *cbarg)
 {
     SDFPROV_GEN_CTX *gctx = genctx;
+    SDFPROV_CTX *sdfctx;
     SDF_SM2_KEY *key;
+    void *hSession;
+    OSSL_ECCrefPublicKey sponsor_pub;
+    OSSL_ECCrefPublicKey sponsor_tmp_pub;
+    const EC_GROUP *group;
+    EC_POINT *point = NULL;
+    BIGNUM *x = NULL;
+    BIGNUM *y = NULL;
+    void *agreement_handle = NULL;
+    unsigned int key_index = 0;
+    int ret;
+    static unsigned char sm2_default_id[] = "1234567812345678";
 
     if (gctx == NULL)
         return NULL;
+
+    (void)cb;
+    (void)cbarg;
+
+    sdfctx = sdfprov_get_global_ctx();
+    if (sdfctx != NULL)
+        key_index = sdfctx->enc_key_index;
 
     /* 创建新密钥 */
     key = OPENSSL_zalloc(sizeof(*key));
@@ -182,6 +220,94 @@ static void *sdfprov_sm2_gen(void *genctx, OSSL_CALLBACK *cb, void *cbarg)
 
     /* 生成密钥对 */
     if ((gctx->selection & OSSL_KEYMGMT_SELECT_KEYPAIR) != 0) {
+        hSession = sdfprov_get_session();
+        fprintf(stderr, "  [SDFPROV] sm2_gen: try hardware eph, hSession=%p key_index=%u\n",
+                hSession, key_index);
+
+        if (hSession != NULL) {
+            memset(&sponsor_pub, 0, sizeof(sponsor_pub));
+            memset(&sponsor_tmp_pub, 0, sizeof(sponsor_tmp_pub));
+
+            ret = TSAPI_SDF_GenerateAgreementDataWithECCEx(
+                hSession,
+                key_index,
+                384,
+                sm2_default_id,
+                (unsigned int)(sizeof(sm2_default_id) - 1),
+                &sponsor_pub,
+                &sponsor_tmp_pub,
+                &agreement_handle);
+
+            fprintf(stderr,
+                    "  [SDFPROV] sm2_gen: GenerateAgreementDataWithECCEx ret=%d agreement=%p\n",
+                    ret, agreement_handle);
+
+            if (ret == OSSL_SDR_OK) {
+                group = EC_KEY_get0_group(key->ec_key);
+                if (group != NULL) {
+                    x = BN_bin2bn(sponsor_tmp_pub.x + OSSL_ECCref_MAX_LEN - 32,
+                                  32, NULL);
+                    y = BN_bin2bn(sponsor_tmp_pub.y + OSSL_ECCref_MAX_LEN - 32,
+                                  32, NULL);
+                    point = EC_POINT_new(group);
+                }
+
+                if (group != NULL && x != NULL && y != NULL && point != NULL
+                        && EC_POINT_set_affine_coordinates(group, point, x, y, NULL)
+                        && EC_KEY_set_public_key(key->ec_key, point)) {
+                    BIGNUM *priv = BN_new();
+                    if (priv != NULL) {
+                        BN_one(priv);
+                        EC_KEY_set_private_key(key->ec_key, priv);
+                        BN_free(priv);
+                    }
+
+                    key->is_hardware_key = 1;
+                    key->hSession = hSession;
+                    key->agreement_handle = agreement_handle;
+                    key->has_agreement = 1;
+                    key->is_initiator = 1;
+                    key->cached_pubkey = sponsor_pub;
+
+                    fprintf(stderr,
+                            "  [SDFPROV] sm2_gen: hardware eph key generated, agreement=%p\n",
+                            agreement_handle);
+                    BN_free(x);
+                    BN_free(y);
+                    EC_POINT_free(point);
+                    return key;
+                }
+
+                BN_free(x);
+                BN_free(y);
+                EC_POINT_free(point);
+            }
+
+            if (ret == OSSL_SDR_OK
+                    && sdfprov_eccrefpub_to_ec_key(&sponsor_tmp_pub,
+                                                   key->ec_key)) {
+                BIGNUM *priv = BN_new();
+                if (priv != NULL) {
+                    BN_one(priv);
+                    EC_KEY_set_private_key(key->ec_key, priv);
+                    BN_free(priv);
+                }
+
+                key->is_hardware_key = 1;
+                key->hSession = hSession;
+                key->agreement_handle = agreement_handle;
+                key->has_agreement = 1;
+                key->is_initiator = 1;
+                key->cached_pubkey = sponsor_pub;
+
+                fprintf(stderr,
+                        "  [SDFPROV] sm2_gen: hardware eph key generated, agreement=%p\n",
+                        agreement_handle);
+                return key;
+            }
+        }
+
+        fprintf(stderr, "  [SDFPROV] sm2_gen: fallback to software keygen\n");
         if (!EC_KEY_generate_key(key->ec_key)) {
             EC_KEY_free(key->ec_key);
             OPENSSL_free(key);
@@ -210,7 +336,8 @@ static int sdfprov_sm2_gen_set_params(void *genctx, const OSSL_PARAM params[])
     if (p != NULL) {
         /* Accept SM2 curve name, ignore others */
         char name[64] = {0};
-        if (!OSSL_PARAM_get_utf8_string(p, &name, sizeof(name) - 1))
+        char *namep = name;
+        if (!OSSL_PARAM_get_utf8_string(p, &namep, sizeof(name)))
             return 0;
         fprintf(stderr, "  [SDFPROV] sm2_gen_set_params: group=%s\n", name);
     }
@@ -285,7 +412,12 @@ static int sdfprov_sm2_import(void *keydata, int selection,
     /* 导入私钥（用于软件密钥回退路径） */
     if ((selection & OSSL_KEYMGMT_SELECT_PRIVATE_KEY) != 0) {
         p = OSSL_PARAM_locate_const(params, OSSL_PKEY_PARAM_PRIV_KEY);
-        if (p != NULL) {
+        if (p == NULL) {
+            fprintf(stderr,
+                    "  [SDFPROV] sm2_import: private key required but missing (selection=%d)\n",
+                    selection);
+            return 0;
+        } else {
             BIGNUM *priv = NULL;
 
             if (!OSSL_PARAM_get_BN(p, &priv))
@@ -326,7 +458,9 @@ static int sdfprov_sm2_export(void *keydata, int selection,
      * 1. 必须导出 domain parameters（曲线参数）
      * 2. 如果请求私钥，必须同时请求公钥
      */
-    if ((selection & OSSL_KEYMGMT_SELECT_DOMAIN_PARAMETERS) == 0)
+    if ((selection & (OSSL_KEYMGMT_SELECT_DOMAIN_PARAMETERS
+                      | OSSL_KEYMGMT_SELECT_PUBLIC_KEY
+                      | OSSL_KEYMGMT_SELECT_PRIVATE_KEY)) == 0)
         return 0;
     if ((selection & OSSL_KEYMGMT_SELECT_PRIVATE_KEY) != 0
         && (selection & OSSL_KEYMGMT_SELECT_PUBLIC_KEY) == 0)
@@ -338,8 +472,14 @@ static int sdfprov_sm2_export(void *keydata, int selection,
      */
     if (key->is_hardware_key
         && (selection & OSSL_KEYMGMT_SELECT_PRIVATE_KEY) != 0) {
-        fprintf(stderr, "  [SDFPROV] sm2_export: hardware key, refusing private export\n");
-        return 0;
+        if (!key->has_agreement) {
+            fprintf(stderr,
+                    "  [SDFPROV] sm2_export: hardware cert key, refusing private export\n");
+            return 0;
+        }
+        fprintf(stderr,
+                "  [SDFPROV] sm2_export: hardware eph key, skip private export\n");
+        selection &= ~OSSL_KEYMGMT_SELECT_PRIVATE_KEY;
     }
 
     bld = OSSL_PARAM_BLD_new();
@@ -414,17 +554,8 @@ static int sdfprov_sm2_export(void *keydata, int selection,
         goto err;
     }
 
-    /*
-     * 跨 Provider export cb 在当前实现中会 crash（ec_kmgmt import 无法处理
-     * sdfprov 导出的 params）。让 export 返回失败，EVP 会回退到使用原始
-     * provider 的密钥（通过 query_operation_name 路由到同 provider 的 KEYEXCH）。
-     * DUP 操作也可用于同 provider 内的密钥复制。
-     */
-    ret = 0;
-    goto err;
-
     ret = cb(params, cbarg);
-    ret = 1;
+    ret = (ret > 0);
 err:
     OPENSSL_free(pub);
     OSSL_PARAM_free(params);
@@ -436,6 +567,7 @@ err:
 static const OSSL_PARAM *sdfprov_sm2_import_types(int selection)
 {
     static const OSSL_PARAM params[] = {
+        OSSL_PARAM_octet_string(OSSL_PKEY_PARAM_ENCODED_PUBLIC_KEY, NULL, 0),
         OSSL_PARAM_octet_string(OSSL_PKEY_PARAM_PUB_KEY, NULL, 0),
         OSSL_PARAM_BN(OSSL_PKEY_PARAM_PRIV_KEY, NULL, 0),
         OSSL_PARAM_END
@@ -446,6 +578,7 @@ static const OSSL_PARAM *sdfprov_sm2_import_types(int selection)
 static const OSSL_PARAM *sdfprov_sm2_export_types(int selection)
 {
     static const OSSL_PARAM params[] = {
+        OSSL_PARAM_octet_string(OSSL_PKEY_PARAM_ENCODED_PUBLIC_KEY, NULL, 0),
         OSSL_PARAM_octet_string(OSSL_PKEY_PARAM_PUB_KEY, NULL, 0),
         OSSL_PARAM_BN(OSSL_PKEY_PARAM_PRIV_KEY, NULL, 0),
         OSSL_PARAM_END
@@ -461,6 +594,8 @@ static int sdfprov_sm2_set_params(void *keydata, const OSSL_PARAM params[])
 {
     SDF_SM2_KEY *key = keydata;
     const OSSL_PARAM *p;
+    const void *pub = NULL;
+    size_t publen = 0;
 
     if (key == NULL || params == NULL)
         return 0;
@@ -485,12 +620,38 @@ static int sdfprov_sm2_set_params(void *keydata, const OSSL_PARAM params[])
         key->is_hardware_key = val;
     }
 
+    p = OSSL_PARAM_locate_const(params, OSSL_PKEY_PARAM_ENCODED_PUBLIC_KEY);
+    if (p != NULL) {
+        if (p->data_type != OSSL_PARAM_OCTET_STRING)
+            return 0;
+        pub = p->data;
+        publen = p->data_size;
+        if (pub == NULL || publen == 0)
+            return 0;
+        if (!EC_KEY_oct2key(key->ec_key, pub, publen, NULL))
+            return 0;
+    }
+
+    p = OSSL_PARAM_locate_const(params, OSSL_PKEY_PARAM_PUB_KEY);
+    if (p != NULL) {
+        if (p->data_type != OSSL_PARAM_OCTET_STRING)
+            return 0;
+        pub = p->data;
+        publen = p->data_size;
+        if (pub == NULL || publen == 0)
+            return 0;
+        if (!EC_KEY_oct2key(key->ec_key, pub, publen, NULL))
+            return 0;
+    }
+
     return 1;
 }
 
 static const OSSL_PARAM *sdfprov_sm2_settable_params(void *provctx)
 {
     static const OSSL_PARAM params[] = {
+        OSSL_PARAM_octet_string(OSSL_PKEY_PARAM_ENCODED_PUBLIC_KEY, NULL, 0),
+        OSSL_PARAM_octet_string(OSSL_PKEY_PARAM_PUB_KEY, NULL, 0),
         OSSL_PARAM_uint("sdf-key-index", NULL),
         OSSL_PARAM_int("sdf-key-type", NULL),
         OSSL_PARAM_int("sdf-is-hardware", NULL),

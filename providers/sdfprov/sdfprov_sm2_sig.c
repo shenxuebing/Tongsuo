@@ -83,25 +83,56 @@ static int sdfprov_sm2_sig_sign(void *vctx, unsigned char *sig,
     if (ctx == NULL || ctx->skey == NULL)
         return 0;
 
+    fprintf(stderr,
+            "  [SDFPROV] sm2_sig_sign: ctx=%p skey=%p sig=%p sigsize=%zu tbs=%p tbslen=%zu\n",
+            (void *)ctx, (void *)ctx->skey, sig, sigsize, tbs, tbslen);
+
     key = ctx->skey;
+
+    fprintf(stderr,
+            "  [SDFPROV] sm2_sig_sign: key=%p hw=%d ec_key=%p\n",
+            (void *)key, key->is_hardware_key, (void *)key->ec_key);
 
     if (!key->is_hardware_key) {
         /* 软件路径: 使用 ossl_sm2_internal_sign */
         int sltmp;
+        unsigned int siglen_tmp;
+        const BIGNUM *priv = NULL;
         if (sig == NULL) {
             *siglen = 256;
             return 1;
         }
 
         /* 需要私钥才能签名 */
-        if (EC_KEY_get0_private_key(key->ec_key) == NULL)
+        if (key->ec_key == NULL) {
+            fprintf(stderr,
+                    "  [SDFPROV] sm2_sig_sign: software key ec_key=NULL\n");
+            return 0;
+        }
+        priv = EC_KEY_get0_private_key(key->ec_key);
+        fprintf(stderr,
+                "  [SDFPROV] sm2_sig_sign: software priv=%p\n",
+                (const void *)priv);
+        if (priv == NULL) {
+            fprintf(stderr,
+                    "  [SDFPROV] sm2_sig_sign: software key missing private key\n");
+            return 0;
+        }
+
+        fprintf(stderr, "  [SDFPROV] sm2_sig_sign: before internal sign\n");
+
+        if (sigsize > UINT_MAX)
             return 0;
 
-        sltmp = ossl_sm2_internal_sign(tbs, (int)tbslen, sig, (int)sigsize,
-                                        key->ec_key);
+        siglen_tmp = (unsigned int)sigsize;
+        sltmp = ossl_sm2_internal_sign(tbs, (int)tbslen, sig, &siglen_tmp,
+                                       key->ec_key);
+        fprintf(stderr,
+                "  [SDFPROV] sm2_sig_sign: software sign ret=%d siglen=%u\n",
+                sltmp, siglen_tmp);
         if (sltmp <= 0)
             return 0;
-        *siglen = (size_t)sltmp;
+        *siglen = (size_t)siglen_tmp;
         return 1;
     }
 
@@ -287,6 +318,10 @@ static int sdfprov_sm2_sig_digest_sign_final(void *vctx, unsigned char *sig,
 
     if (ctx == NULL)
         return 0;
+
+    fprintf(stderr,
+            "  [SDFPROV] digest_sign_final: enter ctx=%p sig=%p siglen=%p sigsize=%zu mdctx=%p\n",
+            (void *)ctx, sig, (void *)siglen, sigsize, (void *)ctx->mdctx);
 
     /*
      * 当 sig == NULL 时，只需要返回最大签名长度。

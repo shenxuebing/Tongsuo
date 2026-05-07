@@ -77,6 +77,13 @@ static int sdfprov_sm2dh_derive(void *vctx, unsigned char *secret,
                                  size_t *psecretlen, size_t outlen)
 {
     SDFPROV_SM2DH_CTX *ctx = vctx;
+    OSSL_ECCrefPublicKey peer_enc_pub;
+    OSSL_ECCrefPublicKey peer_tmp_pub;
+    EC_KEY *peer_enc_ec = NULL;
+    void *key_handle = NULL;
+    int ret;
+    unsigned int secret_len;
+    static unsigned char sm2_default_id[] = "1234567812345678";
 
     if (ctx == NULL || ctx->k == NULL || ctx->peerk == NULL)
         return 0;
@@ -88,6 +95,42 @@ static int sdfprov_sm2dh_derive(void *vctx, unsigned char *secret,
 
     if (ctx->k->ec_key == NULL || ctx->peerk->ec_key == NULL)
         return 0;
+
+    if (ctx->k->has_agreement
+            && ctx->k->agreement_handle != NULL
+            && ctx->k->hSession != NULL
+            && ctx->enc_peerk != NULL) {
+        memset(&peer_enc_pub, 0, sizeof(peer_enc_pub));
+        memset(&peer_tmp_pub, 0, sizeof(peer_tmp_pub));
+
+        peer_enc_ec = evp_pkey_to_ec_key(ctx->enc_peerk);
+        if (peer_enc_ec != NULL
+                && sdfprov_ec_key_to_eccrefpub(peer_enc_ec, &peer_enc_pub)
+                && sdfprov_ec_key_to_eccrefpub(ctx->peerk->ec_key, &peer_tmp_pub)) {
+            secret_len = (unsigned int)outlen;
+            ret = TSAPI_SDF_GenerateKeyWithECCEx(
+                ctx->k->hSession,
+                ctx->peer_id != NULL ? ctx->peer_id : sm2_default_id,
+                (unsigned int)(ctx->peer_id != NULL ? ctx->peer_id_len
+                                                    : sizeof(sm2_default_id) - 1),
+                &peer_enc_pub,
+                &peer_tmp_pub,
+                ctx->k->agreement_handle,
+                secret,
+                &secret_len,
+                &key_handle);
+
+            if (ret == OSSL_SDR_OK) {
+                if (key_handle != NULL)
+                    TSAPI_SDF_DestroyKey(ctx->k->hSession, key_handle);
+                *psecretlen = secret_len;
+                fprintf(stderr,
+                        "  [SDFPROV] sm2dh_derive: hardware SDF_GenerateKeyWithECCEx ok, secret_len=%u\n",
+                        secret_len);
+                return 1;
+            }
+        }
+    }
 
     /* 完整 SM2DH 4 密钥协商模式 */
     if (ctx->enc_k != NULL && ctx->enc_peerk != NULL) {
