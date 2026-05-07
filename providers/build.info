@@ -168,6 +168,22 @@ IF[{- !$disabled{smtc} -}]
 ENDIF
 
 #
+# SDF Provider stuff
+#
+IF[{- !$disabled{sdfprov} -}]
+  $LIBSDFPROV=libsdfprov.a
+  LIBS{noinst}=$LIBSDFPROV
+  SUBDIRS=sdfprov
+
+  $SDFPROVGOAL=../libcrypto
+  SOURCE[$SDFPROVGOAL]=$LIBSDFPROV
+  DEFINE[$SDFPROVGOAL]=STATIC_SDFPROV
+  DEFINE[$LIBSDFPROV]=STATIC_SDFPROV
+  DEFINE[$SDFPROVGOAL]=SDF_MODULE
+  INCLUDE[$LIBSDFPROV]=.. $COMMON_INCLUDES
+ENDIF
+
+#
 # Legacy provider stuff
 #
 IF[{- !$disabled{legacy} -}]

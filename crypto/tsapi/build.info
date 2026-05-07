@@ -1,3 +1,6 @@
 LIBS=../../libcrypto
 SOURCE[../../libcrypto]=\
         tsapi_lib.c
+IF[{- !$disabled{"sdf-lib"} -}]
+  SOURCE[../../libcrypto]=sdfe_api_stub.c
+ENDIF

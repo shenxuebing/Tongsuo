@@ -1,0 +1,5 @@
+SOURCE[../libsdfprov.a]=\
+    sdfprov_entry.c sdfprov.c sdfprov_ctx.c \
+    sdfprov_sm2_keymgmt.c sdfprov_sm2_sig.c \
+    sdfprov_sm2_asym_cipher.c sdfprov_sm2dh_exch.c \
+    sdfprov_rand.c sdfprov_store.c sdfprov_utils.c
