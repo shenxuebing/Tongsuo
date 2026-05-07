@@ -22,6 +22,7 @@
 #include <openssl/dh.h>
 #include <openssl/bn.h>
 #include <openssl/engine.h>
+#include <openssl/provider.h>
 #include <openssl/param_build.h>
 #include "internal/cryptlib.h"
 #include "internal/tlsgroups.h"
@@ -1943,6 +1944,7 @@ static int tls_construct_cke_sm2dhe_ntls(SSL_CONNECTION *s, WPACKET *pkt)
     unsigned char *encodedPoint = NULL;
     size_t encoded_pt_len = 0;
     EVP_PKEY *ckey = NULL, *skey = NULL;
+    EVP_PKEY *local_enc = NULL;
     EVP_PKEY_CTX *kctx = NULL;
     int ret = 0;
     int curve_id;
@@ -1953,15 +1955,21 @@ static int tls_construct_cke_sm2dhe_ntls(SSL_CONNECTION *s, WPACKET *pkt)
         return 0;
     }
 
-    {
-        SSL_CTX *sctx = SSL_CONNECTION_GET_CTX(s);
+    local_enc = s->cert->pkeys[SSL_PKEY_SM2_ENC].privatekey;
+    if (local_enc != NULL) {
+        const OSSL_PROVIDER *p = EVP_PKEY_get0_provider(local_enc);
+        const char *prov_name = p != NULL ? OSSL_PROVIDER_get0_name(p) : NULL;
 
-        kctx = EVP_PKEY_CTX_new_from_name(sctx->libctx, "SM2", "provider=default");
-        if (kctx != NULL
-                && EVP_PKEY_keygen_init(kctx) > 0
-                && EVP_PKEY_keygen(kctx, &ckey) > 0) {
-            fprintf(stderr,
-                    "  [NTLS-CLNT] CKE: generated software SM2 eph key\n");
+        if (prov_name == NULL || OPENSSL_strcasecmp(prov_name, "default") == 0) {
+            SSL_CTX *sctx = SSL_CONNECTION_GET_CTX(s);
+
+            kctx = EVP_PKEY_CTX_new_from_name(sctx->libctx, "SM2", "provider=default");
+            if (kctx != NULL
+                    && EVP_PKEY_keygen_init(kctx) > 0
+                    && EVP_PKEY_keygen(kctx, &ckey) > 0) {
+                fprintf(stderr,
+                        "  [NTLS-CLNT] CKE: generated software SM2 eph key\n");
+            }
         }
     }
 
