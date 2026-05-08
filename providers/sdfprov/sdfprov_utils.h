@@ -35,9 +35,12 @@ int sdfprov_ecccipher_to_sm2_der(const OSSL_ECCCipher *cipher,
                                  unsigned char **out, size_t *out_len,
                                  int encdata_format);
 
-/* SM2 密文 DER -> OSSL_ECCCipher */
+/* SM2 密文 DER -> OSSL_ECCCipher
+ * cipher_buf_size: cipher->C 缓冲区可用字节数，用于边界检查
+ */
 int sdfprov_sm2_der_to_ecccipher(const unsigned char *der, size_t der_len,
                                  OSSL_ECCCipher *cipher,
-                                 int encdata_format);
+                                 int encdata_format,
+                                 size_t cipher_buf_size);
 
 #endif

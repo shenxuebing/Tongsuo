@@ -38,8 +38,6 @@ static int sdfprov_sm2_asym_encrypt_init(void *vctx, void *vkey,
     if (ctx == NULL || vkey == NULL)
         return 0;
     ctx->key = vkey;
-    fprintf(stderr, "  [SDFPROV] asym_encrypt_init: key=%p hw=%d\n",
-            vkey, ctx->key->is_hardware_key);
     return 1;
 }
 
@@ -125,8 +123,6 @@ static int sdfprov_sm2_asym_decrypt_init(void *vctx, void *vkey,
     if (ctx == NULL || vkey == NULL)
         return 0;
     ctx->key = vkey;
-    fprintf(stderr, "  [SDFPROV] asym_decrypt_init: key=%p hw=%d\n",
-            vkey, ctx->key->is_hardware_key);
     return 1;
 }
 
@@ -145,9 +141,6 @@ static int sdfprov_sm2_asym_decrypt(void *vctx, unsigned char *out,
         return 0;
 
     key = ctx->key;
-
-    fprintf(stderr, "  [SDFPROV] asym_decrypt: hw=%d inlen=%zu out=%p\n",
-            key->is_hardware_key, inlen, (void*)out);
 
     if (out == NULL) {
         *outlen = inlen;
@@ -177,31 +170,23 @@ static int sdfprov_sm2_asym_decrypt(void *vctx, unsigned char *out,
         return 0;
 
     /* DER -> OSSL_ECCCipher */
-    if (!sdfprov_sm2_der_to_ecccipher(in, inlen, cipher, ctx->encdata_format)) {
-        fprintf(stderr, "  [SDFPROV] asym_decrypt: der_to_ecccipher FAILED, inlen=%zu\n", inlen);
+    if (!sdfprov_sm2_der_to_ecccipher(in, inlen, cipher, ctx->encdata_format,
+                                       cipher_alloc - offsetof(OSSL_ECCCipher, C))) {
         goto end;
     }
 
-    fprintf(stderr, "  [SDFPROV] asym_decrypt: der_to_ecccipher OK, cipher.L=%u\n", cipher->L);
-    fprintf(stderr, "  [SDFPROV] asym_decrypt: x[0..7]=");
-    for (int i = 56; i < 64; i++) fprintf(stderr, "%02X", cipher->x[i]);
-    fprintf(stderr, " y[0..7]=");
-    for (int i = 56; i < 64; i++) fprintf(stderr, "%02X", cipher->y[i]);
-    fprintf(stderr, "\n");
-    fprintf(stderr, "  [SDFPROV] asym_decrypt: key_index=%u hSession=%p\n",
-            key->key_index, key->hSession);
-
     /* 获取私钥访问权限 */
     {
-        SDFPROV_CTX *sdfctx3 = sdfprov_get_global_ctx();
-        const char *pwd = (sdfctx3 != NULL && sdfctx3->key_password != NULL)
-                          ? sdfctx3->key_password : NULL;
+        const char *pwd = key->key_password;
         int auth_ret = TSAPI_SDF_GetPrivateKeyAccessRight(
             key->hSession, key->key_index,
             (unsigned char *)pwd,
             pwd != NULL ? (unsigned int)strlen(pwd) : 0);
-        fprintf(stderr, "  [SDFPROV] asym_decrypt: GetPrivateKeyAccessRight(%u) with key_pwd ret=%d\n",
-                key->key_index, auth_ret);
+        if (auth_ret != OSSL_SDR_OK) {
+            ERR_raise_data(ERR_LIB_PROV, PROV_R_FAILED_TO_DECRYPT,
+                           "GetPrivateKeyAccessRight failed: 0x%08x", auth_ret);
+            goto end;
+        }
     }
 
     /* 硬件解密 */
@@ -210,8 +195,9 @@ static int sdfprov_sm2_asym_decrypt(void *vctx, unsigned char *out,
                                                   OSSL_SGD_SM2_3,
                                                   cipher, out,
                                                   &plaintext_len);
-    fprintf(stderr, "  [SDFPROV] asym_decrypt: SDF_InternalDecrypt ret=%d, pt_len=%u\n",
-            sdf_ret, plaintext_len);
+    /* 释放私钥访问权限 */
+    TSAPI_SDF_ReleasePrivateKeyAccessRight(key->hSession, key->key_index);
+
     if (sdf_ret != OSSL_SDR_OK) {
         ERR_raise(ERR_LIB_PROV, PROV_R_FAILED_TO_DECRYPT);
         goto end;

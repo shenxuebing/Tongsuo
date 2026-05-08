@@ -195,7 +195,7 @@ typedef struct pkcs7_st {
 
 /* S/MIME related flags */
 
-# define PKCS7_TEXT              0x1        //类型为TEXT/plain的MIME标头将预先添加到数据中。
+# define PKCS7_TEXT              0x1        //类型为TEXT/plain的MIME标头将预先添加到数据中
 # define PKCS7_NOCERTS           0x2        //不包含证书链
 # define PKCS7_NOSIGS            0x4        //不包含数字签名
 # define PKCS7_NOCHAIN           0x8        //不验证证书链

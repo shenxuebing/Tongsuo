@@ -19,54 +19,68 @@
 # include <dlfcn.h>
 #endif
 
-/* BYCSM_LoadModule: vendor-specific module initialization (password parameter) */
-typedef int (*FN_BYCSM_LoadModule)(const char *);
-
 /*
  * Load the SDF vendor DLL and call BYCSM_LoadModule to initialize the module.
- * This must be called before any standard SDF operations.
- * The DLL loaded here is the same instance that DSO will use later,
- * so the module state is shared.
+ * lib_path: 厂商库路径，为 NULL 时使用默认名称
+ *   Windows 默认: "sdf.dll"
+ *   Linux 默认: "libsdf.so"
+ * password: BYCSM_LoadModule 的密码参数
  */
-static int sdfprov_load_module(const char *password)
+static int sdfprov_load_module(SDFPROV_CTX *ctx, const char *password)
 {
+    const char *default_lib =
 #ifdef _WIN32
-    HMODULE hDll;
+        "sdf.dll";
+#else
+        "libsdf.so";
+#endif
+    const char *load_lib = (ctx->sdf_lib_path != NULL && ctx->sdf_lib_path[0] != '\0')
+                           ? ctx->sdf_lib_path : default_lib;
+
+#ifdef _WIN32
     FN_BYCSM_LoadModule pLoad;
 
-    hDll = LoadLibraryA("sdf.dll");
-    if (hDll == NULL)
+    if (ctx->hModule != NULL)
+        return 1; /* 已经加载 */
+
+    ctx->hModule = LoadLibraryA(load_lib);
+    if (ctx->hModule == NULL)
         return 0;
 
-    pLoad = (FN_BYCSM_LoadModule)GetProcAddress(hDll, "BYCSM_LoadModule");
+    pLoad = (FN_BYCSM_LoadModule)GetProcAddress(ctx->hModule, "BYCSM_LoadModule");
     if (pLoad == NULL) {
-        FreeLibrary(hDll);
+        FreeLibrary(ctx->hModule);
+        ctx->hModule = NULL;
         return 0;
     }
 
     if (pLoad(password) != 0) {
-        FreeLibrary(hDll);
+        FreeLibrary(ctx->hModule);
+        ctx->hModule = NULL;
         return 0;
     }
 
-    /* Don't free the DLL - DSO will also reference it */
     return 1;
 #else
-    void *hDll;
     FN_BYCSM_LoadModule pLoad;
 
-    hDll = dlopen("libsdf.so", RTLD_NOW);
-    if (hDll == NULL)
+    if (ctx->hModule != NULL)
+        return 1; /* 已经加载 */
+
+    ctx->hModule = dlopen(load_lib, RTLD_NOW);
+    if (ctx->hModule == NULL)
         return 0;
 
-    pLoad = (FN_BYCSM_LoadModule)dlsym(hDll, "BYCSM_LoadModule");
+    pLoad = (FN_BYCSM_LoadModule)dlsym(ctx->hModule, "BYCSM_LoadModule");
     if (pLoad == NULL) {
-        dlclose(hDll);
+        dlclose(ctx->hModule);
+        ctx->hModule = NULL;
         return 0;
     }
 
     if (pLoad(password) != 0) {
-        dlclose(hDll);
+        dlclose(ctx->hModule);
+        ctx->hModule = NULL;
         return 0;
     }
 
@@ -99,10 +113,16 @@ void sdfprov_ctx_free(SDFPROV_CTX *ctx)
         return;
 
     sdfprov_ctx_teardown_device(ctx);
+#ifdef _WIN32
+    if (ctx->hModule != NULL)
+        FreeLibrary(ctx->hModule);
+#else
+    if (ctx->hModule != NULL)
+        dlclose(ctx->hModule);
+#endif
     OPENSSL_free(ctx->sdf_lib_path);
     OPENSSL_free(ctx->device_name);
     OPENSSL_free(ctx->password);
-    OPENSSL_free(ctx->key_password);
     CRYPTO_THREAD_lock_free(ctx->lock);
     OPENSSL_free(ctx);
 }
@@ -117,10 +137,21 @@ int sdfprov_ctx_init_device(SDFPROV_CTX *ctx)
     if (ctx->initialized)
         return 1;
 
+    /* 加锁保护，防止多线程并发初始化 */
+    if (CRYPTO_THREAD_write_lock(ctx->lock) == 0)
+        return 0;
+
+    /* Double-check after acquiring lock */
+    if (ctx->initialized) {
+        CRYPTO_THREAD_unlock(ctx->lock);
+        return 1;
+    }
+
     /* Step 1: Load the vendor module with password */
     if (!ctx->module_loaded) {
         const char *pwd = ctx->password ? ctx->password : "88888888";
-        if (!sdfprov_load_module(pwd)) {
+        if (!sdfprov_load_module(ctx, pwd)) {
+            CRYPTO_THREAD_unlock(ctx->lock);
             ERR_raise_data(ERR_LIB_PROV, PROV_R_FAILED_TO_GET_PARAMETER,
                            "SDF module load failed (BYCSM_LoadModule)");
             return 0;
@@ -131,6 +162,7 @@ int sdfprov_ctx_init_device(SDFPROV_CTX *ctx)
     /* Step 2: Open device */
     ret = TSAPI_SDF_OpenDevice(&ctx->hDevice);
     if (ret != OSSL_SDR_OK) {
+        CRYPTO_THREAD_unlock(ctx->lock);
         ERR_raise_data(ERR_LIB_PROV, PROV_R_FAILED_TO_GET_PARAMETER,
                        "SDF_OpenDevice failed: 0x%08x", ret);
         return 0;
@@ -141,10 +173,12 @@ int sdfprov_ctx_init_device(SDFPROV_CTX *ctx)
     if (ret != OSSL_SDR_OK) {
         TSAPI_SDF_CloseDevice(ctx->hDevice);
         ctx->hDevice = NULL;
+        CRYPTO_THREAD_unlock(ctx->lock);
         return 0;
     }
 
     ctx->initialized = 1;
+    CRYPTO_THREAD_unlock(ctx->lock);
     return 1;
 }
 
@@ -158,4 +192,5 @@ void sdfprov_ctx_teardown_device(SDFPROV_CTX *ctx)
     ctx->hSession = NULL;
     ctx->hDevice = NULL;
     ctx->initialized = 0;
+    ctx->module_loaded = 0;
 }

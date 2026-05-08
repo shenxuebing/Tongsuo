@@ -59,8 +59,9 @@ static int sdfprov_sm2_sig_sign_init(void *vctx, void *vkey,
     if (ctx->id == NULL) {
         const char default_id[] = "1234567812345678";
         ctx->id = OPENSSL_memdup(default_id, sizeof(default_id));
-        if (ctx->id != NULL)
-            ctx->id_len = sizeof(default_id) - 1;
+        if (ctx->id == NULL)
+            return 0;
+        ctx->id_len = sizeof(default_id) - 1;
     }
 
     /* 标记需要在首次 update 时计算 ZA */
@@ -83,15 +84,7 @@ static int sdfprov_sm2_sig_sign(void *vctx, unsigned char *sig,
     if (ctx == NULL || ctx->skey == NULL)
         return 0;
 
-    fprintf(stderr,
-            "  [SDFPROV] sm2_sig_sign: ctx=%p skey=%p sig=%p sigsize=%zu tbs=%p tbslen=%zu\n",
-            (void *)ctx, (void *)ctx->skey, sig, sigsize, tbs, tbslen);
-
     key = ctx->skey;
-
-    fprintf(stderr,
-            "  [SDFPROV] sm2_sig_sign: key=%p hw=%d ec_key=%p\n",
-            (void *)key, key->is_hardware_key, (void *)key->ec_key);
 
     if (!key->is_hardware_key) {
         /* 软件路径: 使用 ossl_sm2_internal_sign */
@@ -105,21 +98,12 @@ static int sdfprov_sm2_sig_sign(void *vctx, unsigned char *sig,
 
         /* 需要私钥才能签名 */
         if (key->ec_key == NULL) {
-            fprintf(stderr,
-                    "  [SDFPROV] sm2_sig_sign: software key ec_key=NULL\n");
             return 0;
         }
         priv = EC_KEY_get0_private_key(key->ec_key);
-        fprintf(stderr,
-                "  [SDFPROV] sm2_sig_sign: software priv=%p\n",
-                (const void *)priv);
         if (priv == NULL) {
-            fprintf(stderr,
-                    "  [SDFPROV] sm2_sig_sign: software key missing private key\n");
             return 0;
         }
-
-        fprintf(stderr, "  [SDFPROV] sm2_sig_sign: before internal sign\n");
 
         if (sigsize > UINT_MAX)
             return 0;
@@ -127,9 +111,6 @@ static int sdfprov_sm2_sig_sign(void *vctx, unsigned char *sig,
         siglen_tmp = (unsigned int)sigsize;
         sltmp = ossl_sm2_internal_sign(tbs, (int)tbslen, sig, &siglen_tmp,
                                        key->ec_key);
-        fprintf(stderr,
-                "  [SDFPROV] sm2_sig_sign: software sign ret=%d siglen=%u\n",
-                sltmp, siglen_tmp);
         if (sltmp <= 0)
             return 0;
         *siglen = (size_t)siglen_tmp;
@@ -197,8 +178,9 @@ static int sdfprov_sm2_sig_verify_init(void *vctx, void *vkey,
     if (ctx->id == NULL) {
         const char default_id[] = "1234567812345678";
         ctx->id = OPENSSL_memdup(default_id, sizeof(default_id));
-        if (ctx->id != NULL)
-            ctx->id_len = sizeof(default_id) - 1;
+        if (ctx->id == NULL)
+            return 0;
+        ctx->id_len = sizeof(default_id) - 1;
     }
 
     /* 标记需要在首次 update 时计算 ZA */
@@ -239,8 +221,6 @@ static int sdfprov_sm2_sig_digest_sign_init(void *vctx, const char *mdname,
         OPENSSL_strlcpy(ctx->mdname, mdname, sizeof(ctx->mdname));
     }
 
-    fprintf(stderr, "  [SDFPROV] digest_sign_init: key=%p hw=%d\n",
-            vkey, ((SDF_SM2_KEY *)vkey)->is_hardware_key);
     return 1;
 }
 
@@ -319,19 +299,11 @@ static int sdfprov_sm2_sig_digest_sign_final(void *vctx, unsigned char *sig,
     if (ctx == NULL)
         return 0;
 
-    fprintf(stderr,
-            "  [SDFPROV] digest_sign_final: enter ctx=%p sig=%p siglen=%p sigsize=%zu mdctx=%p\n",
-            (void *)ctx, sig, (void *)siglen, sigsize, (void *)ctx->mdctx);
-
     /*
      * 当 sig == NULL 时，只需要返回最大签名长度。
-     * 此时可能没有调用过 update（mdctx == NULL），直接调用 sign 获取长度。
      */
     if (sig == NULL) {
-        int r = sdfprov_sm2_sig_sign(vctx, NULL, siglen, sigsize, NULL, 0);
-        fprintf(stderr, "  [SDFPROV] digest_sign_final(sig=NULL)=%d len=%zu\n",
-                r, siglen ? *siglen : 0);
-        return r;
+        return sdfprov_sm2_sig_sign(vctx, NULL, siglen, sigsize, NULL, 0);
     }
 
     if (ctx->mdctx == NULL) {
@@ -366,10 +338,7 @@ static int sdfprov_sm2_sig_digest_sign_final(void *vctx, unsigned char *sig,
         return 0;
 
     /* 用摘要作为 tbs 进行签名 */
-    int r = sdfprov_sm2_sig_sign(vctx, sig, siglen, sigsize, digest, (size_t)dlen);
-    fprintf(stderr, "  [SDFPROV] digest_sign_final(sig=%p)=%d siglen=%zu dlen=%u\n",
-            sig, r, siglen ? *siglen : 0, dlen);
-    return r;
+    return sdfprov_sm2_sig_sign(vctx, sig, siglen, sigsize, digest, (size_t)dlen);
 }
 
 static int sdfprov_sm2_sig_digest_verify_update(void *vctx,

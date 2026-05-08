@@ -182,7 +182,8 @@ int sdfprov_ecccipher_to_sm2_der(const OSSL_ECCCipher *cipher,
 
 int sdfprov_sm2_der_to_ecccipher(const unsigned char *der, size_t der_len,
                                  OSSL_ECCCipher *cipher,
-                                 int encdata_format)
+                                 int encdata_format,
+                                 size_t cipher_buf_size)
 {
     EC_POINT *C1 = NULL;
     uint8_t *C2 = NULL, *C3 = NULL;
@@ -198,12 +199,8 @@ int sdfprov_sm2_der_to_ecccipher(const unsigned char *der, size_t der_len,
     if (!ossl_sm2_ciphertext_decode(der, der_len,
                                      &C1, &C2, &C2_len,
                                      &C3, &C3_len)) {
-        fprintf(stderr, "  [SDFPROV] der_to_ecccipher: C1C3C2 decode FAILED\n");
         return 0;
     }
-
-    fprintf(stderr, "  [SDFPROV] der_to_ecccipher: C1C3C2 decode C2_len=%zu C3_len=%zu\n",
-            C2_len, C3_len);
 
     /*
      * 默认 Provider 的 SM2 加密使用 SM2_CiphertextEx (C1C2C3 格式),
@@ -211,17 +208,26 @@ int sdfprov_sm2_der_to_ecccipher(const unsigned char *der, size_t der_len,
      * 导致 C2 和 C3 互换:
      *   - 如果实际格式是 C1C2C3, decode 返回 C2=实际C3(hash,32), C3=实际C2(密文)
      *   - 如果实际格式是 C1C3C2, decode 返回 C2=实际C2(密文), C3=实际C3(hash,32)
-     * 判断依据: C3 应该是 32 字节的 SM3 hash
+     *
+     * 使用 encdata_format 参数确定是否需要交换:
+     *   encdata_format=1 表示 C1C2C3 格式（需要交换）
+     *   encdata_format=0 表示 C1C3C2 格式（不需要交换）
      */
-    if (C3_len != 32 && C2_len == 32) {
-        /* C1C2C3 格式: decode 的 C2 实际是 C3(hash), C3 实际是 C2(密文) */
+    if (encdata_format == 1) {
+        /* C1C2C3 格式: decode 的 C2 实际是 C3(hash), C3 实际是 C2(密文), 需要交换 */
         uint8_t *tmp_data = C2;
         size_t tmp_len = C2_len;
         C2 = C3;
         C2_len = C3_len;
         C3 = tmp_data;
         C3_len = tmp_len;
-        fprintf(stderr, "  [SDFPROV] der_to_ecccipher: C1C2C3 format detected, swapped\n");
+    }
+
+    /* 验证 C2_len 不超过分配的缓冲区大小 */
+    if (C2_len > cipher_buf_size) {
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_FAILED_TO_DECRYPT,
+                       "C2_len (%zu) exceeds buffer (%zu)", C2_len, cipher_buf_size);
+        goto end;
     }
 
     /* 创建 SM2 曲线组来提取坐标 */
@@ -249,7 +255,6 @@ int sdfprov_sm2_der_to_ecccipher(const unsigned char *der, size_t der_len,
     if (C2_len > 0)
         memcpy(cipher->C, C2, C2_len);
 
-    fprintf(stderr, "  [SDFPROV] der_to_ecccipher: final L=%u\n", cipher->L);
     ret = 1;
 
 end:

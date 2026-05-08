@@ -82,6 +82,32 @@ extern int SDF_CalculateMAC(void *hSessionHandle, void *hKeyHandle,
 
 extern int SDFE_GenerateKey(void *hSessionHandle, uint8_t type, uint8_t no_kek,
     uint32_t len, void **pkey_handle) __attribute__((weak));
+
+extern int SDF_GenerateAgreementDataWithECCEx(void *hSessionHandle,
+    unsigned int uiISKIndex, unsigned int uiKeyBits,
+    unsigned char *pucSponsorID, unsigned int uiSponsorIDLength,
+    OSSL_ECCrefPublicKey *pucSponsorPublicKey,
+    OSSL_ECCrefPublicKey *pucSponsorTmpPublicKey,
+    void **phAgreementHandle) __attribute__((weak));
+
+extern int SDF_GenerateKeyWithECCEx(void *hSessionHandle,
+    unsigned char *pucResponseID, unsigned int uiResponseIDLength,
+    OSSL_ECCrefPublicKey *pucResponsePublicKey,
+    OSSL_ECCrefPublicKey *pucResponseTmpPublicKey,
+    void *hAgreementHandle,
+    unsigned char *pucSharedSecret, unsigned int *puiSecretLength,
+    void **phKeyHandle) __attribute__((weak));
+
+extern int SDF_GenerateAgreementDataAndKeyWithECCEx(
+    void *hSessionHandle, unsigned int uiISKIndex, unsigned int uiKeyBits,
+    unsigned char *pucResponseID, unsigned int uiResponseIDLength,
+    unsigned char *pucSponsorID, unsigned int uiSponsorIDLength,
+    OSSL_ECCrefPublicKey *pucSponsorPublicKey,
+    OSSL_ECCrefPublicKey *pucSponsorTmpPublicKey,
+    OSSL_ECCrefPublicKey *pucResponsePublicKey,
+    OSSL_ECCrefPublicKey *pucResponseTmpPublicKey,
+    unsigned char *pucSharedSecret, unsigned int *puiSecretLength,
+    void **phKeyHandle) __attribute__((weak));
 # endif
 
 static CRYPTO_ONCE sdf_lib_once = CRYPTO_ONCE_STATIC_INIT;
@@ -118,6 +144,9 @@ DEFINE_RUN_ONCE_STATIC(ossl_sdf_lib_init)
         /* SDFE_GenerateKey 是扩展函数，部分厂商 DLL 不提供，绑定失败不影响基本功能 */
         ERR_set_mark();
         sdfm.GenerateKey = DSO_bind_func(sdf_dso, "SDFE_GenerateKey");
+        sdfm.GenerateAgreementDataWithECCEx = DSO_bind_func(sdf_dso, "SDF_GenerateAgreementDataWithECCEx");
+        sdfm.GenerateKeyWithECCEx = DSO_bind_func(sdf_dso, "SDF_GenerateKeyWithECCEx");
+        sdfm.GenerateAgreementDataAndKeyWithECCEx = DSO_bind_func(sdf_dso, "SDF_GenerateAgreementDataAndKeyWithECCEx");
         ERR_pop_to_mark();
     }
 # else
@@ -140,6 +169,9 @@ DEFINE_RUN_ONCE_STATIC(ossl_sdf_lib_init)
     sdfm.Decrypt = SDF_Decrypt;
     sdfm.CalculateMAC = SDF_CalculateMAC;
     sdfm.GenerateKey = SDFE_GenerateKey;
+    sdfm.GenerateAgreementDataWithECCEx = SDF_GenerateAgreementDataWithECCEx;
+    sdfm.GenerateKeyWithECCEx = SDF_GenerateKeyWithECCEx;
+    sdfm.GenerateAgreementDataAndKeyWithECCEx = SDF_GenerateAgreementDataAndKeyWithECCEx;
 # endif
     return 1;
 }
@@ -419,4 +451,65 @@ int TSAPI_SDF_InternalSign_ECC(void *hSessionHandle, unsigned int uiISKIndex,
 
     return meth->InternalSign_ECC(hSessionHandle, uiISKIndex, pucData,
                                   uiDataLength, pucSignature);
+}
+
+int TSAPI_SDF_GenerateAgreementDataWithECCEx(void *hSessionHandle,
+    unsigned int uiISKIndex, unsigned int uiKeyBits,
+    unsigned char *pucSponsorID, unsigned int uiSponsorIDLength,
+    OSSL_ECCrefPublicKey *pucSponsorPublicKey,
+    OSSL_ECCrefPublicKey *pucSponsorTmpPublicKey,
+    void **phAgreementHandle)
+{
+    const SDF_METHOD *meth = sdf_get_method();
+
+    if (meth == NULL || meth->GenerateAgreementDataWithECCEx == NULL)
+        return OSSL_SDR_NOTSUPPORT;
+
+    return meth->GenerateAgreementDataWithECCEx(hSessionHandle, uiISKIndex,
+            uiKeyBits, pucSponsorID, uiSponsorIDLength,
+            pucSponsorPublicKey, pucSponsorTmpPublicKey,
+            phAgreementHandle);
+}
+
+int TSAPI_SDF_GenerateKeyWithECCEx(void *hSessionHandle,
+    unsigned char *pucResponseID, unsigned int uiResponseIDLength,
+    OSSL_ECCrefPublicKey *pucResponsePublicKey,
+    OSSL_ECCrefPublicKey *pucResponseTmpPublicKey,
+    void *hAgreementHandle,
+    unsigned char *pucSharedSecret, unsigned int *puiSecretLength,
+    void **phKeyHandle)
+{
+    const SDF_METHOD *meth = sdf_get_method();
+
+    if (meth == NULL || meth->GenerateKeyWithECCEx == NULL)
+        return OSSL_SDR_NOTSUPPORT;
+
+    return meth->GenerateKeyWithECCEx(hSessionHandle, pucResponseID,
+            uiResponseIDLength, pucResponsePublicKey, pucResponseTmpPublicKey,
+            hAgreementHandle, pucSharedSecret, puiSecretLength,
+            phKeyHandle);
+}
+
+int TSAPI_SDF_GenerateAgreementDataAndKeyWithECCEx(
+    void *hSessionHandle, unsigned int uiISKIndex, unsigned int uiKeyBits,
+    unsigned char *pucResponseID, unsigned int uiResponseIDLength,
+    unsigned char *pucSponsorID, unsigned int uiSponsorIDLength,
+    OSSL_ECCrefPublicKey *pucSponsorPublicKey,
+    OSSL_ECCrefPublicKey *pucSponsorTmpPublicKey,
+    OSSL_ECCrefPublicKey *pucResponsePublicKey,
+    OSSL_ECCrefPublicKey *pucResponseTmpPublicKey,
+    unsigned char *pucSharedSecret, unsigned int *puiSecretLength,
+    void **phKeyHandle)
+{
+    const SDF_METHOD *meth = sdf_get_method();
+
+    if (meth == NULL || meth->GenerateAgreementDataAndKeyWithECCEx == NULL)
+        return OSSL_SDR_NOTSUPPORT;
+
+    return meth->GenerateAgreementDataAndKeyWithECCEx(hSessionHandle,
+            uiISKIndex, uiKeyBits, pucResponseID, uiResponseIDLength,
+            pucSponsorID, uiSponsorIDLength,
+            pucSponsorPublicKey, pucSponsorTmpPublicKey,
+            pucResponsePublicKey, pucResponseTmpPublicKey,
+            pucSharedSecret, puiSecretLength, phKeyHandle);
 }

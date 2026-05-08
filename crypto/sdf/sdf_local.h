@@ -99,6 +99,32 @@ typedef int (*SDF_InternalDecrypt_ECC_fn)(void *hSessionHandle,
 typedef int (*SDF_InternalSign_ECC_fn)(void *hSessionHandle,
     unsigned int uiISKIndex, unsigned char *pucData, unsigned int uiDataLength,
     OSSL_ECCSignature *pucSignature);
+
+typedef int (*SDF_GenerateAgreementDataWithECCEx_fn)(void *hSessionHandle,
+    unsigned int uiISKIndex, unsigned int uiKeyBits,
+    unsigned char *pucSponsorID, unsigned int uiSponsorIDLength,
+    OSSL_ECCrefPublicKey *pucSponsorPublicKey,
+    OSSL_ECCrefPublicKey *pucSponsorTmpPublicKey,
+    void **phAgreementHandle);
+
+typedef int (*SDF_GenerateKeyWithECCEx_fn)(void *hSessionHandle,
+    unsigned char *pucResponseID, unsigned int uiResponseIDLength,
+    OSSL_ECCrefPublicKey *pucResponsePublicKey,
+    OSSL_ECCrefPublicKey *pucResponseTmpPublicKey,
+    void *hAgreementHandle,
+    unsigned char *pucSharedSecret, unsigned int *puiSecretLength,
+    void **phKeyHandle);
+
+typedef int (*SDF_GenerateAgreementDataAndKeyWithECCEx_fn)(
+    void *hSessionHandle, unsigned int uiISKIndex, unsigned int uiKeyBits,
+    unsigned char *pucResponseID, unsigned int uiResponseIDLength,
+    unsigned char *pucSponsorID, unsigned int uiSponsorIDLength,
+    OSSL_ECCrefPublicKey *pucSponsorPublicKey,
+    OSSL_ECCrefPublicKey *pucSponsorTmpPublicKey,
+    OSSL_ECCrefPublicKey *pucResponsePublicKey,
+    OSSL_ECCrefPublicKey *pucResponseTmpPublicKey,
+    unsigned char *pucSharedSecret, unsigned int *puiSecretLength,
+    void **phKeyHandle);
 /*
  * Returns 0 for success, others for error code
  */
@@ -124,6 +150,11 @@ struct sdf_method_st {
 
     /* SDF Ext API */
     SDF_GenerateKey_fn GenerateKey;
+
+    /* SDF Key Agreement API */
+    SDF_GenerateAgreementDataWithECCEx_fn GenerateAgreementDataWithECCEx;
+    SDF_GenerateKeyWithECCEx_fn GenerateKeyWithECCEx;
+    SDF_GenerateAgreementDataAndKeyWithECCEx_fn GenerateAgreementDataAndKeyWithECCEx;
 };
 
 extern SDF_METHOD ts_sdf_meth;

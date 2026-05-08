@@ -48,7 +48,6 @@ static int sdfprov_sm2dh_init(void *vctx, void *vkey, const OSSL_PARAM params[])
     SDFPROV_SM2DH_CTX *ctx = vctx;
     if (ctx == NULL || vkey == NULL)
         return 0;
-    fprintf(stderr, "  [SDFPROV] sm2dh_init: key=%p\n", vkey);
     ctx->k = vkey;
     if (params != NULL)
         return sdfprov_sm2dh_set_ctx_params(vctx, params);
@@ -58,7 +57,6 @@ static int sdfprov_sm2dh_init(void *vctx, void *vkey, const OSSL_PARAM params[])
 static int sdfprov_sm2dh_set_peer(void *vctx, void *vpeerk)
 {
     SDFPROV_SM2DH_CTX *ctx = vctx;
-    fprintf(stderr, "  [SDFPROV] sm2dh_set_peer: ctx=%p peerk=%p\n", vctx, vpeerk);
     if (ctx == NULL || vpeerk == NULL)
         return 0;
     ctx->peerk = vpeerk;
@@ -124,20 +122,21 @@ static int sdfprov_sm2dh_derive(void *vctx, unsigned char *secret,
                 if (key_handle != NULL)
                     TSAPI_SDF_DestroyKey(ctx->k->hSession, key_handle);
                 *psecretlen = secret_len;
-                fprintf(stderr,
-                        "  [SDFPROV] sm2dh_derive: hardware SDF_GenerateKeyWithECCEx ok, secret_len=%u\n",
-                        secret_len);
                 return 1;
             }
+            /* 硬件协商失败，报错返回而非静默回退到软件路径 */
+            ERR_raise_data(ERR_LIB_PROV, PROV_R_FAILED_TO_GENERATE_KEY,
+                           "SDF_GenerateKeyWithECCEx failed: 0x%08x", ret);
+            return 0;
         }
+        ERR_raise(ERR_LIB_PROV, PROV_R_MISSING_KEY);
+        return 0;
     }
 
     /* 完整 SM2DH 4 密钥协商模式 */
     if (ctx->enc_k != NULL && ctx->enc_peerk != NULL) {
         EC_KEY *self_enc = evp_pkey_to_ec_key(ctx->enc_k);
         EC_KEY *peer_enc = evp_pkey_to_ec_key(ctx->enc_peerk);
-
-        fprintf(stderr, "  [SDFPROV] sm2dh_derive: 4-key mode\n");
 
         if (self_enc == NULL || peer_enc == NULL) {
             ERR_raise(ERR_LIB_PROV, PROV_R_MISSING_KEY);
@@ -207,13 +206,10 @@ static int sdfprov_sm2dh_set_ctx_params(void *vctx, const OSSL_PARAM params[])
     if (params == NULL)
         return 1;
 
-    fprintf(stderr, "  [SDFPROV] sm2dh_set_ctx_params called\n");
-
     p = OSSL_PARAM_locate_const(params, OSSL_EXCHANGE_PARAM_INITIATOR);
     if (p != NULL) {
         if (!OSSL_PARAM_get_int(p, &ctx->initiator))
             return 0;
-        fprintf(stderr, "  [SDFPROV] sm2dh: initiator=%d\n", ctx->initiator);
     }
 
     p = OSSL_PARAM_locate_const(params, OSSL_EXCHANGE_PARAM_SELF_ID);
@@ -223,7 +219,6 @@ static int sdfprov_sm2dh_set_ctx_params(void *vctx, const OSSL_PARAM params[])
         ctx->id_len = 0;
         if (!OSSL_PARAM_get_octet_string(p, (void **)&ctx->id, 0, &ctx->id_len))
             return 0;
-        fprintf(stderr, "  [SDFPROV] sm2dh: self_id len=%zu\n", ctx->id_len);
     }
 
     p = OSSL_PARAM_locate_const(params, OSSL_EXCHANGE_PARAM_PEER_ID);
@@ -233,7 +228,6 @@ static int sdfprov_sm2dh_set_ctx_params(void *vctx, const OSSL_PARAM params[])
         ctx->peer_id_len = 0;
         if (!OSSL_PARAM_get_octet_string(p, (void **)&ctx->peer_id, 0, &ctx->peer_id_len))
             return 0;
-        fprintf(stderr, "  [SDFPROV] sm2dh: peer_id len=%zu\n", ctx->peer_id_len);
     }
 
     p = OSSL_PARAM_locate_const(params, OSSL_EXCHANGE_PARAM_SELF_ENC_KEY);
@@ -242,7 +236,6 @@ static int sdfprov_sm2dh_set_ctx_params(void *vctx, const OSSL_PARAM params[])
         size_t enc_key_sz = 0;
         if (!OSSL_PARAM_get_octet_ptr(p, (const void **)&enc_key, &enc_key_sz))
             return 0;
-        fprintf(stderr, "  [SDFPROV] sm2dh: self_enc_key=%p sz=%zu\n", (void*)enc_key, enc_key_sz);
         EVP_PKEY_free(ctx->enc_k);
         ctx->enc_k = enc_key;
         EVP_PKEY_up_ref(ctx->enc_k);
@@ -254,7 +247,6 @@ static int sdfprov_sm2dh_set_ctx_params(void *vctx, const OSSL_PARAM params[])
         size_t enc_peer_sz = 0;
         if (!OSSL_PARAM_get_octet_ptr(p, (const void **)&enc_peer, &enc_peer_sz))
             return 0;
-        fprintf(stderr, "  [SDFPROV] sm2dh: peer_enc_key=%p sz=%zu\n", (void*)enc_peer, enc_peer_sz);
         EVP_PKEY_free(ctx->enc_peerk);
         ctx->enc_peerk = enc_peer;
         EVP_PKEY_up_ref(ctx->enc_peerk);

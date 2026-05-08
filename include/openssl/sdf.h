@@ -114,6 +114,33 @@ int TSAPI_SDF_InternalSign_ECC(void *hSessionHandle, unsigned int uiISKIndex,
                                unsigned int uiDataLength,
                                OSSL_ECCSignature *pucSignature);
 
+/* SDF Key Agreement API */
+int TSAPI_SDF_GenerateAgreementDataWithECCEx(void *hSessionHandle,
+    unsigned int uiISKIndex, unsigned int uiKeyBits,
+    unsigned char *pucSponsorID, unsigned int uiSponsorIDLength,
+    OSSL_ECCrefPublicKey *pucSponsorPublicKey,
+    OSSL_ECCrefPublicKey *pucSponsorTmpPublicKey,
+    void **phAgreementHandle);
+
+int TSAPI_SDF_GenerateKeyWithECCEx(void *hSessionHandle,
+    unsigned char *pucResponseID, unsigned int uiResponseIDLength,
+    OSSL_ECCrefPublicKey *pucResponsePublicKey,
+    OSSL_ECCrefPublicKey *pucResponseTmpPublicKey,
+    void *hAgreementHandle,
+    unsigned char *pucSharedSecret, unsigned int *puiSecretLength,
+    void **phKeyHandle);
+
+int TSAPI_SDF_GenerateAgreementDataAndKeyWithECCEx(
+    void *hSessionHandle, unsigned int uiISKIndex, unsigned int uiKeyBits,
+    unsigned char *pucResponseID, unsigned int uiResponseIDLength,
+    unsigned char *pucSponsorID, unsigned int uiSponsorIDLength,
+    OSSL_ECCrefPublicKey *pucSponsorPublicKey,
+    OSSL_ECCrefPublicKey *pucSponsorTmpPublicKey,
+    OSSL_ECCrefPublicKey *pucResponsePublicKey,
+    OSSL_ECCrefPublicKey *pucResponseTmpPublicKey,
+    unsigned char *pucSharedSecret, unsigned int *puiSecretLength,
+    void **phKeyHandle);
+
 # ifdef __cplusplus
 }
 # endif

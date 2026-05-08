@@ -145,6 +145,41 @@ static int x_GenerateKey(void *hSessionHandle, uint8_t type, uint8_t no_kek,
     return OSSL_SDR_NOTSUPPORT;
 }
 
+static int x_GenerateAgreementDataWithECCEx(void *hSessionHandle,
+    unsigned int uiISKIndex, unsigned int uiKeyBits,
+    unsigned char *pucSponsorID, unsigned int uiSponsorIDLength,
+    OSSL_ECCrefPublicKey *pucSponsorPublicKey,
+    OSSL_ECCrefPublicKey *pucSponsorTmpPublicKey,
+    void **phAgreementHandle)
+{
+    return OSSL_SDR_NOTSUPPORT;
+}
+
+static int x_GenerateKeyWithECCEx(void *hSessionHandle,
+    unsigned char *pucResponseID, unsigned int uiResponseIDLength,
+    OSSL_ECCrefPublicKey *pucResponsePublicKey,
+    OSSL_ECCrefPublicKey *pucResponseTmpPublicKey,
+    void *hAgreementHandle,
+    unsigned char *pucSharedSecret, unsigned int *puiSecretLength,
+    void **phKeyHandle)
+{
+    return OSSL_SDR_NOTSUPPORT;
+}
+
+static int x_GenerateAgreementDataAndKeyWithECCEx(
+    void *hSessionHandle, unsigned int uiISKIndex, unsigned int uiKeyBits,
+    unsigned char *pucResponseID, unsigned int uiResponseIDLength,
+    unsigned char *pucSponsorID, unsigned int uiSponsorIDLength,
+    OSSL_ECCrefPublicKey *pucSponsorPublicKey,
+    OSSL_ECCrefPublicKey *pucSponsorTmpPublicKey,
+    OSSL_ECCrefPublicKey *pucResponsePublicKey,
+    OSSL_ECCrefPublicKey *pucResponseTmpPublicKey,
+    unsigned char *pucSharedSecret, unsigned int *puiSecretLength,
+    void **phKeyHandle)
+{
+    return OSSL_SDR_NOTSUPPORT;
+}
+
 SDF_METHOD ts_sdf_meth = {
     x_OpenDevice,
     x_CloseDevice,
@@ -167,4 +202,9 @@ SDF_METHOD ts_sdf_meth = {
 
     /* SDF Ext API */
     x_GenerateKey,
+
+    /* SDF Key Agreement API */
+    x_GenerateAgreementDataWithECCEx,
+    x_GenerateKeyWithECCEx,
+    x_GenerateAgreementDataAndKeyWithECCEx,
 };

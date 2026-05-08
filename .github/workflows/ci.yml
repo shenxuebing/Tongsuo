@@ -411,6 +411,21 @@ jobs:
       - name: check dirty
         run: test $(git status --porcelain | wc -l) -eq "0"
 
+  sdfprov-compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: config
+        run: ./config enable-ntls enable-sdfprov enable-sdf-lib-dynamic --strict-warnings && perl configdata.pm --dump
+      - name: make
+        run: make -s -j4
+      - name: make test
+        run: make test TESTS="test_abort test_sanity test_symbol_presence test_sign_sm2 test_ntls"
+      - name: make clean
+        run: make clean
+      - name: check dirty
+        run: test $(git status --porcelain | wc -l) -eq "0"
+
   zkp-build-test:
     runs-on: ubuntu-latest
     steps:

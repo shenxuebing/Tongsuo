@@ -62,6 +62,7 @@ providers = provider_sect
 # List of providers to load
 [provider_sect]
 default = default_sect
+sdfprov = sdfprov_sect
 
 # The smtc section name should match the section name inside the
 # included smtcmodule.cnf.
@@ -80,7 +81,10 @@ default = default_sect
 # OpenSSL may not work correctly which could lead to significant system
 # problems including inability to remotely access the system.
 [default_sect]
-# activate = 1
+activate = 1
+
+[sdfprov_sect]
+activate = 1
 
 
 ####################################################################
