@@ -53,9 +53,30 @@ nmake
 #### Linux
 
 ```bash
+# 基础编译
 ./Configure linux-x86_64 no-shared enable-ntls enable-sdf-lib-dynamic
-make
+make -j$(nproc)
+
+# 生产环境编译（含 SM2 优化加速）
+./Configure linux-x86_64 \
+    --prefix=/usr/local/tongsuo \
+    -Wl,-rpath,/usr/local/tongsuo/lib64 \
+    no-shared enable-ntls enable-sdf-lib-dynamic \
+    enable-ec_sm2p_64_gcc_128 \
+    -march=native
+make -j$(nproc)
 ```
+
+### 性能优化选项
+
+| 选项 | 平台 | 说明 |
+|------|------|------|
+| `enable-ec_sm2p_64_gcc_128` | Linux x86_64 (GCC/Clang) | SM2 快速模约简（64 位优化），显著提升 SM2 签名/验签/密钥交换性能 |
+| `enable-ec_nistp_64_gcc_128` | Linux x86_64 (GCC/Clang) | NIST 曲线（P-256/P-384）快速模约简 |
+| `-march=native` | Linux (GCC/Clang) | 针对当前 CPU 指令集优化（AVX2/AES-NI 等） |
+| `enable-sm2-precomp` | 通用 | SM2 预计算表加速（增大二进制体积换取速度） |
+
+> **注意**：`ec_sm2p_64_gcc_128` 和 `ec_nistp_64_gcc_128` 仅在 Linux x86_64 + GCC/Clang 下有效，Windows MSVC 不支持。
 
 ### 注意事项
 
@@ -93,8 +114,13 @@ activate = 1
 # SDF 厂商库路径（可选，默认: Windows=sdf.dll, Linux=libsdf.so）
 # 切换厂家驱动只需修改此路径，无需重新编译
 sdf_lib_path = byzk0018.dll
+# 是否调用 BYCSM_LoadModule 接口（可选，默认: 1）
+# 1=调用（适用于百旺等需要此接口的厂商）
+# 0=不调用（适用于不需要此接口的厂商）
+sdf_use_loadmodule = 1
 # SDF 模块密码（可选，默认: 88888888）
 # 这是 SDF 设备模块的加载密码（BYCSM_LoadModule 参数）
+# 仅在 sdf_use_loadmodule=1 时使用
 # 私钥访问控制码通过 URI 的 pwd 参数传递，不要写在这里
 sdf_module_password = 88888888
 ```
@@ -108,15 +134,20 @@ sdf_module_password = 88888888
 openssl -provider sdfprov -provider default [命令]
 ```
 
-### 3. 环境变量
+### 3. 指定配置文件路径
+
+默认使用编译时内置的 `openssl.cnf` 路径。可通过 `OPENSSL_CONF` 环境变量指定自定义配置文件：
 
 ```bash
-# Windows
-set OPENSSL_CONF=path\to\openssl.cnf
+# Windows（临时生效）
+set OPENSSL_CONF=C:\path\to\my_openssl.cnf
 
-# Linux/macOS
-export OPENSSL_CONF=/path/to/openssl.cnf
+# Linux/macOS（临时生效）
+export OPENSSL_CONF=/path/to/my_openssl.cnf
 ```
+
+> **注意**：`OPENSSL_CONF` 对所有 `openssl` 子命令生效，包括 `s_server`、`s_client`、`dgst` 等。
+> 测试脚本中可在开头添加 `set OPENSSL_CONF=...` 来使用指定配置文件。
 
 ## 密钥 URI 格式
 

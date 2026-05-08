@@ -18,37 +18,68 @@
 ```bash
 # 推荐 Strawberry Perl (C:\Perl64\bin\perl.exe)，MSYS2 Perl 可能缺模块
 
-# 基础编译（启用 NTLS + SDF Provider）
-# SDF 头文件已在 ./include 下，不需要 --with-sdf-include
-perl Configure VC-WIN64A no-shared enable-ntls enable-sdfprov enable-sdf-lib-dynamic
-nmake
-
-# 含白盒 SM4
-perl Configure VC-WIN64A no-shared enable-ntls enable-sdfprov enable-sdf-lib-dynamic --enable-wbsm4-xiaolai --enable-wbsm4-baiwu --enable-wbsm4-wsise
+# 最优编译命令
+perl Configure VC-WIN64A no-shared no-module enable-ntls enable-sdfprov enable-sdf-lib-dynamic enable-legacy
 nmake
 ```
 
 ### Linux
 
 ```bash
-./Configure linux-x86_64 no-shared enable-ntls enable-sdfprov enable-sdf-lib-dynamic
-make
+# 最优编译命令
+./Configure linux-x86_64 \
+    --prefix=/usr/local/tongsuo \
+    -Wl,-rpath,/usr/local/tongsuo/lib64 \
+    no-shared no-module \
+    enable-ntls enable-sdfprov enable-sdf-lib-dynamic \
+    enable-legacy \
+    enable-ec_sm2p_64_gcc_128 \
+    -march=native
+make -j$(nproc)
 ```
 
 ### 编译选项说明
 
+#### 基础选项
+
 | 选项 | 说明 |
 |------|------|
+| `no-shared` | 静态编译，生成 .lib/.a 而非 .dll/.so |
+| `no-module` | 禁止动态加载 Provider 模块，所有 Provider 编译进 libcrypto（自动定义 STATIC_LEGACY 等宏） |
 | `enable-ntls` | 启用 NTLS/TLCP 协议（非默认） |
 | `enable-sdfprov` | 编译 SDF Provider（providers/sdfprov/），静态链接到 libcrypto |
 | `enable-sdf-lib-dynamic` | 编译 SDF API 桩函数（sdfe_api_stub.c），运行时 DSO 动态加载厂商库 |
-| `enable-sdf-lib` | 编译 SDF 框架层（crypto/sdf/），通常由 sdf-lib-dynamic 自动启用 |
+| `enable-legacy` | 启用 Legacy Provider（MD5、CAST、Blowfish 等旧算法），PKCS#12 兼容可能需要 |
+
+#### 性能优化选项
+
+| 选项 | 平台 | 说明 |
+|------|------|------|
+| `enable-ec_sm2p_64_gcc_128` | Linux x86_64 (GCC/Clang) | SM2 快速模约简（64 位优化），显著提升 SM2 性能 |
+| `enable-ec_nistp_64_gcc_128` | Linux x86_64 (GCC/Clang) | NIST 曲线（P-256/P-384）快速模约简 |
+| `-march=native` | Linux (GCC/Clang) | 针对当前 CPU 指令集优化（AVX2/AES-NI 等） |
+| `enable-sm2-precomp` | 通用 | SM2 预计算表加速（增大二进制体积换取速度） |
+| `enable-wbsm4-xiaolai` | 通用 | 白盒 SM4 实现（小来方案） |
+| `enable-wbsm4-baiwu` | 通用 | 白盒 SM4 实现（百悟方案） |
+| `enable-wbsm4-wsise` | 通用 | 白盒 SM4 实现（wsise 方案） |
+
+#### 不需要手动指定的选项
+
+| 选项 | 原因 |
+|------|------|
+| `enable-rc2` | RC2 默认已编译，无需主动开启 |
+| `-DSTATIC_LEGACY` | 使用 `no-module` 时构建系统自动定义，无需手动传 |
+| `enable-sdf-lib` | 由 `enable-sdf-lib-dynamic` 自动启用 |
+| `--with-sdf-include` | SDF 头文件已在 `./include` 下，不需要 |
+
+> **注意**：`enable-ec_sm2p_64_gcc_128` 和 `enable-ec_nistp_64_gcc_128` 仅在 Linux x86_64 + GCC/Clang 下有效，
+> Windows MSVC 不支持（VC-WIN64A 已内置汇编优化）。
 
 ### 编译产物
 
 | 文件 | 说明 |
 |------|------|
-| libcrypto.lib / libcrypto.a | 包含 SDF Provider、SDF 框架、SDF API 桩函数 |
+| libcrypto.lib / libcrypto.a | 包含 SDF Provider、Legacy Provider、SDF 框架、SDF API 桩函数 |
 | libssl.lib / libssl.a | SSL 库（含 NTLS 支持） |
 | openssl.exe | 命令行工具 |
 
@@ -147,6 +178,18 @@ sdfprov = sdfprov_sect
 activate = 1
 sdf_lib_path = byzk0018.dll        # 厂商 DLL 路径
 sdf_module_password = 88888888      # 模块加载密码
+```
+
+### 指定配置文件路径
+
+默认使用编译时内置的 `openssl.cnf` 路径。可通过环境变量指定自定义配置文件：
+
+```bash
+# Windows
+set OPENSSL_CONF=C:\path\to\my_openssl.cnf
+
+# Linux/macOS
+export OPENSSL_CONF=/path/to/my_openssl.cnf
 ```
 
 ---
