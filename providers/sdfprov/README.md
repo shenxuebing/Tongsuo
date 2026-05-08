@@ -45,12 +45,8 @@ SDF Provider 是 Tongsuo 项目的一个硬件安全模块（HSM）Provider 实�
 #### Windows（Visual Studio 2022）
 
 ```bash
-# SDF 头文件已在 ./include 下时
+# SDF 头文件已自带在 ./include 下，无需额外参数
 perl Configure VC-WIN64A no-shared enable-ntls enable-sdf-lib-dynamic
-nmake
-
-# SDF 头文件在单独的 SDK 目录时
-perl Configure VC-WIN64A no-shared enable-ntls enable-sdf-lib-dynamic --with-sdf-include=E:/vendor/sdk/include
 nmake
 ```
 
