@@ -33,6 +33,7 @@ typedef struct sdfprov_ctx_st {
     char *sdf_lib_path;
     char *device_name;
     char *password;          /* 模块加载口令 (BYCSM_LoadModule) */
+    int use_load_module;     /* 是否调用 BYCSM_LoadModule 接口 (0=不调用, 1=调用) */
     unsigned int sign_key_index;
     unsigned int enc_key_index;
 

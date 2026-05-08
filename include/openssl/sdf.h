@@ -141,6 +141,12 @@ int TSAPI_SDF_GenerateAgreementDataAndKeyWithECCEx(
     unsigned char *pucSharedSecret, unsigned int *puiSecretLength,
     void **phKeyHandle);
 
+/* 厂商特定接口：BYCSM_LoadModule（百旺等厂商的模块初始化接口）
+ * 返回值: 0 表示成功，非 0 表示失败
+ * 注意：不是所有厂商库都提供此接口，调用前需检查返回值
+ */
+int TSAPI_SDF_LoadModule(const char *password);
+
 # ifdef __cplusplus
 }
 # endif

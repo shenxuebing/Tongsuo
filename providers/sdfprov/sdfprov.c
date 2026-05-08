@@ -217,9 +217,11 @@ int OSSL_provider_init_int(const OSSL_CORE_HANDLE *handle,
     if (c_get_params != NULL) {
         char password_buf[256] = {0};
         char lib_path_buf[1024] = {0};
+        int use_load_module_val = 1;  /* 默认启用 BYCSM_LoadModule */
         OSSL_PARAM config_params[] = {
             OSSL_PARAM_utf8_string("sdf_module_password", password_buf, sizeof(password_buf) - 1),
             OSSL_PARAM_utf8_string("sdf_lib_path", lib_path_buf, sizeof(lib_path_buf) - 1),
+            OSSL_PARAM_int("sdf_use_loadmodule", &use_load_module_val),
             OSSL_PARAM_END
         };
 
@@ -233,12 +235,19 @@ int OSSL_provider_init_int(const OSSL_CORE_HANDLE *handle,
             if (p != NULL && lib_path_buf[0] != '\0') {
                 sdfctx->sdf_lib_path = OPENSSL_strdup(lib_path_buf);
             }
+            p = OSSL_PARAM_locate_const(config_params, "sdf_use_loadmodule");
+            if (p != NULL) {
+                sdfctx->use_load_module = use_load_module_val;
+            }
         }
     }
 
     /* Default module password if not configured */
     if (sdfctx->password == NULL)
         sdfctx->password = OPENSSL_strdup("88888888");
+
+    /* 默认启用 BYCSM_LoadModule（兼容百旺等厂商） */
+    sdfctx->use_load_module = 1;
 
     sdfctx->sign_key_index = 0;
     sdfctx->enc_key_index = 0;

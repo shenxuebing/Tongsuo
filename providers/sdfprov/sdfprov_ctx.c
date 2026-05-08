@@ -20,11 +20,17 @@
 #endif
 
 /*
- * Load the SDF vendor DLL and call BYCSM_LoadModule to initialize the module.
+ * Load the SDF vendor DLL and optionally call BYCSM_LoadModule to initialize the module.
  * lib_path: 厂商库路径，为 NULL 时使用默认名称
  *   Windows 默认: "sdf.dll"
  *   Linux 默认: "libsdf.so"
  * password: BYCSM_LoadModule 的密码参数
+ *
+ * 注意：BYCSM_LoadModule 是特定厂商（如百旺）的模块初始化接口，
+ * 不是标准 SDF API 的一部分。通过 sdf_use_loadmodule 配置参数控制是否调用。
+ *
+ * 函数指针获取统一在 SDF 框架层（crypto/sdf/sdf_lib.c）处理，
+ * 这里只负责调用 TSAPI_SDF_LoadModule 接口。
  */
 static int sdfprov_load_module(SDFPROV_CTX *ctx, const char *password)
 {
@@ -37,51 +43,40 @@ static int sdfprov_load_module(SDFPROV_CTX *ctx, const char *password)
     const char *load_lib = (ctx->sdf_lib_path != NULL && ctx->sdf_lib_path[0] != '\0')
                            ? ctx->sdf_lib_path : default_lib;
 
-#ifdef _WIN32
-    FN_BYCSM_LoadModule pLoad;
-
     if (ctx->hModule != NULL)
         return 1; /* 已经加载 */
 
+#ifdef _WIN32
     ctx->hModule = LoadLibraryA(load_lib);
     if (ctx->hModule == NULL)
         return 0;
 
-    pLoad = (FN_BYCSM_LoadModule)GetProcAddress(ctx->hModule, "BYCSM_LoadModule");
-    if (pLoad == NULL) {
-        FreeLibrary(ctx->hModule);
-        ctx->hModule = NULL;
-        return 0;
-    }
-
-    if (pLoad(password) != 0) {
-        FreeLibrary(ctx->hModule);
-        ctx->hModule = NULL;
-        return 0;
+    /* 如果配置启用 BYCSM_LoadModule，则通过统一的 TSAPI 接口调用 */
+    if (ctx->use_load_module) {
+        int ret = TSAPI_SDF_LoadModule(password);
+        if (ret != 0 && ret != OSSL_SDR_NOTSUPPORT) {
+            FreeLibrary(ctx->hModule);
+            ctx->hModule = NULL;
+            return 0;
+        }
+        /* 如果返回 NOTSUPPORT，说明厂商库不提供此接口，继续初始化 */
     }
 
     return 1;
 #else
-    FN_BYCSM_LoadModule pLoad;
-
-    if (ctx->hModule != NULL)
-        return 1; /* 已经加载 */
-
     ctx->hModule = dlopen(load_lib, RTLD_NOW);
     if (ctx->hModule == NULL)
         return 0;
 
-    pLoad = (FN_BYCSM_LoadModule)dlsym(ctx->hModule, "BYCSM_LoadModule");
-    if (pLoad == NULL) {
-        dlclose(ctx->hModule);
-        ctx->hModule = NULL;
-        return 0;
-    }
-
-    if (pLoad(password) != 0) {
-        dlclose(ctx->hModule);
-        ctx->hModule = NULL;
-        return 0;
+    /* 如果配置启用 BYCSM_LoadModule，则通过统一的 TSAPI 接口调用 */
+    if (ctx->use_load_module) {
+        int ret = TSAPI_SDF_LoadModule(password);
+        if (ret != 0 && ret != OSSL_SDR_NOTSUPPORT) {
+            dlclose(ctx->hModule);
+            ctx->hModule = NULL;
+            return 0;
+        }
+        /* 如果返回 NOTSUPPORT，说明厂商库不提供此接口，继续初始化 */
     }
 
     return 1;

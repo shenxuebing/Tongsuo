@@ -9,6 +9,7 @@
 #include <openssl/ecdsa.h>
 #include <openssl/err.h>
 #include <openssl/objects.h>
+#include <openssl/proverr.h>
 #include <openssl/tsapi.h>
 #include "sdfprov_utils.h"
 #include "crypto/sm2.h"

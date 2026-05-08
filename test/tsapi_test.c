@@ -15,7 +15,7 @@
 #include "testutil.h"
 #include "../crypto/sdf/sdf_local.h"
 #ifdef SDF_LIB
-# include "sdfe_api.h"
+# include "../crypto/tsapi/sdfe_api.h"
 #endif
 
 static int test_TSAPI_Version(void)

@@ -147,6 +147,8 @@ DEFINE_RUN_ONCE_STATIC(ossl_sdf_lib_init)
         sdfm.GenerateAgreementDataWithECCEx = DSO_bind_func(sdf_dso, "SDF_GenerateAgreementDataWithECCEx");
         sdfm.GenerateKeyWithECCEx = DSO_bind_func(sdf_dso, "SDF_GenerateKeyWithECCEx");
         sdfm.GenerateAgreementDataAndKeyWithECCEx = DSO_bind_func(sdf_dso, "SDF_GenerateAgreementDataAndKeyWithECCEx");
+        /* BYCSM_LoadModule 是厂商特定接口，部分厂商 DLL 不提供，绑定失败不影响基本功能 */
+        sdfm.LoadModule = DSO_bind_func(sdf_dso, "BYCSM_LoadModule");
         ERR_pop_to_mark();
     }
 # else
@@ -172,6 +174,8 @@ DEFINE_RUN_ONCE_STATIC(ossl_sdf_lib_init)
     sdfm.GenerateAgreementDataWithECCEx = SDF_GenerateAgreementDataWithECCEx;
     sdfm.GenerateKeyWithECCEx = SDF_GenerateKeyWithECCEx;
     sdfm.GenerateAgreementDataAndKeyWithECCEx = SDF_GenerateAgreementDataAndKeyWithECCEx;
+    /* 静态链接时，BYCSM_LoadModule 可能为 NULL，由调用方检查 */
+    sdfm.LoadModule = NULL;
 # endif
     return 1;
 }
@@ -293,6 +297,16 @@ int TSAPI_SDF_ReleasePrivateKeyAccessRight(void *hSessionHandle,
         return OSSL_SDR_NOTSUPPORT;
 
     return meth->ReleasePrivateKeyAccessRight(hSessionHandle, uiKeyIndex);
+}
+
+int TSAPI_SDF_LoadModule(const char *password)
+{
+    const SDF_METHOD *meth = sdf_get_method();
+
+    if (meth == NULL || meth->LoadModule == NULL)
+        return OSSL_SDR_NOTSUPPORT;
+
+    return meth->LoadModule(password);
 }
 
 int TSAPI_SDF_ImportKeyWithISK_ECC(void *hSessionHandle,

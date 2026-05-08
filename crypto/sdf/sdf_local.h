@@ -125,6 +125,10 @@ typedef int (*SDF_GenerateAgreementDataAndKeyWithECCEx_fn)(
     OSSL_ECCrefPublicKey *pucResponseTmpPublicKey,
     unsigned char *pucSharedSecret, unsigned int *puiSecretLength,
     void **phKeyHandle);
+
+/* 厂商特定接口：BYCSM_LoadModule（百旺等厂商的模块初始化接口） */
+typedef int (*SDFE_LoadModule_fn)(const char *password);
+
 /*
  * Returns 0 for success, others for error code
  */
@@ -155,6 +159,9 @@ struct sdf_method_st {
     SDF_GenerateAgreementDataWithECCEx_fn GenerateAgreementDataWithECCEx;
     SDF_GenerateKeyWithECCEx_fn GenerateKeyWithECCEx;
     SDF_GenerateAgreementDataAndKeyWithECCEx_fn GenerateAgreementDataAndKeyWithECCEx;
+
+    /* Vendor-specific API */
+    SDFE_LoadModule_fn LoadModule;
 };
 
 extern SDF_METHOD ts_sdf_meth;
