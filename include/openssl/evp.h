@@ -1679,6 +1679,7 @@ int EVP_PKEY_CTX_set_signature_md(EVP_PKEY_CTX *ctx, const EVP_MD *md);
 int EVP_PKEY_CTX_set1_id(EVP_PKEY_CTX *ctx, const void *id, int len);
 int EVP_PKEY_CTX_get1_id(EVP_PKEY_CTX *ctx, void *id);
 int EVP_PKEY_CTX_get1_id_len(EVP_PKEY_CTX *ctx, size_t *id_len);
+int EVP_PKEY_CTX_set_sm2_encdata_format(EVP_PKEY_CTX *ctx, int format);
 
 int EVP_PKEY_CTX_set_kem_op(EVP_PKEY_CTX *ctx, const char *op);
 

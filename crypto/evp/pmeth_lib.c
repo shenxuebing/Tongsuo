@@ -1381,6 +1381,21 @@ int EVP_PKEY_CTX_get1_id_len(EVP_PKEY_CTX *ctx, size_t *id_len)
                              EVP_PKEY_CTRL_GET1_ID_LEN, 0, (void*)id_len);
 }
 
+int EVP_PKEY_CTX_set_sm2_encdata_format(EVP_PKEY_CTX *ctx, int format)
+{
+    OSSL_PARAM params[2];
+
+    if (format != 0 && format != 1) {
+        ERR_raise(ERR_LIB_EVP, EVP_R_INVALID_VALUE);
+        return 0;
+    }
+
+    params[0] = OSSL_PARAM_construct_int("sm2_encdata_format", &format);
+    params[1] = OSSL_PARAM_construct_end();
+
+    return EVP_PKEY_CTX_set_params(ctx, params);
+}
+
 static int evp_pkey_ctx_ctrl_int(EVP_PKEY_CTX *ctx, int keytype, int optype,
                                  int cmd, int p1, void *p2)
 {
