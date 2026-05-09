@@ -429,8 +429,81 @@ test_ntls_full.bat
 | 7 | ECDHE-SM2-SM4-CBC-SM3 | 软件(PEM) | 硬件(SDF) | 客户端 SDF + ECDHE 密钥交换 |
 | 8 | ECDHE-SM2-SM4-CBC-SM3 | 硬件(SDF) | 硬件(SDF) | 双端 SDF + ECDHE |
 
-> **注意**：双端硬件（场景 4/8）使用同一台 SDF 设备时，服务端和客户端使用相同的密钥索引。
-> 如需使用不同密钥，可通过修改脚本中的 URI 索引实现（如服务端用索引 0，客户端用索引 1）。
+> **注意**：如果双端都使用同一台 SDF 设备测试硬件密钥，通常服务端使用 `key=0`，客户端使用 `key=1` 以避免冲突。以下命令默认使用 `apps/test/certs/sm2` 下的证书，**请在 `Tongsuo/apps` 目录下执行**。
+
+#### 8 种场景手动测试命令速查
+
+**场景 1：[ECC] Svr: SW | Cli: SW**
+```bash
+# 服务端 (SW)
+openssl s_server -ntls -enable_ntls -accept 25101 -sign_cert ../test/certs/sm2/server_sign.crt -enc_cert ../test/certs/sm2/server_enc.crt -sign_key ../test/certs/sm2/server_sign.key -enc_key ../test/certs/sm2/server_enc.key -CAfile ../test/certs/sm2/chain-ca.crt -cipher ECC-SM2-SM4-CBC-SM3
+
+# 客户端 (SW)
+openssl s_client -ntls -enable_ntls -connect 127.0.0.1:25101 -sign_cert ../test/certs/sm2/client_sign.crt -enc_cert ../test/certs/sm2/client_enc.crt -sign_key ../test/certs/sm2/client_sign.key -enc_key ../test/certs/sm2/client_enc.key -CAfile ../test/certs/sm2/chain-ca.crt -cipher ECC-SM2-SM4-CBC-SM3
+```
+
+**场景 2：[ECC] Svr: HW | Cli: SW**
+```bash
+# 服务端 (HW)
+openssl s_server -ntls -enable_ntls -accept 25102 -sign_cert ../test/certs/sm2/server_sign.crt -enc_cert ../test/certs/sm2/server_enc.crt -sign_key "sdf:key=0;type=sign" -enc_key "sdf:key=0;type=enc" -provider sdfprov -provider default -CAfile ../test/certs/sm2/chain-ca.crt -cipher ECC-SM2-SM4-CBC-SM3
+
+# 客户端 (SW)
+openssl s_client -ntls -enable_ntls -connect 127.0.0.1:25102 -sign_cert ../test/certs/sm2/client_sign.crt -enc_cert ../test/certs/sm2/client_enc.crt -sign_key ../test/certs/sm2/client_sign.key -enc_key ../test/certs/sm2/client_enc.key -CAfile ../test/certs/sm2/chain-ca.crt -cipher ECC-SM2-SM4-CBC-SM3
+```
+
+**场景 3：[ECC] Svr: SW | Cli: HW**
+```bash
+# 服务端 (SW)
+openssl s_server -ntls -enable_ntls -accept 25103 -sign_cert ../test/certs/sm2/server_sign.crt -enc_cert ../test/certs/sm2/server_enc.crt -sign_key ../test/certs/sm2/server_sign.key -enc_key ../test/certs/sm2/server_enc.key -CAfile ../test/certs/sm2/chain-ca.crt -cipher ECC-SM2-SM4-CBC-SM3
+
+# 客户端 (HW)
+openssl s_client -ntls -enable_ntls -connect 127.0.0.1:25103 -sign_cert ../test/certs/sm2/client_sign.crt -enc_cert ../test/certs/sm2/client_enc.crt -sign_key "sdf:key=1;type=sign" -enc_key "sdf:key=1;type=enc" -provider sdfprov -provider default -CAfile ../test/certs/sm2/chain-ca.crt -cipher ECC-SM2-SM4-CBC-SM3
+```
+
+**场景 4：[ECC] Svr: HW | Cli: HW**
+```bash
+# 服务端 (HW)
+openssl s_server -ntls -enable_ntls -accept 25104 -sign_cert ../test/certs/sm2/server_sign.crt -enc_cert ../test/certs/sm2/server_enc.crt -sign_key "sdf:key=0;type=sign" -enc_key "sdf:key=0;type=enc" -provider sdfprov -provider default -CAfile ../test/certs/sm2/chain-ca.crt -cipher ECC-SM2-SM4-CBC-SM3
+
+# 客户端 (HW)
+openssl s_client -ntls -enable_ntls -connect 127.0.0.1:25104 -sign_cert ../test/certs/sm2/client_sign.crt -enc_cert ../test/certs/sm2/client_enc.crt -sign_key "sdf:key=1;type=sign" -enc_key "sdf:key=1;type=enc" -provider sdfprov -provider default -CAfile ../test/certs/sm2/chain-ca.crt -cipher ECC-SM2-SM4-CBC-SM3
+```
+
+**场景 5：[ECDHE] Svr: SW | Cli: SW**
+```bash
+# 服务端 (SW)
+openssl s_server -ntls -enable_ntls -accept 25105 -sign_cert ../test/certs/sm2/server_sign.crt -enc_cert ../test/certs/sm2/server_enc.crt -sign_key ../test/certs/sm2/server_sign.key -enc_key ../test/certs/sm2/server_enc.key -CAfile ../test/certs/sm2/chain-ca.crt -cipher ECDHE-SM2-SM4-CBC-SM3
+
+# 客户端 (SW)
+openssl s_client -ntls -enable_ntls -connect 127.0.0.1:25105 -sign_cert ../test/certs/sm2/client_sign.crt -enc_cert ../test/certs/sm2/client_enc.crt -sign_key ../test/certs/sm2/client_sign.key -enc_key ../test/certs/sm2/client_enc.key -CAfile ../test/certs/sm2/chain-ca.crt -cipher ECDHE-SM2-SM4-CBC-SM3
+```
+
+**场景 6：[ECDHE] Svr: HW | Cli: SW**
+```bash
+# 服务端 (HW)
+openssl s_server -ntls -enable_ntls -accept 25106 -sign_cert ../test/certs/sm2/server_sign.crt -enc_cert ../test/certs/sm2/server_enc.crt -sign_key "sdf:key=0;type=sign" -enc_key "sdf:key=0;type=enc" -provider sdfprov -provider default -CAfile ../test/certs/sm2/chain-ca.crt -cipher ECDHE-SM2-SM4-CBC-SM3
+
+# 客户端 (SW)
+openssl s_client -ntls -enable_ntls -connect 127.0.0.1:25106 -sign_cert ../test/certs/sm2/client_sign.crt -enc_cert ../test/certs/sm2/client_enc.crt -sign_key ../test/certs/sm2/client_sign.key -enc_key ../test/certs/sm2/client_enc.key -CAfile ../test/certs/sm2/chain-ca.crt -cipher ECDHE-SM2-SM4-CBC-SM3
+```
+
+**场景 7：[ECDHE] Svr: SW | Cli: HW**
+```bash
+# 服务端 (SW)
+openssl s_server -ntls -enable_ntls -accept 25107 -sign_cert ../test/certs/sm2/server_sign.crt -enc_cert ../test/certs/sm2/server_enc.crt -sign_key ../test/certs/sm2/server_sign.key -enc_key ../test/certs/sm2/server_enc.key -CAfile ../test/certs/sm2/chain-ca.crt -cipher ECDHE-SM2-SM4-CBC-SM3
+
+# 客户端 (HW)
+openssl s_client -ntls -enable_ntls -connect 127.0.0.1:25107 -sign_cert ../test/certs/sm2/client_sign.crt -enc_cert ../test/certs/sm2/client_enc.crt -sign_key "sdf:key=1;type=sign" -enc_key "sdf:key=1;type=enc" -provider sdfprov -provider default -CAfile ../test/certs/sm2/chain-ca.crt -cipher ECDHE-SM2-SM4-CBC-SM3
+```
+
+**场景 8：[ECDHE] Svr: HW | Cli: HW**
+```bash
+# 服务端 (HW)
+openssl s_server -ntls -enable_ntls -accept 25108 -sign_cert ../test/certs/sm2/server_sign.crt -enc_cert ../test/certs/sm2/server_enc.crt -sign_key "sdf:key=0;type=sign" -enc_key "sdf:key=0;type=enc" -provider sdfprov -provider default -CAfile ../test/certs/sm2/chain-ca.crt -cipher ECDHE-SM2-SM4-CBC-SM3
+
+# 客户端 (HW)
+openssl s_client -ntls -enable_ntls -connect 127.0.0.1:25108 -sign_cert ../test/certs/sm2/client_sign.crt -enc_cert ../test/certs/sm2/client_enc.crt -sign_key "sdf:key=1;type=sign" -enc_key "sdf:key=1;type=enc" -provider sdfprov -provider default -CAfile ../test/certs/sm2/chain-ca.crt -cipher ECDHE-SM2-SM4-CBC-SM3
+```
 
 ### 测试前准备
 

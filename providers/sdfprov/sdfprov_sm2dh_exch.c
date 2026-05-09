@@ -260,7 +260,8 @@ static int sdfprov_sm2dh_set_ctx_params(void *vctx, const OSSL_PARAM params[])
         TLOG_DEBUG("sm2dh_set_params: SELF_ENC_KEY=%p", (void *)enc_key);
         EVP_PKEY_free(ctx->enc_k);
         ctx->enc_k = enc_key;
-        EVP_PKEY_up_ref(ctx->enc_k);
+        if (ctx->enc_k != NULL)
+            EVP_PKEY_up_ref(ctx->enc_k);
     }
 
     p = OSSL_PARAM_locate_const(params, OSSL_EXCHANGE_PARAM_PEER_ENC_KEY);
@@ -272,7 +273,8 @@ static int sdfprov_sm2dh_set_ctx_params(void *vctx, const OSSL_PARAM params[])
         TLOG_DEBUG("sm2dh_set_params: PEER_ENC_KEY=%p", (void *)enc_peer);
         EVP_PKEY_free(ctx->enc_peerk);
         ctx->enc_peerk = enc_peer;
-        EVP_PKEY_up_ref(ctx->enc_peerk);
+        if (ctx->enc_peerk != NULL)
+            EVP_PKEY_up_ref(ctx->enc_peerk);
     }
 
     p = OSSL_PARAM_locate_const(params, OSSL_EXCHANGE_PARAM_OUTLEN);

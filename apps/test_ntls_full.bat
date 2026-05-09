@@ -18,6 +18,7 @@ echo   2 密码套件 x 4 密钥组合 = 8 测试场景
 echo ================================================================
 
 taskkill /f /im openssl.exe >nul 2>&1
+del /f /q yj.db-shm yj.db-wal >nul 2>&1
 ping -n 3 127.0.0.1 >nul 2>&1
 
 :: ============================================================
@@ -58,6 +59,7 @@ call :handshake 25104 ECC-SM2-SM4-CBC-SM3 hw hw
 echo.
 echo  [冷却等待 5 秒 - 释放 SDF 设备资源...]
 taskkill /f /im openssl.exe >nul 2>&1
+del /f /q yj.db-shm yj.db-wal >nul 2>&1
 ping -n 6 127.0.0.1 >nul 2>&1
 
 :: ============================================================
@@ -103,6 +105,7 @@ echo ================================================================
 del /q ..\ntls_out\* >nul 2>&1
 rmdir ..\ntls_out >nul 2>&1
 taskkill /f /im openssl.exe >nul 2>&1
+del /f /q yj.db-shm yj.db-wal >nul 2>&1
 exit /b
 
 :: ============================================================
@@ -165,6 +168,7 @@ if %ERRORLEVEL% EQU 0 (
 
 :: 测试结束后清理 - HW 测试需要更长等待确保设备资源释放
 taskkill /f /im openssl.exe >nul 2>&1
+del /f /q yj.db-shm yj.db-wal >nul 2>&1
 if "%SKT%"=="hw" (
     ping -n 4 127.0.0.1 >nul 2>&1
 ) else (
