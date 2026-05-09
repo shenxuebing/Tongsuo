@@ -11,6 +11,7 @@
 #include <openssl/crypto.h>
 #include <openssl/err.h>
 #include <openssl/proverr.h>
+#include "internal/tlog.h"
 #include "sdfprov_ctx.h"
 
 #ifdef _WIN32
@@ -29,9 +30,11 @@
  * 注意：BYCSM_LoadModule 是特定厂商（如百旺）的模块初始化接口，
  * 不是标准 SDF API 的一部分。通过 sdf_use_loadmodule 配置参数控制是否调用。
  *
- * 函数指针获取统一在 SDF 框架层（crypto/sdf/sdf_lib.c）处理，
- * 这里只负责调用 TSAPI_SDF_LoadModule 接口。
+ * 这里必须直接用 GetProcAddress/dlsym 从已加载的 DLL 获取函数指针，
+ * 不能走 SDF 框架层（DSO_load 加载的是 "sdf" 库，不是用户配置的厂商库）。
  */
+typedef int (*FN_BYCSM_LoadModule)(const char *);
+
 static int sdfprov_load_module(SDFPROV_CTX *ctx, const char *password)
 {
     const char *default_lib =
@@ -43,23 +46,33 @@ static int sdfprov_load_module(SDFPROV_CTX *ctx, const char *password)
     const char *load_lib = (ctx->sdf_lib_path != NULL && ctx->sdf_lib_path[0] != '\0')
                            ? ctx->sdf_lib_path : default_lib;
 
+    TLOG_DEBUG("sdfprov_load_module: lib=%s, use_load_module=%d", load_lib, ctx->use_load_module);
+
     if (ctx->hModule != NULL)
         return 1; /* 已经加载 */
 
 #ifdef _WIN32
+    TLOG_DEBUG("Loading library: %s", load_lib);
     ctx->hModule = LoadLibraryA(load_lib);
-    if (ctx->hModule == NULL)
+    if (ctx->hModule == NULL) {
+        DWORD error = GetLastError();
+        TLOG_DEBUG("LoadLibraryA failed for: %s, error=%lu", load_lib, error);
         return 0;
+    }
+    TLOG_DEBUG("LoadLibraryA succeeded");
 
-    /* 如果配置启用 BYCSM_LoadModule，则通过统一的 TSAPI 接口调用 */
+    /* 如果配置启用 BYCSM_LoadModule，直接从已加载的 DLL 获取函数指针 */
     if (ctx->use_load_module) {
-        int ret = TSAPI_SDF_LoadModule(password);
-        if (ret != 0 && ret != OSSL_SDR_NOTSUPPORT) {
-            FreeLibrary(ctx->hModule);
-            ctx->hModule = NULL;
-            return 0;
+        FN_BYCSM_LoadModule pLoad = (FN_BYCSM_LoadModule)GetProcAddress(ctx->hModule,
+                                                                         "BYCSM_LoadModule");
+        if (pLoad != NULL) {
+            int ret = pLoad(password);
+            if (ret != 0) {
+                FreeLibrary(ctx->hModule);
+                ctx->hModule = NULL;
+                return 0;
+            }
         }
-        /* 如果返回 NOTSUPPORT，说明厂商库不提供此接口，继续初始化 */
     }
 
     return 1;
@@ -68,15 +81,21 @@ static int sdfprov_load_module(SDFPROV_CTX *ctx, const char *password)
     if (ctx->hModule == NULL)
         return 0;
 
-    /* 如果配置启用 BYCSM_LoadModule，则通过统一的 TSAPI 接口调用 */
+    /* 如果配置启用 BYCSM_LoadModule，直接从已加载的 DLL 获取函数指针 */
     if (ctx->use_load_module) {
-        int ret = TSAPI_SDF_LoadModule(password);
-        if (ret != 0 && ret != OSSL_SDR_NOTSUPPORT) {
-            dlclose(ctx->hModule);
-            ctx->hModule = NULL;
-            return 0;
+        FN_BYCSM_LoadModule pLoad = (FN_BYCSM_LoadModule)dlsym(ctx->hModule,
+                                                                 "BYCSM_LoadModule");
+        if (pLoad != NULL) {
+            if (pLoad(password) != 0) {
+                TLOG_DEBUG("BYCSM_LoadModule failed");
+                dlclose(ctx->hModule);
+                ctx->hModule = NULL;
+                return 0;
+            }
+            TLOG_DEBUG("BYCSM_LoadModule succeeded");
+        } else {
+            TLOG_DEBUG("BYCSM_LoadModule not found in DLL, skipping");
         }
-        /* 如果返回 NOTSUPPORT，说明厂商库不提供此接口，继续初始化 */
     }
 
     return 1;
@@ -156,7 +175,7 @@ int sdfprov_ctx_init_device(SDFPROV_CTX *ctx)
 
     /* Step 2: Open device */
     ret = TSAPI_SDF_OpenDevice(&ctx->hDevice);
-    if (ret != OSSL_SDR_OK) {
+    if (ret != 0) {
         CRYPTO_THREAD_unlock(ctx->lock);
         ERR_raise_data(ERR_LIB_PROV, PROV_R_FAILED_TO_GET_PARAMETER,
                        "SDF_OpenDevice failed: 0x%08x", ret);
@@ -165,7 +184,7 @@ int sdfprov_ctx_init_device(SDFPROV_CTX *ctx)
 
     /* Step 3: Open session */
     ret = TSAPI_SDF_OpenSession(ctx->hDevice, &ctx->hSession);
-    if (ret != OSSL_SDR_OK) {
+    if (ret != 0) {
         TSAPI_SDF_CloseDevice(ctx->hDevice);
         ctx->hDevice = NULL;
         CRYPTO_THREAD_unlock(ctx->lock);

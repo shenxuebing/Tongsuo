@@ -21,14 +21,16 @@
 #include <openssl/core_names.h>
 #include <openssl/core_object.h>
 #include <openssl/params.h>
+#include <openssl/store.h>
+#include <openssl/core.h>
+#include <openssl/core_names.h>
+#include <openssl/params.h>
 #include <openssl/err.h>
-#include <openssl/proverr.h>
-#include <openssl/ec.h>
-#include <openssl/sdf.h>
 #include "prov/provider_ctx.h"
+#include "internal/tlog.h"
 #include "sdfprov_internal.h"
-#include "sdfprov_utils.h"
 #include "sdfprov_ctx.h"
+#include "sdfprov_utils.h"
 
 typedef struct {
     void *provctx;
@@ -187,8 +189,15 @@ static void *sdfprov_store_open(void *provctx, const char *uri)
     if (uri == NULL)
         return NULL;
 
-    if (!parse_sdf_uri(uri, &key_index, &key_type, &algo, &key_password))
+    TLOG_DEBUG("Opening URI: %s", uri);
+
+    /* 解析 URI */
+    if (!parse_sdf_uri(uri, &key_index, &key_type, &algo, &key_password)) {
+        TLOG_ERROR("Failed to parse URI: %s", uri);
         return NULL;
+    }
+
+    TLOG_DEBUG("Parsed: index=%u, type=%d, algo=%d", key_index, key_type, algo);
 
     ctx = OPENSSL_zalloc(sizeof(*ctx));
     if (ctx == NULL) {
@@ -211,6 +220,7 @@ static void *sdfprov_store_open(void *provctx, const char *uri)
     ctx->key_password = key_password;
     ctx->loaded = 0;
 
+    TLOG_DEBUG("sdfprov_store_open: returning ctx=%p, index=%u, type=%d", (void *)ctx, key_index, key_type);
     return ctx;
 }
 
@@ -226,12 +236,16 @@ static int sdfprov_store_load(void *loaderctx,
     int reference_len;
     const char *algo_name;
 
+    TLOG_DEBUG("sdfprov_store_load called, ctx=%p, object_cb=%p", (void *)ctx, (void *)object_cb);
+
     if (ctx == NULL || object_cb == NULL)
         return 0;
 
     /* 每次只返回一个密钥对象 */
     if (ctx->loaded)
         return 0;
+
+    TLOG_DEBUG("Loading key from index %u", ctx->key_index);
 
     algo_name = (ctx->algo == SDF_ALGO_RSA) ? "rsa" : "sm2";
 
@@ -261,8 +275,10 @@ static int sdfprov_store_load(void *loaderctx,
                                                      (size_t)reference_len + 1);
     params[n] = OSSL_PARAM_construct_end();
 
-    if (!object_cb(params, object_cbarg))
+    if (!object_cb(params, object_cbarg)) {
+        ctx->loaded = 1;
         return 0;
+    }
 
     ctx->loaded = 1;
     return 1;
@@ -291,10 +307,29 @@ static int sdfprov_store_close(void *loaderctx)
     return 1;
 }
 
+static int sdfprov_store_set_ctx_params(void *loaderctx, const OSSL_PARAM params[])
+{
+    return 1;
+}
+
+static const OSSL_PARAM *sdfprov_store_settable_ctx_params(
+        ossl_unused void *loaderctx, ossl_unused void *provctx)
+{
+    static const OSSL_PARAM params[] = {
+        OSSL_PARAM_utf8_string(OSSL_STORE_PARAM_PROPERTIES, NULL, 0),
+        OSSL_PARAM_END
+    };
+    return params;
+}
+
 const OSSL_DISPATCH sdfprov_store_functions[] = {
     { OSSL_FUNC_STORE_OPEN, (void (*)(void))sdfprov_store_open },
     { OSSL_FUNC_STORE_LOAD, (void (*)(void))sdfprov_store_load },
     { OSSL_FUNC_STORE_EOF, (void (*)(void))sdfprov_store_eof },
     { OSSL_FUNC_STORE_CLOSE, (void (*)(void))sdfprov_store_close },
+    { OSSL_FUNC_STORE_SET_CTX_PARAMS,
+      (void (*)(void))sdfprov_store_set_ctx_params },
+    { OSSL_FUNC_STORE_SETTABLE_CTX_PARAMS,
+      (void (*)(void))sdfprov_store_settable_ctx_params },
     OSSL_DISPATCH_END
 };

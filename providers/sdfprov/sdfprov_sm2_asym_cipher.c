@@ -15,6 +15,7 @@
 #include "sdfprov_internal.h"
 #include "sdfprov_utils.h"
 #include "sdfprov_ctx.h"
+#include "internal/tlog.h"
 
 typedef struct {
     OSSL_LIB_CTX *libctx;
@@ -28,6 +29,12 @@ static void *sdfprov_sm2_asym_newctx(void *provctx)
     if (ctx == NULL)
         return NULL;
     ctx->libctx = PROV_LIBCTX_OF(provctx);
+    /*
+     * 默认 Provider 的 SM2 加密 (SM2_CiphertextEx) 输出 C1C2C3 格式,
+     * ossl_sm2_ciphertext_decode 按 C1C3C2 解码, 因此需要交换 C2/C3.
+     * encdata_format=1 表示输入是 C1C2C3 格式, 会自动交换.
+     */
+    ctx->encdata_format = 1;
     return ctx;
 }
 
@@ -172,16 +179,18 @@ static int sdfprov_sm2_asym_decrypt(void *vctx, unsigned char *out,
     /* DER -> OSSL_ECCCipher */
     if (!sdfprov_sm2_der_to_ecccipher(in, inlen, cipher, ctx->encdata_format,
                                        cipher_alloc - offsetof(OSSL_ECCCipher, C))) {
+        TLOG_DEBUG("sm2_der_to_ecccipher conversion FAILED, inlen=%zu", inlen);
         goto end;
     }
+    TLOG_DEBUG("sm2_der_to_ecccipher OK, cipher: L=%u, C_len=%u",
+               cipher->L, (unsigned int)inlen);
 
-    /* 获取私钥访问权限 */
-    {
-        const char *pwd = key->key_password;
+    /* 获取私钥访问权限（仅当密钥配置了访问密码时才需要） */
+    if (key->key_password != NULL) {
         int auth_ret = TSAPI_SDF_GetPrivateKeyAccessRight(
             key->hSession, key->key_index,
-            (unsigned char *)pwd,
-            pwd != NULL ? (unsigned int)strlen(pwd) : 0);
+            (unsigned char *)key->key_password,
+            (unsigned int)strlen(key->key_password));
         if (auth_ret != OSSL_SDR_OK) {
             ERR_raise_data(ERR_LIB_PROV, PROV_R_FAILED_TO_DECRYPT,
                            "GetPrivateKeyAccessRight failed: 0x%08x", auth_ret);
@@ -191,15 +200,21 @@ static int sdfprov_sm2_asym_decrypt(void *vctx, unsigned char *out,
 
     /* 硬件解密 */
     plaintext_len = (unsigned int)outsize;
+    TLOG_DEBUG("InternalDecrypt_ECC: hSession=%p, key_index=%u, pwd=%s",
+               key->hSession, key->key_index,
+               key->key_password ? key->key_password : "(null)");
     int sdf_ret = TSAPI_SDF_InternalDecrypt_ECC(key->hSession, key->key_index,
                                                   OSSL_SGD_SM2_3,
                                                   cipher, out,
                                                   &plaintext_len);
-    /* 释放私钥访问权限 */
-    TSAPI_SDF_ReleasePrivateKeyAccessRight(key->hSession, key->key_index);
+    TLOG_DEBUG("InternalDecrypt_ECC returned: %d", sdf_ret);
+    /* 释放私钥访问权限（仅当之前获取了权限时才释放） */
+    if (key->key_password != NULL)
+        TSAPI_SDF_ReleasePrivateKeyAccessRight(key->hSession, key->key_index);
 
     if (sdf_ret != OSSL_SDR_OK) {
-        ERR_raise(ERR_LIB_PROV, PROV_R_FAILED_TO_DECRYPT);
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_FAILED_TO_DECRYPT,
+                       "InternalDecrypt_ECC failed: 0x%08x", sdf_ret);
         goto end;
     }
 

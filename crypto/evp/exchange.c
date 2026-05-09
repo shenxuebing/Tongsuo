@@ -10,6 +10,7 @@
 #include <openssl/crypto.h>
 #include <openssl/evp.h>
 #include <openssl/err.h>
+#include <openssl/provider.h>
 #include "internal/cryptlib.h"
 #include "internal/refcount.h"
 #include "internal/provider.h"
@@ -294,8 +295,9 @@ int EVP_PKEY_derive_init_ex(EVP_PKEY_CTX *ctx, const OSSL_PARAM params[])
         case 1:
             exchange =
                 EVP_KEYEXCH_fetch(ctx->libctx, supported_exch, ctx->propquery);
-            if (exchange != NULL)
+            if (exchange != NULL) {
                 tmp_prov = EVP_KEYEXCH_get0_provider(exchange);
+            }
             break;
         case 2:
             tmp_prov = EVP_KEYMGMT_get0_provider(ctx->keymgmt);

@@ -408,8 +408,7 @@ static int sdfprov_sm2_import(void *keydata, int selection,
 
 /* 导出公钥到 OSSL_PARAM */
 static int sdfprov_sm2_export(void *keydata, int selection,
-                               int param_cb_type, void *cbarg,
-                               OSSL_CALLBACK *cb)
+                               OSSL_CALLBACK *cb, void *cbarg)
 {
     SDF_SM2_KEY *key = keydata;
     unsigned char *pub = NULL;

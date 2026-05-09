@@ -14,10 +14,13 @@
 #include <openssl/err.h>
 #include <openssl/proverr.h>
 #include "internal/cryptlib.h"
+#include "internal/core.h"
 #include "prov/implementations.h"
 #include "prov/names.h"
 #include "prov/provider_ctx.h"
 #include "prov/providercommon.h"
+#include "internal/tlog.h"
+#include "sdfprov_internal.h"
 #include "sdfprov_ctx.h"
 
 /* Forward declarations */
@@ -214,10 +217,11 @@ int OSSL_provider_init_int(const OSSL_CORE_HANDLE *handle,
     g_sdfctx = sdfctx;
 
     /* Read configuration parameters from openssl.cnf provider section */
+    char password_buf[256] = {0};
+    char lib_path_buf[1024] = {0};
+    int use_load_module_val = 1;  /* 默认启用 BYCSM_LoadModule（byzk0018 需要） */
+    TLOG_DEBUG("Reading config parameters, c_get_params=%p", (void *)c_get_params);
     if (c_get_params != NULL) {
-        char password_buf[256] = {0};
-        char lib_path_buf[1024] = {0};
-        int use_load_module_val = 1;  /* 默认启用 BYCSM_LoadModule */
         OSSL_PARAM config_params[] = {
             OSSL_PARAM_utf8_string("sdf_module_password", password_buf, sizeof(password_buf) - 1),
             OSSL_PARAM_utf8_string("sdf_lib_path", lib_path_buf, sizeof(lib_path_buf) - 1),
@@ -225,20 +229,28 @@ int OSSL_provider_init_int(const OSSL_CORE_HANDLE *handle,
             OSSL_PARAM_END
         };
 
-        if (c_get_params(handle, config_params)) {
+        TLOG_DEBUG("Calling c_get_params");
+        int ret = c_get_params(handle, config_params);
+        TLOG_DEBUG("c_get_params returned %d", ret);
+        if (ret) {
             const OSSL_PARAM *p;
             p = OSSL_PARAM_locate_const(config_params, "sdf_module_password");
             if (p != NULL && password_buf[0] != '\0') {
                 sdfctx->password = OPENSSL_strdup(password_buf);
+                TLOG_DEBUG("Read password: %s", password_buf);
             }
             p = OSSL_PARAM_locate_const(config_params, "sdf_lib_path");
             if (p != NULL && lib_path_buf[0] != '\0') {
                 sdfctx->sdf_lib_path = OPENSSL_strdup(lib_path_buf);
+                TLOG_DEBUG("Read lib_path: %s", lib_path_buf);
             }
             p = OSSL_PARAM_locate_const(config_params, "sdf_use_loadmodule");
             if (p != NULL) {
                 sdfctx->use_load_module = use_load_module_val;
+                TLOG_DEBUG("Read use_load_module: %d", use_load_module_val);
             }
+        } else {
+            TLOG_DEBUG("c_get_params failed, using defaults");
         }
     }
 
@@ -246,8 +258,14 @@ int OSSL_provider_init_int(const OSSL_CORE_HANDLE *handle,
     if (sdfctx->password == NULL)
         sdfctx->password = OPENSSL_strdup("88888888");
 
-    /* 默认启用 BYCSM_LoadModule（兼容百旺等厂商） */
-    sdfctx->use_load_module = 1;
+    /* Default lib path if not configured */
+    if (sdfctx->sdf_lib_path == NULL)
+        sdfctx->sdf_lib_path = OPENSSL_strdup("byzk0018.dll");
+
+    /* 默认启用 BYCSM_LoadModule（兼容百旺等厂商）
+     * use_load_module_val 初始为 1，c_get_params 成功时会被配置值覆盖
+     * 因此直接使用 use_load_module_val 即可覆盖所有场景 */
+    sdfctx->use_load_module = use_load_module_val;
 
     sdfctx->sign_key_index = 0;
     sdfctx->enc_key_index = 0;

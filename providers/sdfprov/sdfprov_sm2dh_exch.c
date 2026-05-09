@@ -4,6 +4,7 @@
  */
 
 #include <string.h>
+#include <stdint.h>
 #include <openssl/core_dispatch.h>
 #include <openssl/core_names.h>
 #include <openssl/params.h>
@@ -16,6 +17,7 @@
 #include "sdfprov_internal.h"
 #include "crypto/sm2.h"
 #include "sdfprov_utils.h"
+#include "internal/tlog.h"
 
 typedef struct {
     OSSL_LIB_CTX *libctx;
@@ -32,11 +34,13 @@ typedef struct {
 } SDFPROV_SM2DH_CTX;
 
 static void *sdfprov_sm2dh_newctx(void *provctx);
+static int sdfprov_sm2dh_init(void *vctx, void *vkey, const OSSL_PARAM params[]);
 static int sdfprov_sm2dh_set_ctx_params(void *vctx, const OSSL_PARAM params[]);
 
 static void *sdfprov_sm2dh_newctx(void *provctx)
 {
-    SDFPROV_SM2DH_CTX *ctx = OPENSSL_zalloc(sizeof(*ctx));
+    SDFPROV_SM2DH_CTX *ctx;
+    ctx = OPENSSL_zalloc(sizeof(*ctx));
     if (ctx == NULL)
         return NULL;
     ctx->libctx = PROV_LIBCTX_OF(provctx);
@@ -46,11 +50,14 @@ static void *sdfprov_sm2dh_newctx(void *provctx)
 static int sdfprov_sm2dh_init(void *vctx, void *vkey, const OSSL_PARAM params[])
 {
     SDFPROV_SM2DH_CTX *ctx = vctx;
-    if (ctx == NULL || vkey == NULL)
+    if (ctx == NULL || vkey == NULL) {
         return 0;
+    }
     ctx->k = vkey;
-    if (params != NULL)
-        return sdfprov_sm2dh_set_ctx_params(vctx, params);
+    if (params != NULL) {
+        int ret = sdfprov_sm2dh_set_ctx_params(vctx, params);
+        return ret;
+    }
     return 1;
 }
 
@@ -60,6 +67,8 @@ static int sdfprov_sm2dh_set_peer(void *vctx, void *vpeerk)
     if (ctx == NULL || vpeerk == NULL)
         return 0;
     ctx->peerk = vpeerk;
+    TLOG_DEBUG("sm2dh_set_peer: peerk=%p, ec_key=%p", vpeerk,
+               vpeerk ? ((SDF_SM2_KEY *)vpeerk)->ec_key : NULL);
     return 1;
 }
 
@@ -83,8 +92,11 @@ static int sdfprov_sm2dh_derive(void *vctx, unsigned char *secret,
     unsigned int secret_len;
     static unsigned char sm2_default_id[] = "1234567812345678";
 
-    if (ctx == NULL || ctx->k == NULL || ctx->peerk == NULL)
+    TLOG_DEBUG("sm2dh_derive: ctx=%p, secret=%p, outlen=%zu", vctx, (void *)secret, outlen);
+    if (ctx == NULL || ctx->k == NULL || ctx->peerk == NULL) {
+        TLOG_DEBUG("sm2dh_derive: NULL check failed k=%p peerk=%p", ctx ? ctx->k : NULL, ctx ? ctx->peerk : NULL);
         return 0;
+    }
 
     if (secret == NULL) {
         *psecretlen = 32;
@@ -98,6 +110,7 @@ static int sdfprov_sm2dh_derive(void *vctx, unsigned char *secret,
             && ctx->k->agreement_handle != NULL
             && ctx->k->hSession != NULL
             && ctx->enc_peerk != NULL) {
+        TLOG_DEBUG("sm2dh_derive: hardware agreement path");
         memset(&peer_enc_pub, 0, sizeof(peer_enc_pub));
         memset(&peer_tmp_pub, 0, sizeof(peer_tmp_pub));
 
@@ -122,9 +135,11 @@ static int sdfprov_sm2dh_derive(void *vctx, unsigned char *secret,
                 if (key_handle != NULL)
                     TSAPI_SDF_DestroyKey(ctx->k->hSession, key_handle);
                 *psecretlen = secret_len;
+                TLOG_DEBUG("sm2dh_derive: hardware agreement ok, secret_len=%u", secret_len);
                 return 1;
             }
             /* 硬件协商失败，报错返回而非静默回退到软件路径 */
+            TLOG_DEBUG("sm2dh_derive: SDF_GenerateKeyWithECCEx failed: 0x%08x", ret);
             ERR_raise_data(ERR_LIB_PROV, PROV_R_FAILED_TO_GENERATE_KEY,
                            "SDF_GenerateKeyWithECCEx failed: 0x%08x", ret);
             return 0;
@@ -137,6 +152,8 @@ static int sdfprov_sm2dh_derive(void *vctx, unsigned char *secret,
     if (ctx->enc_k != NULL && ctx->enc_peerk != NULL) {
         EC_KEY *self_enc = evp_pkey_to_ec_key(ctx->enc_k);
         EC_KEY *peer_enc = evp_pkey_to_ec_key(ctx->enc_peerk);
+
+        TLOG_DEBUG("sm2dh_derive: 4-key path, self_enc=%p, peer_enc=%p", self_enc, peer_enc);
 
         if (self_enc == NULL || peer_enc == NULL) {
             ERR_raise(ERR_LIB_PROV, PROV_R_MISSING_KEY);
@@ -154,10 +171,12 @@ static int sdfprov_sm2dh_derive(void *vctx, unsigned char *secret,
         if (len == 0)
             return 0;
         *psecretlen = len;
+        TLOG_DEBUG("sm2dh_derive: 4-key SW path ok, secret_len=%zu", len);
         return 1;
     }
 
     /* 简化模式: 仅临时密钥 ECDH */
+    TLOG_DEBUG("sm2dh_derive: simplified ECDH path");
     {
         const EC_POINT *pub = EC_KEY_get0_public_key(ctx->peerk->ec_key);
         const EC_GROUP *group = EC_KEY_get0_group(ctx->k->ec_key);
@@ -236,6 +255,7 @@ static int sdfprov_sm2dh_set_ctx_params(void *vctx, const OSSL_PARAM params[])
         size_t enc_key_sz = 0;
         if (!OSSL_PARAM_get_octet_ptr(p, (const void **)&enc_key, &enc_key_sz))
             return 0;
+        TLOG_DEBUG("sm2dh_set_params: SELF_ENC_KEY=%p", (void *)enc_key);
         EVP_PKEY_free(ctx->enc_k);
         ctx->enc_k = enc_key;
         EVP_PKEY_up_ref(ctx->enc_k);
@@ -247,6 +267,7 @@ static int sdfprov_sm2dh_set_ctx_params(void *vctx, const OSSL_PARAM params[])
         size_t enc_peer_sz = 0;
         if (!OSSL_PARAM_get_octet_ptr(p, (const void **)&enc_peer, &enc_peer_sz))
             return 0;
+        TLOG_DEBUG("sm2dh_set_params: PEER_ENC_KEY=%p", (void *)enc_peer);
         EVP_PKEY_free(ctx->enc_peerk);
         ctx->enc_peerk = enc_peer;
         EVP_PKEY_up_ref(ctx->enc_peerk);
