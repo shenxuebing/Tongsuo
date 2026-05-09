@@ -148,10 +148,26 @@ if "%SKT%"=="hw" (
     ping -n 3 127.0.0.1 >nul 2>&1
 )
 
-echo Q | %CCMD% > "%CF%" 2>&1
+:: 使用后台启动 + 超时检测（避免客户端卡死阻塞整个脚本）
+:: 客户端后台运行，写入输出文件
+start /b cmd /c "echo Q | %CCMD% > %CF% 2>&1"
 
-:: 客户端超时检测 (避免卡死)
-ping -n 16 127.0.0.1 >nul 2>&1
+:: 超时等待：最多等待 15 秒，每秒检查输出文件是否已有 Cipher is
+set /a TIMEOUT=0
+:wait_loop
+ping -n 2 127.0.0.1 >nul 2>&1
+set /a TIMEOUT+=1
+if %TIMEOUT% GEQ 15 goto :timeout_check
+findstr /C:"Cipher is" "%CF%" >nul 2>&1
+if %ERRORLEVEL% EQU 0 goto :client_done
+goto :wait_loop
+
+:timeout_check
+:: 超时后强制终止客户端
+taskkill /f /im openssl.exe >nul 2>&1
+echo     [TIMEOUT] 客户端等待超时，已强制终止
+
+:client_done
 
 findstr /C:"Cipher is" "%CF%" >nul 2>&1
 if %ERRORLEVEL% EQU 0 (
