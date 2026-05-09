@@ -3,6 +3,7 @@ chcp 65001 >nul 2>&1
 call "D:\Visual Studio 2022\VC\Auxiliary\Build\vcvarsall.bat" amd64 >nul 2>&1
 cd /d E:\vs2022workspace\Tongsuo\apps
 
+set "OPENSSL_CONF=%CD%\openssl.cnf"
 set PASS=0
 set FAIL=0
 set NUM=0
@@ -17,102 +18,79 @@ echo   2 密码套件 x 4 密钥组合 = 8 测试场景
 echo ================================================================
 
 taskkill /f /im openssl.exe >nul 2>&1
+ping -n 3 127.0.0.1 >nul 2>&1
 
 :: ============================================================
 ::  1. ECC-SM2-SM4-CBC-SM3 | Svr: SW | Cli: SW
 :: ============================================================
 set /a NUM+=1
 echo.
-echo  [%NUM%] ECC-SM2-SM4-CBC-SM3 | Svr:SW | Cli:SW
-call :handshake 25101 ECC-SM2-SM4-CBC-SM3 ^
-    "-provider default" ^
-    "-sign_cert %CERTS%\server_sign.crt -enc_cert %CERTS%\server_enc.crt -sign_key %CERTS%\server_sign.key -enc_key %CERTS%\server_enc.key" ^
-    "-provider default" ^
-    "-sign_cert %CERTS%\client_sign.crt -enc_cert %CERTS%\client_enc.crt -sign_key %CERTS%\client_sign.key -enc_key %CERTS%\client_enc.key"
+echo  [%NUM%] ECC-SM2-SM4-CBC-SM3 ^| Svr:SW ^| Cli:SW
+call :handshake 25101 ECC-SM2-SM4-CBC-SM3 sw sw
 
 :: ============================================================
 ::  2. ECC-SM2-SM4-CBC-SM3 | Svr: HW | Cli: SW
 :: ============================================================
 set /a NUM+=1
 echo.
-echo  [%NUM%] ECC-SM2-SM4-CBC-SM3 | Svr:HW | Cli:SW
-call :handshake 25102 ECC-SM2-SM4-CBC-SM3 ^
-    "-provider sdfprov -provider default" ^
-    "-sign_cert %CERTS%\server_sign.crt -enc_cert %CERTS%\server_enc.crt -sign_key \"sdf:sm2:0:sign\" -enc_key \"sdf:sm2:0:enc\"" ^
-    "-provider default" ^
-    "-sign_cert %CERTS%\client_sign.crt -enc_cert %CERTS%\client_enc.crt -sign_key %CERTS%\client_sign.key -enc_key %CERTS%\client_enc.key"
+echo  [%NUM%] ECC-SM2-SM4-CBC-SM3 ^| Svr:HW ^| Cli:SW
+call :handshake 25102 ECC-SM2-SM4-CBC-SM3 hw sw
 
 :: ============================================================
 ::  3. ECC-SM2-SM4-CBC-SM3 | Svr: SW | Cli: HW
 :: ============================================================
 set /a NUM+=1
 echo.
-echo  [%NUM%] ECC-SM2-SM4-CBC-SM3 | Svr:SW | Cli:HW
-call :handshake 25103 ECC-SM2-SM4-CBC-SM3 ^
-    "-provider default" ^
-    "-sign_cert %CERTS%\server_sign.crt -enc_cert %CERTS%\server_enc.crt -sign_key %CERTS%\server_sign.key -enc_key %CERTS%\server_enc.key" ^
-    "-provider sdfprov -provider default" ^
-    "-sign_cert %CERTS%\client_sign.crt -enc_cert %CERTS%\client_enc.crt -sign_key \"sdf:sm2:0:sign\" -enc_key \"sdf:sm2:0:enc\""
+echo  [%NUM%] ECC-SM2-SM4-CBC-SM3 ^| Svr:SW ^| Cli:HW
+call :handshake 25103 ECC-SM2-SM4-CBC-SM3 sw hw
 
 :: ============================================================
 ::  4. ECC-SM2-SM4-CBC-SM3 | Svr: HW | Cli: HW
 :: ============================================================
 set /a NUM+=1
 echo.
-echo  [%NUM%] ECC-SM2-SM4-CBC-SM3 | Svr:HW | Cli:HW
-call :handshake 25104 ECC-SM2-SM4-CBC-SM3 ^
-    "-provider sdfprov -provider default" ^
-    "-sign_cert %CERTS%\server_sign.crt -enc_cert %CERTS%\server_enc.crt -sign_key \"sdf:sm2:0:sign\" -enc_key \"sdf:sm2:0:enc\"" ^
-    "-provider sdfprov -provider default" ^
-    "-sign_cert %CERTS%\client_sign.crt -enc_cert %CERTS%\client_enc.crt -sign_key \"sdf:sm2:0:sign\" -enc_key \"sdf:sm2:0:enc\""
+echo  [%NUM%] ECC-SM2-SM4-CBC-SM3 ^| Svr:HW ^| Cli:HW
+call :handshake 25104 ECC-SM2-SM4-CBC-SM3 hw hw
+
+:: ============================================================
+::  ECDHE 测试前设备冷却 (前序 HW 测试需要释放 SDF 设备资源)
+:: ============================================================
+echo.
+echo  [冷却等待 5 秒 - 释放 SDF 设备资源...]
+taskkill /f /im openssl.exe >nul 2>&1
+ping -n 6 127.0.0.1 >nul 2>&1
 
 :: ============================================================
 ::  5. ECDHE-SM2-SM4-CBC-SM3 | Svr: SW | Cli: SW
 :: ============================================================
 set /a NUM+=1
 echo.
-echo  [%NUM%] ECDHE-SM2-SM4-CBC-SM3 | Svr:SW | Cli:SW
-call :handshake 25105 ECDHE-SM2-SM4-CBC-SM3 ^
-    "-provider default" ^
-    "-sign_cert %CERTS%\server_sign.crt -enc_cert %CERTS%\server_enc.crt -sign_key %CERTS%\server_sign.key -enc_key %CERTS%\server_enc.key" ^
-    "-provider default" ^
-    "-sign_cert %CERTS%\client_sign.crt -enc_cert %CERTS%\client_enc.crt -sign_key %CERTS%\client_sign.key -enc_key %CERTS%\client_enc.key"
+echo  [%NUM%] ECDHE-SM2-SM4-CBC-SM3 ^| Svr:SW ^| Cli:SW
+call :handshake 25105 ECDHE-SM2-SM4-CBC-SM3 sw sw
 
 :: ============================================================
 ::  6. ECDHE-SM2-SM4-CBC-SM3 | Svr: HW | Cli: SW
 :: ============================================================
 set /a NUM+=1
 echo.
-echo  [%NUM%] ECDHE-SM2-SM4-CBC-SM3 | Svr:HW | Cli:SW
-call :handshake 25106 ECDHE-SM2-SM4-CBC-SM3 ^
-    "-provider sdfprov -provider default" ^
-    "-sign_cert %CERTS%\server_sign.crt -enc_cert %CERTS%\server_enc.crt -sign_key \"sdf:sm2:0:sign\" -enc_key \"sdf:sm2:0:enc\"" ^
-    "-provider default" ^
-    "-sign_cert %CERTS%\client_sign.crt -enc_cert %CERTS%\client_enc.crt -sign_key %CERTS%\client_sign.key -enc_key %CERTS%\client_enc.key"
+echo  [%NUM%] ECDHE-SM2-SM4-CBC-SM3 ^| Svr:HW ^| Cli:SW
+call :handshake 25106 ECDHE-SM2-SM4-CBC-SM3 hw sw
 
 :: ============================================================
 ::  7. ECDHE-SM2-SM4-CBC-SM3 | Svr: SW | Cli: HW
 :: ============================================================
 set /a NUM+=1
 echo.
-echo  [%NUM%] ECDHE-SM2-SM4-CBC-SM3 | Svr:SW | Cli:HW
-call :handshake 25107 ECDHE-SM2-SM4-CBC-SM3 ^
-    "-provider default" ^
-    "-sign_cert %CERTS%\server_sign.crt -enc_cert %CERTS%\server_enc.crt -sign_key %CERTS%\server_sign.key -enc_key %CERTS%\server_enc.key" ^
-    "-provider sdfprov -provider default" ^
-    "-sign_cert %CERTS%\client_sign.crt -enc_cert %CERTS%\client_enc.crt -sign_key \"sdf:sm2:0:sign\" -enc_key \"sdf:sm2:0:enc\""
+echo  [%NUM%] ECDHE-SM2-SM4-CBC-SM3 ^| Svr:SW ^| Cli:HW
+call :handshake 25107 ECDHE-SM2-SM4-CBC-SM3 sw hw
 
 :: ============================================================
 ::  8. ECDHE-SM2-SM4-CBC-SM3 | Svr: HW | Cli: HW
 :: ============================================================
 set /a NUM+=1
 echo.
-echo  [%NUM%] ECDHE-SM2-SM4-CBC-SM3 | Svr:HW | Cli:HW
-call :handshake 25108 ECDHE-SM2-SM4-CBC-SM3 ^
-    "-provider sdfprov -provider default" ^
-    "-sign_cert %CERTS%\server_sign.crt -enc_cert %CERTS%\server_enc.crt -sign_key \"sdf:sm2:0:sign\" -enc_key \"sdf:sm2:0:enc\"" ^
-    "-provider sdfprov -provider default" ^
-    "-sign_cert %CERTS%\client_sign.crt -enc_cert %CERTS%\client_enc.crt -sign_key \"sdf:sm2:0:sign\" -enc_key \"sdf:sm2:0:enc\""
+echo  [%NUM%] ECDHE-SM2-SM4-CBC-SM3 ^| Svr:HW ^| Cli:HW
+call :handshake 25108 ECDHE-SM2-SM4-CBC-SM3 hw hw
 
 :: ============================================================
 :: 汇总
@@ -129,25 +107,48 @@ exit /b
 
 :: ============================================================
 ::  :handshake 子程序
-::  %1=端口  %2=密码套件  %3=服务端provider  %4=服务端key参数
-::  %5=客户端provider  %6=客户端key参数
+::  %1=端口  %2=密码套件  %3=服务端密钥类型(sw/hw)  %4=客户端密钥类型(sw/hw)
 :: ============================================================
 :handshake
 set "HP=%~1"
 set "HC=%~2"
-set "SP=%~3"
-set "SK=%~4"
-set "CP=%~5"
-set "CK=%~6"
+set "SKT=%~3"
+set "CKT=%~4"
 
 set "SF=..\ntls_out\svr_%HP%.txt"
 set "CF=..\ntls_out\cli_%HP%.txt"
 
-start /b openssl.exe s_server -ntls -enable_ntls -accept %HP% %SK% %SP% -Verify 1 -CAfile %CAFILE% -cipher %HC% > "%SF%" 2>&1
+:: 构建服务端命令
+set "SCMD=.\openssl.exe s_server -ntls -enable_ntls -accept %HP%"
+if "%SKT%"=="sw" (
+    set "SCMD=%SCMD% -sign_cert %CERTS%\server_sign.crt -enc_cert %CERTS%\server_enc.crt -sign_key %CERTS%\server_sign.key -enc_key %CERTS%\server_enc.key"
+) else (
+    set "SCMD=%SCMD% -sign_cert %CERTS%\server_sign.crt -enc_cert %CERTS%\server_enc.crt -sign_key sdf:key=0;type=sign -enc_key sdf:key=0;type=enc -provider sdfprov -provider default"
+)
+set "SCMD=%SCMD% -www -CAfile %CAFILE% -cipher %HC%"
 
-ping -n 4 127.0.0.1 >nul 2>&1
+:: 构建客户端命令
+set "CCMD=.\openssl.exe s_client -ntls -enable_ntls -connect 127.0.0.1:%HP%"
+if "%CKT%"=="sw" (
+    set "CCMD=%CCMD% -sign_cert %CERTS%\client_sign.crt -enc_cert %CERTS%\client_enc.crt -sign_key %CERTS%\client_sign.key -enc_key %CERTS%\client_enc.key"
+) else (
+    set "CCMD=%CCMD% -sign_cert %CERTS%\client_sign.crt -enc_cert %CERTS%\client_enc.crt -sign_key sdf:key=1;type=sign -enc_key sdf:key=1;type=enc -provider sdfprov -provider default"
+)
+set "CCMD=%CCMD% -CAfile %CAFILE% -cipher %HC%"
 
-echo Q | openssl.exe s_client -ntls -enable_ntls -connect 127.0.0.1:%HP% %CK% %CP% -CAfile %CAFILE% -cipher %HC% > "%CF%" 2>&1
+start /b cmd /c "%SCMD% > %SF% 2>&1"
+
+:: 服务端启动等待 (HW 密钥需要更长初始化时间)
+if "%SKT%"=="hw" (
+    ping -n 5 127.0.0.1 >nul 2>&1
+) else (
+    ping -n 3 127.0.0.1 >nul 2>&1
+)
+
+echo Q | %CCMD% > "%CF%" 2>&1
+
+:: 客户端超时检测 (避免卡死)
+ping -n 16 127.0.0.1 >nul 2>&1
 
 findstr /C:"Cipher is" "%CF%" >nul 2>&1
 if %ERRORLEVEL% EQU 0 (
@@ -162,6 +163,11 @@ if %ERRORLEVEL% EQU 0 (
     set /a FAIL+=1
 )
 
+:: 测试结束后清理 - HW 测试需要更长等待确保设备资源释放
 taskkill /f /im openssl.exe >nul 2>&1
-ping -n 2 127.0.0.1 >nul 2>&1
+if "%SKT%"=="hw" (
+    ping -n 4 127.0.0.1 >nul 2>&1
+) else (
+    ping -n 2 127.0.0.1 >nul 2>&1
+)
 goto :eof

@@ -40,6 +40,7 @@ static int sdfprov_sm2dh_set_ctx_params(void *vctx, const OSSL_PARAM params[]);
 static void *sdfprov_sm2dh_newctx(void *provctx)
 {
     SDFPROV_SM2DH_CTX *ctx;
+    TLOG_DEBUG("sm2dh_newctx: provctx=%p", provctx);
     ctx = OPENSSL_zalloc(sizeof(*ctx));
     if (ctx == NULL)
         return NULL;
@@ -50,6 +51,7 @@ static void *sdfprov_sm2dh_newctx(void *provctx)
 static int sdfprov_sm2dh_init(void *vctx, void *vkey, const OSSL_PARAM params[])
 {
     SDFPROV_SM2DH_CTX *ctx = vctx;
+    TLOG_DEBUG("sm2dh_init: ctx=%p, vkey=%p", vctx, vkey);
     if (ctx == NULL || vkey == NULL) {
         return 0;
     }

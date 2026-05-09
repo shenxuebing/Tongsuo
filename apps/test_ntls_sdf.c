@@ -14,7 +14,6 @@
 #include <openssl/x509.h>
 #include <openssl/sdf.h>
 #include <openssl/sgd.h>
-#include "crypto/sdf/sdf_local.h"
 
 /* 加载 SDF 硬件密钥 */
 static EVP_PKEY *load_sdf_key(const char *uri)
@@ -64,36 +63,6 @@ int main(void)
     OSSL_PROVIDER_load(NULL, "sdfprov");
     OSSL_PROVIDER_load(NULL, "default");
 
-    /* Test SDF InternalEncrypt/Decrypt roundtrip */
-    {
-        void *hDev = NULL, *hSes = NULL;
-        unsigned char pt[] = "Hello";
-        OSSL_ECCCipher *cip;
-        unsigned char dt[256];
-        unsigned int dtl;
-        int r2;
-
-        r2 = TSAPI_SDF_OpenDevice(&hDev);
-        if (r2 == 0) {
-            r2 = TSAPI_SDF_OpenSession(hDev, &hSes);
-            if (r2 == 0) {
-                cip = OPENSSL_zalloc(512);
-                r2 = TSAPI_SDF_InternalEncrypt_ECC(hSes, 0, OSSL_SGD_SM2_3, pt, 5, cip);
-                printf("SDF encrypt roundtrip: ret=0x%08X L=%u\n", r2, cip->L);
-                if (r2 == 0) {
-                    dtl = sizeof(dt);
-                    r2 = TSAPI_SDF_InternalDecrypt_ECC(hSes, 0, OSSL_SGD_SM2_3, cip, dt, &dtl);
-                    printf("SDF decrypt roundtrip: ret=0x%08X len=%u\n", r2, dtl);
-                    if (r2 == 0) { dt[dtl]=0; printf("Dec: '%s'\n", dt); }
-                }
-                OPENSSL_free(cip);
-                TSAPI_SDF_CloseSession(hSes);
-            }
-            TSAPI_SDF_CloseDevice(hDev);
-        }
-        fflush(stdout);
-    }
-
     /* Load SDF hardware keys */
     srv_sign_key = load_sdf_key("sdf:key=0;type=sign");
     srv_enc_key = load_sdf_key("sdf:key=0;type=enc");
@@ -108,10 +77,10 @@ int main(void)
     printf("All SDF keys loaded OK\n"); fflush(stdout);
 
     /* Load certs */
-    srv_sign_cert = load_cert("server_sign.crt");
-    srv_enc_cert = load_cert("server_enc.crt");
-    cli_sign_cert = load_cert("client_sign.crt");
-    cli_enc_cert = load_cert("client_enc.crt");
+    srv_sign_cert = load_cert("../test/certs/sm2/server_sign.crt");
+    srv_enc_cert = load_cert("../test/certs/sm2/server_enc.crt");
+    cli_sign_cert = load_cert("../test/certs/sm2/client_sign.crt");
+    cli_enc_cert = load_cert("../test/certs/sm2/client_enc.crt");
 
     if (!srv_sign_cert || !srv_enc_cert || !cli_sign_cert || !cli_enc_cert) {
         printf("FAIL: load certs\n");
@@ -186,6 +155,17 @@ int main(void)
 
     SSL_set_connect_state(ssl_c);
     SSL_set_accept_state(ssl_s);
+
+    /* Set certificates first, then keys (order matters for NTLS) */
+    SSL_use_sign_certificate(ssl_s, srv_sign_cert);
+    SSL_use_enc_certificate(ssl_s, srv_enc_cert);
+    SSL_use_sign_certificate(ssl_c, cli_sign_cert);
+    SSL_use_enc_certificate(ssl_c, cli_enc_cert);
+
+    SSL_use_sign_PrivateKey(ssl_s, srv_sign_key);
+    SSL_use_enc_PrivateKey(ssl_s, srv_enc_key);
+    SSL_use_sign_PrivateKey(ssl_c, cli_sign_key);
+    SSL_use_enc_PrivateKey(ssl_c, cli_enc_key);
 
     printf("Starting handshake...\n"); fflush(stdout);
 

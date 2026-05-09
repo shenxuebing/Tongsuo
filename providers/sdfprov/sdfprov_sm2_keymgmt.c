@@ -19,6 +19,7 @@
 #include "sdfprov_utils.h"
 #include "sdfprov_ctx.h"
 #include "internal/param_build_set.h"
+#include "internal/tlog.h"
 
 /* 从全局 SDF 上下文获取设备会话并初始化设备（如果未初始化） */
 static void *sdfprov_get_session(void)
@@ -416,6 +417,8 @@ static int sdfprov_sm2_export(void *keydata, int selection,
     OSSL_PARAM_BLD *bld = NULL;
     OSSL_PARAM *params = NULL;
     int ret = 0;
+
+    TLOG_DEBUG("sm2_export: keydata=%p, selection=0x%x, cb=%p", keydata, selection, (void *)cb);
 
     if (key == NULL || key->ec_key == NULL)
         return 0;
