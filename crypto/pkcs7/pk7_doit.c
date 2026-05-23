@@ -455,6 +455,11 @@ BIO* PKCS7_dataInit(PKCS7* p7, BIO* bio, int no_hash)
 			goto err;
 		}
 	}
+
+	if (pkey != NULL && pkey_new_flag == 1) {
+		EVP_PKEY_free(pkey);
+		pkey = NULL;
+	}
     return out;
 
  err:
