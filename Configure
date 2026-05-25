@@ -677,7 +677,7 @@ our %disabled = ( # "what"         => "comment"
                   "atf_slibce"          => "default",
                   "sdf-lib"             => "default",
                   "sdf-lib-dynamic"     => "default",
-                  "sdfprov"             => "default",
+                  "sdfprov"             => "disabled",
                   "wbsm4-xiaolai"       => "default",
                   "wbsm4-baiwu"         => "default",
                   "wbsm4-wsise"         => "default",
