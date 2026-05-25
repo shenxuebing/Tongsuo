@@ -85,7 +85,7 @@ ASN1_SEQUENCE(SM2_Enveloped_Key) = {
 IMPLEMENT_ASN1_FUNCTIONS(SM2_Enveloped_Key)
 
 
-//2023Äê7ÔÂ1ÈÕ12:09:43 ÉòÑ©±ù begin add£¬C1|C2|C3  Ïà»¥×ª»» C1|C2|C3
+//2023å¹´7æœˆ1æ—¥12:09:43 æ²ˆé›ªå†° begin addï¼ŒC1|C2|C3  ç›¸äº’è½¬æ¢ C1|C2|C3
 SM2_CiphertextEx* SM2_Ciphertext_to_SM2_CiphertextEx(const SM2_Ciphertext* c1c3c2) 
 {
 	if (!c1c3c2) 
@@ -97,17 +97,22 @@ SM2_CiphertextEx* SM2_Ciphertext_to_SM2_CiphertextEx(const SM2_Ciphertext* c1c3c
     {
 		return NULL;
 	}
-	// ÓÉÓÚ BIGNUM ÊÇÒıÓÃ¼ÆÊıµÄ£¬ÎÒÃÇĞèÒª¸´ÖÆ BIGNUM ¶ø²»ÊÇÖ±½Ó¸³Öµ
+	// ç”±äº BIGNUM æ˜¯å¼•ç”¨è®¡æ•°çš„ï¼Œæˆ‘ä»¬éœ€è¦å¤åˆ¶ BIGNUM è€Œä¸æ˜¯ç›´æ¥èµ‹å€¼
+	/* é‡Šæ”¾ SM2_CiphertextEx_new() è‡ªåŠ¨åˆ†é…çš„å­å¯¹è±¡ï¼Œé¿å…è¦†ç›–æ—¶æ³„æ¼ */
+	BN_free(c1c2c3_ex->C1x);
 	c1c2c3_ex->C1x = BN_dup(c1c3c2->C1x);
+	BN_free(c1c2c3_ex->C1y);
 	c1c2c3_ex->C1y = BN_dup(c1c3c2->C1y);
-	// ASN1_OCTET_STRING Ò²ĞèÒª¸´ÖÆ
+	// ASN1_OCTET_STRING ä¹Ÿéœ€è¦å¤åˆ¶
+	ASN1_OCTET_STRING_free(c1c2c3_ex->C2);
 	c1c2c3_ex->C2 = ASN1_OCTET_STRING_dup(c1c3c2->C2);
+	ASN1_OCTET_STRING_free(c1c2c3_ex->C3);
 	c1c2c3_ex->C3 = ASN1_OCTET_STRING_dup(c1c3c2->C3);
 
-	// ¼ì²é¸´ÖÆÊÇ·ñ³É¹¦
+	// æ£€æŸ¥å¤åˆ¶æ˜¯å¦æˆåŠŸ
 	if (!c1c2c3_ex->C1x || !c1c2c3_ex->C1y || !c1c2c3_ex->C2 || !c1c2c3_ex->C3) 
     {
-		// ÇåÀí²¢·µ»Ø´íÎó
+		// æ¸…ç†å¹¶è¿”å›é”™è¯¯
 		SM2_CiphertextEx_free(c1c2c3_ex);
 		return NULL;
 	}
@@ -124,17 +129,22 @@ SM2_Ciphertext* SM2_CiphertextEx_to_SM2_Ciphertext(const SM2_CiphertextEx* c1c2c
     {
 		return NULL;
 	}
-	// ÓÉÓÚ BIGNUM ÊÇÒıÓÃ¼ÆÊıµÄ£¬ÎÒÃÇĞèÒª¸´ÖÆ BIGNUM ¶ø²»ÊÇÖ±½Ó¸³Öµ
+	// ç”±äº BIGNUM æ˜¯å¼•ç”¨è®¡æ•°çš„ï¼Œæˆ‘ä»¬éœ€è¦å¤åˆ¶ BIGNUM è€Œä¸æ˜¯ç›´æ¥èµ‹å€¼
+	/* é‡Šæ”¾ SM2_Ciphertext_new() è‡ªåŠ¨åˆ†é…çš„å­å¯¹è±¡ï¼Œé¿å…è¦†ç›–æ—¶æ³„æ¼ */
+	BN_free(c1c3c2->C1x);
 	c1c3c2->C1x = BN_dup(c1c2c3_ex->C1x);
+	BN_free(c1c3c2->C1y);
 	c1c3c2->C1y = BN_dup(c1c2c3_ex->C1y);
-	// ASN1_OCTET_STRING Ò²ĞèÒª¸´ÖÆ
+	// ASN1_OCTET_STRING ä¹Ÿéœ€è¦å¤åˆ¶
+	ASN1_OCTET_STRING_free(c1c3c2->C3);
 	c1c3c2->C3 = ASN1_OCTET_STRING_dup(c1c2c3_ex->C3);
+	ASN1_OCTET_STRING_free(c1c3c2->C2);
 	c1c3c2->C2 = ASN1_OCTET_STRING_dup(c1c2c3_ex->C2);
 
-	// ¼ì²é¸´ÖÆÊÇ·ñ³É¹¦
+	// æ£€æŸ¥å¤åˆ¶æ˜¯å¦æˆåŠŸ
 	if (!c1c3c2->C1x || !c1c3c2->C1y || !c1c3c2->C3 || !c1c3c2->C2) 
     {
-		// ÇåÀí²¢·µ»Ø´íÎó
+		// æ¸…ç†å¹¶è¿”å›é”™è¯¯
 		SM2_Ciphertext_free(c1c3c2);
 		return NULL;
 	}
@@ -142,7 +152,7 @@ SM2_Ciphertext* SM2_CiphertextEx_to_SM2_Ciphertext(const SM2_CiphertextEx* c1c2c
 }
 
 
-//2023Äê7ÔÂ1ÈÕ12:09:43 ÉòÑ©±ù end add£¬C1|C2|C3  Ïà»¥×ª»» C1|C2|C3
+//2023å¹´7æœˆ1æ—¥12:09:43 æ²ˆé›ªå†° end addï¼ŒC1|C2|C3  ç›¸äº’è½¬æ¢ C1|C2|C3
 
 BIO* SM2_Enveloped_Key_dataDecode(SM2_Enveloped_Key* sm2evpkey, EVP_PKEY* pkey)
 {
@@ -568,7 +578,7 @@ int ossl_sm2_encrypt_ex(const EC_KEY *key,
 	{
 		ciphertext_leni = i2d_SM2_Ciphertext(&ctext_struct, &ciphertext_buf);
 	}
-	else//2023Äê7ÔÂ1ÈÕ00:36:27 ÉòÑ©±ù add C1|C2|C3¸ñÊ½
+	else//2023å¹´7æœˆ1æ—¥00:36:27 æ²ˆé›ªå†° add C1|C2|C3æ ¼å¼
 	{
         SM2_CiphertextEx ctext_structEx;
         ctext_structEx.C1x = ctext_struct.C1x;
@@ -635,7 +645,7 @@ int ossl_sm2_decrypt_ex(const EC_KEY *key,
 	{
 		sm2_ctext = d2i_SM2_Ciphertext(NULL, &ciphertext, ciphertext_len);
 	}
-	else //2023Äê7ÔÂ1ÈÕ00:36:27 ÉòÑ©±ù add C1|C2|C3¸ñÊ½
+	else //2023å¹´7æœˆ1æ—¥00:36:27 æ²ˆé›ªå†° add C1|C2|C3æ ¼å¼
 	{
         SM2_CiphertextEx *sm2_ctext_ex = NULL;
         sm2_ctext_ex = d2i_SM2_CiphertextEx(NULL, &ciphertext, ciphertext_len);       

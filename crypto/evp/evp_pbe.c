@@ -33,6 +33,7 @@ struct evp_pbe_st {
 static STACK_OF(EVP_PBE_CTL) *pbe_algs;
 
 static const EVP_PBE_CTL builtin_pbe[] = {
+    /* OUTER entries sorted by NID for binary search: 10,69,144,145,146,147,161,170,1516,1517 */
     {EVP_PBE_TYPE_OUTER, NID_pbeWithMD5AndDES_CBC,
      NID_des_cbc, NID_md5, PKCS5_PBE_keyivgen, PKCS5_PBE_keyivgen_ex},
 
@@ -47,15 +48,16 @@ static const EVP_PBE_CTL builtin_pbe[] = {
      NID_des_ede3_cbc, NID_sha1, PKCS12_PBE_keyivgen, &PKCS12_PBE_keyivgen_ex},
     {EVP_PBE_TYPE_OUTER, NID_pbe_WithSHA1And2_Key_TripleDES_CBC,
      NID_des_ede_cbc, NID_sha1, PKCS12_PBE_keyivgen, &PKCS12_PBE_keyivgen_ex},
-    {EVP_PBE_TYPE_OUTER, NID_pbe_WithSHA1And128BitRC2_CBC,
-     NID_rc2_cbc, NID_sha1, PKCS12_PBE_keyivgen, &PKCS12_PBE_keyivgen_ex},
-    {EVP_PBE_TYPE_OUTER, NID_pbe_WithSHA1And40BitRC2_CBC,
-     NID_rc2_40_cbc, NID_sha1, PKCS12_PBE_keyivgen, &PKCS12_PBE_keyivgen_ex},
 
     {EVP_PBE_TYPE_OUTER, NID_pbes2, -1, -1, PKCS5_v2_PBE_keyivgen, &PKCS5_v2_PBE_keyivgen_ex},
 
     {EVP_PBE_TYPE_OUTER, NID_pbeWithSHA1AndDES_CBC,
      NID_des_cbc, NID_sha1, PKCS5_PBE_keyivgen, PKCS5_PBE_keyivgen_ex},
+
+    {EVP_PBE_TYPE_OUTER, NID_pbe_WithSHA1And128BitRC2_CBC,
+     NID_rc2_cbc, NID_sha1, PKCS12_PBE_keyivgen, &PKCS12_PBE_keyivgen_ex},
+    {EVP_PBE_TYPE_OUTER, NID_pbe_WithSHA1And40BitRC2_CBC,
+     NID_rc2_40_cbc, NID_sha1, PKCS12_PBE_keyivgen, &PKCS12_PBE_keyivgen_ex},
 
     {EVP_PBE_TYPE_PRF, NID_hmacWithSHA1, -1, NID_sha1, 0},
     {EVP_PBE_TYPE_PRF, NID_hmac_md5, -1, NID_md5, 0},

@@ -162,6 +162,9 @@ struct ossl_decoder_ctx_st {
 
     /* Signal that further processing should not continue. */
     int harderr;
+
+    /* Prevent further modifications to the decoder context (template) */
+    int frozen;
 };
 
 const OSSL_PROPERTY_LIST *

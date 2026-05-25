@@ -105,9 +105,11 @@ EVP_PKEY *EVP_PKCS82PKEY_ex(const PKCS8_PRIV_KEY_INFO *p8, OSSL_LIB_CTX *libctx,
     }
 
     if (dctx == NULL
-        || !OSSL_DECODER_from_data(dctx, &p8_data, &len))
-        /* try legacy */
+        || !OSSL_DECODER_from_data(dctx, &p8_data, &len)) {
+        /* try legacy, free any partial decode result first */
+        EVP_PKEY_free(pkey);
         pkey = evp_pkcs82pkey_legacy(p8, libctx, propq);
+    }
 
     OPENSSL_clear_free(encoded_data, encoded_len);
     OSSL_DECODER_CTX_free(dctx);

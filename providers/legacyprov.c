@@ -96,6 +96,14 @@ static const OSSL_ALGORITHM legacy_ciphers[] = {
     ALG(PROV_NAMES_RC4_HMAC_MD5, ossl_rc4_hmac_ossl_md5_functions),
 # endif /* OPENSSL_NO_MD5 */
 #endif /* OPENSSL_NO_RC4 */
+#ifndef OPENSSL_NO_RC2
+    ALG(PROV_NAMES_RC2_CBC, ossl_rc2128cbc_functions),
+    ALG(PROV_NAMES_RC2_ECB, ossl_rc2128ecb_functions),
+    ALG(PROV_NAMES_RC2_OFB, ossl_rc2128ofb128_functions),
+    ALG(PROV_NAMES_RC2_CFB, ossl_rc2128cfb128_functions),
+    ALG(PROV_NAMES_RC2_40_CBC, ossl_rc240cbc_functions),
+    ALG(PROV_NAMES_RC2_64_CBC, ossl_rc264cbc_functions),
+#endif /* OPENSSL_NO_RC2 */
 #ifndef OPENSSL_NO_RC5
     ALG(PROV_NAMES_RC5_ECB, ossl_rc5128ecb_functions),
     ALG(PROV_NAMES_RC5_CBC, ossl_rc5128cbc_functions),
