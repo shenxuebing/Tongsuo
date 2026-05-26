@@ -2723,10 +2723,9 @@ int evp_pkey_ctx_ctrl_to_param(EVP_PKEY_CTX *pctx,
     tmpl.ctrl_num = cmd;
     tmpl.keytype1 = tmpl.keytype2 = keytype;
     tmpl.optype = optype;
-    fprintf(stderr, "  [DBG] ctrl_to_param: cmd=%d keytype=%d optype=%d legacy=%d\n",
-            cmd, keytype, optype, pctx->legacy_keytype);
+    //fprintf(stderr, "  [DBG] ctrl_to_param: cmd=%d keytype=%d optype=%d legacy=%d\n",cmd, keytype, optype, pctx->legacy_keytype);
     translation = lookup_evp_pkey_ctx_translation(&tmpl);
-    fprintf(stderr, "  [DBG] lookup result: %s\n", translation ? "FOUND" : "NOT FOUND");
+    //fprintf(stderr, "  [DBG] lookup result: %s\n", translation ? "FOUND" : "NOT FOUND");
 
     if (translation == NULL) {
         ERR_raise(ERR_LIB_EVP, EVP_R_COMMAND_NOT_SUPPORTED);
@@ -2748,7 +2747,7 @@ int evp_pkey_ctx_ctrl_to_param(EVP_PKEY_CTX *pctx,
     ctx.params = params;
 
     ret = fixup(PRE_CTRL_TO_PARAMS, translation, &ctx);
-    fprintf(stderr, "  [DBG] fixup ret=%d action=%d\n", ret, ctx.action_type);
+    //fprintf(stderr, "  [DBG] fixup ret=%d action=%d\n", ret, ctx.action_type);
 
     if (ret > 0) {
         switch (ctx.action_type) {
@@ -2760,11 +2759,11 @@ int evp_pkey_ctx_ctrl_to_param(EVP_PKEY_CTX *pctx,
             break;
         case OSSL_ACTION_SET:
             ret = evp_pkey_ctx_set_params_strict(pctx, ctx.params);
-            fprintf(stderr, "  [DBG] set_params_strict ret=%d\n", ret);
+            //fprintf(stderr, "  [DBG] set_params_strict ret=%d\n", ret);
             break;
         }
     }
-    fprintf(stderr, "  [DBG] ctrl_to_param final ret=%d\n", ret);
+    //fprintf(stderr, "  [DBG] ctrl_to_param final ret=%d\n", ret);
 
     /*
      * In POST, we pass the return value as p1, allowing the fixup_args
