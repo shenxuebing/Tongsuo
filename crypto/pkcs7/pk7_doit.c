@@ -119,7 +119,6 @@ static int pkcs7_encode_rinfo(PKCS7_RECIP_INFO *ri,
     int ret = 0;
     size_t eklen;
     const PKCS7_CTX *ctx = ri->ctx;
-    unsigned char* out = NULL;
 	//pkey = EVP_PKEY_new();
 
     pkey = X509_get0_pubkey(ri->cert);
@@ -218,7 +217,8 @@ static int pkcs7_decrypt_rinfo(unsigned char **pek, int *peklen,
 **         2:裸签，区别于1的是按照原流程，不是返回一个空BIO，在进行TSTINFO时，不增加Z值，需要按照原模板，否则d2i_TS_TST_INFO失败
 **         3:信封验签 暂时先不用，我看验签时 bio参数都是空，暂时先使用这个参数判断 //2023年7月11日01:06:23 沈雪冰 add
 */
-BIO* PKCS7_dataInit(PKCS7* p7, BIO* bio, int no_hash)
+BIO *ossl_pkcs7_dataInit_ex(PKCS7 *p7, BIO *bio, int no_hash,
+                            STACK_OF(X509) *extra_certs)
 {
     int i;
     BIO *out = NULL, *btmp = NULL;
@@ -413,9 +413,14 @@ BIO* PKCS7_dataInit(PKCS7* p7, BIO* bio, int no_hash)
 			if (pkey == NULL) {
 				//获得签名者证书
 				cert = PKCS7_cert_from_signer_info(p7, si);
+				if (!cert && extra_certs != NULL)
+					cert = X509_find_by_issuer_and_serial(extra_certs,
+					                                      si->issuer_and_serial->issuer,
+					                                      si->issuer_and_serial->serial);
 				if (!cert) {
 					goto  err;
 				}
+
 				pkey = X509_get_pubkey(cert);
 				if (!pkey) {
 					goto err;
@@ -446,10 +451,11 @@ BIO* PKCS7_dataInit(PKCS7* p7, BIO* bio, int no_hash)
         if (bio == NULL)
             goto err;
     }
-    if (out)
+    if (out) {
         BIO_push(out, bio);
-    else
+    } else {
         out = bio;
+    }
 	if (have_z == 1 && no_hash != 2 && dgst_len == 32) {
 		if (BIO_write(out, digest, dgst_len) != dgst_len) {
 			goto err;
@@ -486,7 +492,11 @@ static int pkcs7_cmp_ri(PKCS7_RECIP_INFO *ri, X509 *pcert)
                             ri->issuer_and_serial->serial);
 }
 
-/* int */
+BIO *PKCS7_dataInit(PKCS7 *p7, BIO *bio, int no_hash)
+{
+    return ossl_pkcs7_dataInit_ex(p7, bio, no_hash, NULL);
+}
+
 BIO *PKCS7_dataDecode(PKCS7 *p7, EVP_PKEY *pkey, BIO *in_bio, X509 *pcert)
 {
     int i, len;
