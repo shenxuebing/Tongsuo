@@ -15,6 +15,7 @@
 #include "ntls_statem_local.h"
 #include "internal/constant_time.h"
 #include "internal/cryptlib.h"
+#include "internal/tlog.h"
 #include <openssl/buffer.h>
 #include <openssl/rand.h>
 #include <openssl/objects.h>
@@ -1643,9 +1644,8 @@ int tls_construct_server_key_exchange_ntls(SSL_CONNECTION *s, WPACKET *pkt)
             goto err;
         }
 
-        fprintf(stderr,
-                "  [NTLS-SRVR] SKE: generated eph key, curve_id=%u pkey=%p\n",
-                curve_id, (void *)s->s3.tmp.pkey);
+        TLOG_DEBUG("[NTLS-SRVR] SKE: generated eph key, curve_id=%u pkey=%p",
+                   curve_id, (void *)s->s3.tmp.pkey);
 
         /* Encode the public key. */
         encodedlen = EVP_PKEY_get1_encoded_public_key(s->s3.tmp.pkey,
@@ -1653,18 +1653,17 @@ int tls_construct_server_key_exchange_ntls(SSL_CONNECTION *s, WPACKET *pkt)
         if (encodedlen == 0) {
             unsigned long e;
             char errbuf[256];
-            fprintf(stderr, "  [NTLS-SRVR] SKE: get1_encoded_public_key returned 0\n");
+            TLOG_DEBUG("[NTLS-SRVR] SKE: get1_encoded_public_key returned 0");
             while ((e = ERR_get_error()) != 0) {
                 ERR_error_string_n(e, errbuf, sizeof(errbuf));
-                fprintf(stderr, "  [NTLS-SRVR] SKE: get1_encoded_public_key err: %s\n", errbuf);
+                TLOG_DEBUG("[NTLS-SRVR] SKE: get1_encoded_public_key err: %s", errbuf);
             }
             SSLfatal_ntls(s, SSL_AD_INTERNAL_ERROR, ERR_R_EVP_LIB);
             goto err;
         }
 
-        fprintf(stderr,
-                "  [NTLS-SRVR] SKE: encoded eph pub len=%zu first=%02X\n",
-                encodedlen, encodedlen > 0 ? encodedPoint[0] : 0);
+        TLOG_DEBUG("[NTLS-SRVR] SKE: encoded eph pub len=%zu first=%02X",
+                   encodedlen, encodedlen > 0 ? encodedPoint[0] : 0);
         /*
          * We only support named (not generic) curves. In this situation, the
          * ServerKeyExchange message has: [1 byte CurveType], [2 byte CurveName]
@@ -1679,9 +1678,8 @@ int tls_construct_server_key_exchange_ntls(SSL_CONNECTION *s, WPACKET *pkt)
             goto err;
         }
 
-        fprintf(stderr,
-                "  [NTLS-SRVR] SKE: wrote params curve_type=%u curve_id=%u point_len=%zu\n",
-                NAMED_CURVE_TYPE, curve_id, encodedlen);
+        TLOG_DEBUG("[NTLS-SRVR] SKE: wrote params curve_type=%u curve_id=%u point_len=%zu",
+                   NAMED_CURVE_TYPE, curve_id, encodedlen);
 
 #ifndef OPENSSL_NO_STATUS
         /* record curve_id and pubkey */
@@ -1766,9 +1764,8 @@ int tls_construct_server_key_exchange_ntls(SSL_CONNECTION *s, WPACKET *pkt)
 
         OPENSSL_free(buf);
 
-        fprintf(stderr,
-                "  [NTLS-SRVR] SKE: signing tbslen=%zu paramlen=%zu\n",
-                tbslen, paramlen);
+        TLOG_DEBUG("[NTLS-SRVR] SKE: signing tbslen=%zu paramlen=%zu",
+                   tbslen, paramlen);
 
         if (EVP_DigestSign(md_ctx, NULL, &siglen, tbs, tbslen) <=0
                 || !WPACKET_sub_reserve_bytes_u16(pkt, siglen, &sigbytes1)
@@ -1779,7 +1776,7 @@ int tls_construct_server_key_exchange_ntls(SSL_CONNECTION *s, WPACKET *pkt)
             SSLfatal_ntls(s, SSL_AD_INTERNAL_ERROR, ERR_R_INTERNAL_ERROR);
             goto err;
         }
-        fprintf(stderr, "  [NTLS-SRVR] SKE: signature len=%zu\n", siglen);
+        TLOG_DEBUG("[NTLS-SRVR] SKE: signature len=%zu", siglen);
         OPENSSL_free(tbs);
     }
 
@@ -2007,16 +2004,16 @@ static int tls_process_cke_sm2dhe_ntls(SSL_CONNECTION *s, PACKET *pkt)
 #endif
     }
 
-    fprintf(stderr, "  [NTLS-SRVR] before ssl_derive_ntls skey=%p ckey=%p\n",
-            (void *)skey, (void *)ckey);
+    TLOG_DEBUG("[NTLS-SRVR] before ssl_derive_ntls skey=%p ckey=%p",
+               (void *)skey, (void *)ckey);
 
     if (ssl_derive_ntls(s, skey, ckey, 1) == 0) {
-        fprintf(stderr, "  [NTLS-SRVR] ssl_derive_ntls failed\n");
+        TLOG_DEBUG("[NTLS-SRVR] ssl_derive_ntls failed");
         /* SSLfatal_ntls() already called */
         goto err;
     }
 
-    fprintf(stderr, "  [NTLS-SRVR] ssl_derive_ntls ok\n");
+    TLOG_DEBUG("[NTLS-SRVR] ssl_derive_ntls ok");
 
     ret = 1;
     EVP_PKEY_free(s->s3.tmp.pkey);

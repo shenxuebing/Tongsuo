@@ -25,6 +25,7 @@
 #include <openssl/provider.h>
 #include <openssl/param_build.h>
 #include "internal/cryptlib.h"
+#include "internal/tlog.h"
 #include "internal/tlsgroups.h"
 
 static MSG_PROCESS_RETURN tls_process_as_hello_retry_request(SSL_CONNECTION *s, PACKET *pkt);
@@ -1384,9 +1385,8 @@ static int tls_process_ske_sm2dhe_ntls(SSL_CONNECTION *s, PACKET *pkt)
         return 0;
     }
 
-    fprintf(stderr,
-            "  [NTLS-CLNT] SKE: curve_type=%u curve_id=%u\n",
-            curve_type, curve_id);
+    TLOG_DEBUG("[NTLS-CLNT] SKE: curve_type=%u curve_id=%u",
+               curve_type, curve_id);
 
     if ((s->s3.peer_tmp =
             ssl_generate_param_group(s, OSSL_TLS_GROUP_ID_sm2)) == NULL) {
@@ -1400,10 +1400,9 @@ static int tls_process_ske_sm2dhe_ntls(SSL_CONNECTION *s, PACKET *pkt)
         return 0;
     }
 
-    fprintf(stderr,
-            "  [NTLS-CLNT] SKE: encoded_pt_len=%zu first=%02X\n",
-            PACKET_remaining(&encoded_pt),
-            PACKET_remaining(&encoded_pt) > 0 ? PACKET_data(&encoded_pt)[0] : 0);
+    TLOG_DEBUG("[NTLS-CLNT] SKE: encoded_pt_len=%zu first=%02X",
+               PACKET_remaining(&encoded_pt),
+               PACKET_remaining(&encoded_pt) > 0 ? PACKET_data(&encoded_pt)[0] : 0);
 
     if (EVP_PKEY_set1_encoded_public_key(s->s3.peer_tmp,
                                          PACKET_data(&encoded_pt),
@@ -1412,7 +1411,7 @@ static int tls_process_ske_sm2dhe_ntls(SSL_CONNECTION *s, PACKET *pkt)
         return 0;
     }
 
-    fprintf(stderr, "  [NTLS-CLNT] SKE: peer_tmp public key imported\n");
+    TLOG_DEBUG("[NTLS-CLNT] SKE: peer_tmp public key imported");
 
     /* Cache the agreed upon group in the SSL_SESSION */
     s->session->kex_group = curve_id;
@@ -1526,9 +1525,8 @@ MSG_PROCESS_RETURN tls_process_key_exchange_ntls(SSL_CONNECTION *s, PACKET *pkt)
             /* SSLfatal_ntls() already called */
             goto err;
         }
-        fprintf(stderr,
-                "  [NTLS-CLNT] SKE: verify tbslen=%zu params_len=%zu sig_len=%zu\n",
-                tbslen, PACKET_remaining(&params), PACKET_remaining(&signature));
+        TLOG_DEBUG("[NTLS-CLNT] SKE: verify tbslen=%zu params_len=%zu sig_len=%zu",
+                   tbslen, PACKET_remaining(&params), PACKET_remaining(&signature));
         OPENSSL_free(buf);
         buf = NULL;
 
@@ -1967,8 +1965,7 @@ static int tls_construct_cke_sm2dhe_ntls(SSL_CONNECTION *s, WPACKET *pkt)
             if (kctx != NULL
                     && EVP_PKEY_keygen_init(kctx) > 0
                     && EVP_PKEY_keygen(kctx, &ckey) > 0) {
-                fprintf(stderr,
-                        "  [NTLS-CLNT] CKE: generated software SM2 eph key\n");
+                TLOG_DEBUG("[NTLS-CLNT] CKE: generated software SM2 eph key");
             }
         }
     }
@@ -1981,16 +1978,16 @@ static int tls_construct_cke_sm2dhe_ntls(SSL_CONNECTION *s, WPACKET *pkt)
         goto err;
     }
 
-    fprintf(stderr, "  [NTLS-CLNT] before ssl_derive_ntls ckey=%p skey=%p\n",
-            (void *)ckey, (void *)skey);
+    TLOG_DEBUG("[NTLS-CLNT] before ssl_derive_ntls ckey=%p skey=%p",
+               (void *)ckey, (void *)skey);
 
     if (ssl_derive_ntls(s, ckey, skey, 0) == 0) {
-        fprintf(stderr, "  [NTLS-CLNT] ssl_derive_ntls failed\n");
+        TLOG_DEBUG("[NTLS-CLNT] ssl_derive_ntls failed");
         /* SSLfatal_ntls() already called */
         goto err;
     }
 
-    fprintf(stderr, "  [NTLS-CLNT] ssl_derive_ntls ok\n");
+    TLOG_DEBUG("[NTLS-CLNT] ssl_derive_ntls ok");
 
     /* Generate encoding of client key */
     encoded_pt_len = EVP_PKEY_get1_encoded_public_key(ckey, &encodedPoint);
