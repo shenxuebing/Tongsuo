@@ -49,8 +49,11 @@ SDFPROV_CTX *sdfprov_get_global_ctx(void)
 
 /* External dispatch tables from operation files */
 extern const OSSL_DISPATCH sdfprov_sm2_keymgmt_functions[];
+extern const OSSL_DISPATCH sdfprov_rsa_keymgmt_functions[];
 extern const OSSL_DISPATCH sdfprov_sm2_signature_functions[];
+extern const OSSL_DISPATCH sdfprov_rsa_signature_functions[];
 extern const OSSL_DISPATCH sdfprov_sm2_asym_cipher_functions[];
+extern const OSSL_DISPATCH sdfprov_rsa_asym_cipher_functions[];
 extern const OSSL_DISPATCH sdfprov_sm2dh_keyexch_functions[];
 extern const OSSL_DISPATCH sdfprov_rand_functions[];
 extern const OSSL_DISPATCH sdfprov_store_functions[];
@@ -91,6 +94,7 @@ static const OSSL_ALGORITHM sdfprov_keymgmt[] = {
 #ifndef OPENSSL_NO_SM2
     ALG(PROV_NAMES_SM2, sdfprov_sm2_keymgmt_functions),
 #endif
+    ALG(PROV_NAMES_RSA, sdfprov_rsa_keymgmt_functions),
     { NULL, NULL, NULL, NULL }
 };
 
@@ -98,6 +102,7 @@ static const OSSL_ALGORITHM sdfprov_signature[] = {
 #ifndef OPENSSL_NO_SM2
     ALG(PROV_NAMES_SM2, sdfprov_sm2_signature_functions),
 #endif
+    ALG(PROV_NAMES_RSA, sdfprov_rsa_signature_functions),
     { NULL, NULL, NULL, NULL }
 };
 
@@ -105,6 +110,7 @@ static const OSSL_ALGORITHM sdfprov_asym_cipher[] = {
 #ifndef OPENSSL_NO_SM2
     ALG(PROV_NAMES_SM2, sdfprov_sm2_asym_cipher_functions),
 #endif
+    ALG(PROV_NAMES_RSA, sdfprov_rsa_asym_cipher_functions),
     { NULL, NULL, NULL, NULL }
 };
 
@@ -262,7 +268,7 @@ int OSSL_provider_init_int(const OSSL_CORE_HANDLE *handle,
     if (sdfctx->sdf_lib_path == NULL)
         sdfctx->sdf_lib_path = OPENSSL_strdup("byzk0018.dll");
 
-    /* 默认启用 BYCSM_LoadModule（兼容百旺等厂商）
+    /* 默认启用 BYCSM_LoadModule（兼容博雅等厂商）
      * use_load_module_val 初始为 1，c_get_params 成功时会被配置值覆盖
      * 因此直接使用 use_load_module_val 即可覆盖所有场景 */
     sdfctx->use_load_module = use_load_module_val;

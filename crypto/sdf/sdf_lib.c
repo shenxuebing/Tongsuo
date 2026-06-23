@@ -50,8 +50,46 @@ extern int SDF_ExportEncPublicKey_ECC(void *hSessionHandle,
     unsigned int uiKeyIndex, OSSL_ECCrefPublicKey *pucPublicKey)
     __attribute__((weak));
 
+extern int SDF_ExportSignPublicKey_RSA(void *hSessionHandle,
+    unsigned int uiKeyIndex, OSSL_RSArefPublicKey *pucPublicKey)
+    __attribute__((weak));
+
+extern int SDF_ExportSignPublicKey_RSAEx(void *hSessionHandle,
+    unsigned int uiKeyIndex, OSSL_RSArefPublicKeyEx *pucPublicKey)
+    __attribute__((weak));
+
+extern int SDF_ExportEncPublicKey_RSA(void *hSessionHandle,
+    unsigned int uiKeyIndex, OSSL_RSArefPublicKey *pucPublicKey)
+    __attribute__((weak));
+
+extern int SDF_ExportEncPublicKey_RSAEx(void *hSessionHandle,
+    unsigned int uiKeyIndex, OSSL_RSArefPublicKeyEx *pucPublicKey)
+    __attribute__((weak));
+
 extern int SDF_DestroyKey(void *hSessionHandle, void *hKeyHandle)
     __attribute__((weak));
+
+extern int SDF_InternalPublicKeyOperation_RSA(void *hSessionHandle,
+    unsigned int uiKeyIndex, unsigned char *pucDataInput,
+    unsigned int uiInputLength, unsigned char *pucDataOutput,
+    unsigned int *puiOutputLength) __attribute__((weak));
+
+extern int SDF_InternalPrivateKeyOperation_RSA(void *hSessionHandle,
+    unsigned int uiKeyIndex, unsigned char *pucDataInput,
+    unsigned int uiInputLength, unsigned char *pucDataOutput,
+    unsigned int *puiOutputLength) __attribute__((weak));
+
+extern int SDF_InternalPublicKeyOperation_RSA_Ex(void *hSessionHandle,
+    unsigned int uiKeyIndex, unsigned int uiKeyUsage,
+    unsigned char *pucDataInput, unsigned int uiInputLength,
+    unsigned char *pucDataOutput,
+    unsigned int *puiOutputLength) __attribute__((weak));
+
+extern int SDF_InternalPrivateKeyOperation_RSA_Ex(void *hSessionHandle,
+    unsigned int uiKeyIndex, unsigned int uiKeyUsage,
+    unsigned char *pucDataInput, unsigned int uiInputLength,
+    unsigned char *pucDataOutput,
+    unsigned int *puiOutputLength) __attribute__((weak));
 
 extern int SDF_InternalEncrypt_ECC(void *hSessionHandle,
     unsigned int uiISKIndex, unsigned int uiAlgID, unsigned char *pucData,
@@ -133,7 +171,15 @@ DEFINE_RUN_ONCE_STATIC(ossl_sdf_lib_init)
         sdfm.ImportKeyWithKEK = DSO_bind_func(sdf_dso, "SDF_ImportKeyWithKEK");
         sdfm.ExportSignPublicKey_ECC = DSO_bind_func(sdf_dso, "SDF_ExportSignPublicKey_ECC");
         sdfm.ExportEncPublicKey_ECC = DSO_bind_func(sdf_dso, "SDF_ExportEncPublicKey_ECC");
+        sdfm.ExportSignPublicKey_RSA = DSO_bind_func(sdf_dso, "SDF_ExportSignPublicKey_RSA");
+        sdfm.ExportSignPublicKey_RSAEx = DSO_bind_func(sdf_dso, "SDF_ExportSignPublicKey_RSAEx");
+        sdfm.ExportEncPublicKey_RSA = DSO_bind_func(sdf_dso, "SDF_ExportEncPublicKey_RSA");
+        sdfm.ExportEncPublicKey_RSAEx = DSO_bind_func(sdf_dso, "SDF_ExportEncPublicKey_RSAEx");
         sdfm.DestroyKey = DSO_bind_func(sdf_dso, "SDF_DestroyKey");
+        sdfm.InternalPublicKeyOperation_RSA = DSO_bind_func(sdf_dso, "SDF_InternalPublicKeyOperation_RSA");
+        sdfm.InternalPrivateKeyOperation_RSA = DSO_bind_func(sdf_dso, "SDF_InternalPrivateKeyOperation_RSA");
+        sdfm.InternalPublicKeyOperation_RSA_Ex = DSO_bind_func(sdf_dso, "SDF_InternalPublicKeyOperation_RSA_Ex");
+        sdfm.InternalPrivateKeyOperation_RSA_Ex = DSO_bind_func(sdf_dso, "SDF_InternalPrivateKeyOperation_RSA_Ex");
         sdfm.InternalEncrypt_ECC = DSO_bind_func(sdf_dso, "SDF_InternalEncrypt_ECC");
         sdfm.InternalDecrypt_ECC = DSO_bind_func(sdf_dso, "SDF_InternalDecrypt_ECC");
         sdfm.InternalSign_ECC = DSO_bind_func(sdf_dso, "SDF_InternalSign_ECC");
@@ -163,7 +209,15 @@ DEFINE_RUN_ONCE_STATIC(ossl_sdf_lib_init)
     sdfm.ImportKeyWithKEK = SDF_ImportKeyWithKEK;
     sdfm.ExportSignPublicKey_ECC = SDF_ExportSignPublicKey_ECC;
     sdfm.ExportEncPublicKey_ECC = SDF_ExportEncPublicKey_ECC;
+    sdfm.ExportSignPublicKey_RSA = SDF_ExportSignPublicKey_RSA;
+    sdfm.ExportSignPublicKey_RSAEx = SDF_ExportSignPublicKey_RSAEx;
+    sdfm.ExportEncPublicKey_RSA = SDF_ExportEncPublicKey_RSA;
+    sdfm.ExportEncPublicKey_RSAEx = SDF_ExportEncPublicKey_RSAEx;
     sdfm.DestroyKey = SDF_DestroyKey;
+    sdfm.InternalPublicKeyOperation_RSA = SDF_InternalPublicKeyOperation_RSA;
+    sdfm.InternalPrivateKeyOperation_RSA = SDF_InternalPrivateKeyOperation_RSA;
+    sdfm.InternalPublicKeyOperation_RSA_Ex = SDF_InternalPublicKeyOperation_RSA_Ex;
+    sdfm.InternalPrivateKeyOperation_RSA_Ex = SDF_InternalPrivateKeyOperation_RSA_Ex;
     sdfm.InternalEncrypt_ECC = SDF_InternalEncrypt_ECC;
     sdfm.InternalDecrypt_ECC = SDF_InternalDecrypt_ECC;
     sdfm.InternalSign_ECC = SDF_InternalSign_ECC;
@@ -421,6 +475,134 @@ int TSAPI_SDF_ExportEncPublicKey_ECC(void *hSessionHandle,
         return OSSL_SDR_NOTSUPPORT;
 
     return meth->ExportEncPublicKey_ECC(hSessionHandle, uiKeyIndex, pucPublicKey);
+}
+
+int TSAPI_SDF_ExportSignPublicKey_RSA(void *hSessionHandle,
+                                      unsigned int uiKeyIndex,
+                                      OSSL_RSArefPublicKey *pucPublicKey)
+{
+    const SDF_METHOD *meth = sdf_get_method();
+
+    if (meth == NULL || meth->ExportSignPublicKey_RSA == NULL)
+        return OSSL_SDR_NOTSUPPORT;
+
+    return meth->ExportSignPublicKey_RSA(hSessionHandle, uiKeyIndex,
+                                         pucPublicKey);
+}
+
+int TSAPI_SDF_ExportSignPublicKey_RSAEx(void *hSessionHandle,
+                                        unsigned int uiKeyIndex,
+                                        OSSL_RSArefPublicKeyEx *pucPublicKey)
+{
+    const SDF_METHOD *meth = sdf_get_method();
+
+    if (meth == NULL || meth->ExportSignPublicKey_RSAEx == NULL)
+        return OSSL_SDR_NOTSUPPORT;
+
+    return meth->ExportSignPublicKey_RSAEx(hSessionHandle, uiKeyIndex,
+                                           pucPublicKey);
+}
+
+int TSAPI_SDF_ExportEncPublicKey_RSA(void *hSessionHandle,
+                                     unsigned int uiKeyIndex,
+                                     OSSL_RSArefPublicKey *pucPublicKey)
+{
+    const SDF_METHOD *meth = sdf_get_method();
+
+    if (meth == NULL || meth->ExportEncPublicKey_RSA == NULL)
+        return OSSL_SDR_NOTSUPPORT;
+
+    return meth->ExportEncPublicKey_RSA(hSessionHandle, uiKeyIndex,
+                                        pucPublicKey);
+}
+
+int TSAPI_SDF_ExportEncPublicKey_RSAEx(void *hSessionHandle,
+                                       unsigned int uiKeyIndex,
+                                       OSSL_RSArefPublicKeyEx *pucPublicKey)
+{
+    const SDF_METHOD *meth = sdf_get_method();
+
+    if (meth == NULL || meth->ExportEncPublicKey_RSAEx == NULL)
+        return OSSL_SDR_NOTSUPPORT;
+
+    return meth->ExportEncPublicKey_RSAEx(hSessionHandle, uiKeyIndex,
+                                          pucPublicKey);
+}
+
+int TSAPI_SDF_InternalPublicKeyOperation_RSA(void *hSessionHandle,
+                                             unsigned int uiKeyIndex,
+                                             unsigned char *pucDataInput,
+                                             unsigned int uiInputLength,
+                                             unsigned char *pucDataOutput,
+                                             unsigned int *puiOutputLength)
+{
+    const SDF_METHOD *meth = sdf_get_method();
+
+    if (meth == NULL || meth->InternalPublicKeyOperation_RSA == NULL)
+        return OSSL_SDR_NOTSUPPORT;
+
+    return meth->InternalPublicKeyOperation_RSA(hSessionHandle, uiKeyIndex,
+                                                pucDataInput, uiInputLength,
+                                                pucDataOutput,
+                                                puiOutputLength);
+}
+
+int TSAPI_SDF_InternalPrivateKeyOperation_RSA(void *hSessionHandle,
+                                              unsigned int uiKeyIndex,
+                                              unsigned char *pucDataInput,
+                                              unsigned int uiInputLength,
+                                              unsigned char *pucDataOutput,
+                                              unsigned int *puiOutputLength)
+{
+    const SDF_METHOD *meth = sdf_get_method();
+
+    if (meth == NULL || meth->InternalPrivateKeyOperation_RSA == NULL)
+        return OSSL_SDR_NOTSUPPORT;
+
+    return meth->InternalPrivateKeyOperation_RSA(hSessionHandle, uiKeyIndex,
+                                                 pucDataInput, uiInputLength,
+                                                 pucDataOutput,
+                                                 puiOutputLength);
+}
+
+int TSAPI_SDF_InternalPublicKeyOperation_RSA_Ex(void *hSessionHandle,
+                                                unsigned int uiKeyIndex,
+                                                unsigned int uiKeyUsage,
+                                                unsigned char *pucDataInput,
+                                                unsigned int uiInputLength,
+                                                unsigned char *pucDataOutput,
+                                                unsigned int *puiOutputLength)
+{
+    const SDF_METHOD *meth = sdf_get_method();
+
+    if (meth == NULL || meth->InternalPublicKeyOperation_RSA_Ex == NULL)
+        return OSSL_SDR_NOTSUPPORT;
+
+    return meth->InternalPublicKeyOperation_RSA_Ex(hSessionHandle, uiKeyIndex,
+                                                   uiKeyUsage, pucDataInput,
+                                                   uiInputLength,
+                                                   pucDataOutput,
+                                                   puiOutputLength);
+}
+
+int TSAPI_SDF_InternalPrivateKeyOperation_RSA_Ex(void *hSessionHandle,
+                                                 unsigned int uiKeyIndex,
+                                                 unsigned int uiKeyUsage,
+                                                 unsigned char *pucDataInput,
+                                                 unsigned int uiInputLength,
+                                                 unsigned char *pucDataOutput,
+                                                 unsigned int *puiOutputLength)
+{
+    const SDF_METHOD *meth = sdf_get_method();
+
+    if (meth == NULL || meth->InternalPrivateKeyOperation_RSA_Ex == NULL)
+        return OSSL_SDR_NOTSUPPORT;
+
+    return meth->InternalPrivateKeyOperation_RSA_Ex(hSessionHandle, uiKeyIndex,
+                                                    uiKeyUsage, pucDataInput,
+                                                    uiInputLength,
+                                                    pucDataOutput,
+                                                    puiOutputLength);
 }
 
 int TSAPI_SDF_InternalEncrypt_ECC(void *hSessionHandle, unsigned int uiISKIndex,

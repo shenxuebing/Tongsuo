@@ -89,6 +89,18 @@ typedef int (*SDF_ExportSignPublicKey_ECC_fn)(void *hSessionHandle,
 typedef int (*SDF_ExportEncPublicKey_ECC_fn)(void *hSessionHandle,
     unsigned int uiKeyIndex, OSSL_ECCrefPublicKey *pucPublicKey);
 
+typedef int (*SDF_ExportSignPublicKey_RSA_fn)(void *hSessionHandle,
+    unsigned int uiKeyIndex, OSSL_RSArefPublicKey *pucPublicKey);
+
+typedef int (*SDF_ExportSignPublicKey_RSAEx_fn)(void *hSessionHandle,
+    unsigned int uiKeyIndex, OSSL_RSArefPublicKeyEx *pucPublicKey);
+
+typedef int (*SDF_ExportEncPublicKey_RSA_fn)(void *hSessionHandle,
+    unsigned int uiKeyIndex, OSSL_RSArefPublicKey *pucPublicKey);
+
+typedef int (*SDF_ExportEncPublicKey_RSAEx_fn)(void *hSessionHandle,
+    unsigned int uiKeyIndex, OSSL_RSArefPublicKeyEx *pucPublicKey);
+
 typedef int (*SDF_InternalEncrypt_ECC_fn)(void *hSessionHandle,
     unsigned int uiISKIndex, unsigned int uiAlgID, unsigned char *pucData,
     unsigned int uiDataLength, OSSL_ECCCipher *pucEncData);
@@ -99,6 +111,26 @@ typedef int (*SDF_InternalDecrypt_ECC_fn)(void *hSessionHandle,
 typedef int (*SDF_InternalSign_ECC_fn)(void *hSessionHandle,
     unsigned int uiISKIndex, unsigned char *pucData, unsigned int uiDataLength,
     OSSL_ECCSignature *pucSignature);
+
+typedef int (*SDF_InternalPublicKeyOperation_RSA_fn)(void *hSessionHandle,
+    unsigned int uiKeyIndex, unsigned char *pucDataInput,
+    unsigned int uiInputLength, unsigned char *pucDataOutput,
+    unsigned int *puiOutputLength);
+
+typedef int (*SDF_InternalPrivateKeyOperation_RSA_fn)(void *hSessionHandle,
+    unsigned int uiKeyIndex, unsigned char *pucDataInput,
+    unsigned int uiInputLength, unsigned char *pucDataOutput,
+    unsigned int *puiOutputLength);
+
+typedef int (*SDF_InternalPublicKeyOperation_RSA_Ex_fn)(void *hSessionHandle,
+    unsigned int uiKeyIndex, unsigned int uiKeyUsage,
+    unsigned char *pucDataInput, unsigned int uiInputLength,
+    unsigned char *pucDataOutput, unsigned int *puiOutputLength);
+
+typedef int (*SDF_InternalPrivateKeyOperation_RSA_Ex_fn)(void *hSessionHandle,
+    unsigned int uiKeyIndex, unsigned int uiKeyUsage,
+    unsigned char *pucDataInput, unsigned int uiInputLength,
+    unsigned char *pucDataOutput, unsigned int *puiOutputLength);
 
 typedef int (*SDF_GenerateAgreementDataWithECCEx_fn)(void *hSessionHandle,
     unsigned int uiISKIndex, unsigned int uiKeyBits,
@@ -126,7 +158,7 @@ typedef int (*SDF_GenerateAgreementDataAndKeyWithECCEx_fn)(
     unsigned char *pucSharedSecret, unsigned int *puiSecretLength,
     void **phKeyHandle);
 
-/* 厂商特定接口：BYCSM_LoadModule（百旺等厂商的模块初始化接口） */
+/* 厂商特定接口：BYCSM_LoadModule（博雅等厂商的模块初始化接口） */
 typedef int (*SDFE_LoadModule_fn)(const char *password);
 
 /*
@@ -144,7 +176,15 @@ struct sdf_method_st {
     SDF_ImportKeyWithKEK_fn ImportKeyWithKEK;
     SDF_ExportSignPublicKey_ECC_fn ExportSignPublicKey_ECC;
     SDF_ExportEncPublicKey_ECC_fn ExportEncPublicKey_ECC;
+    SDF_ExportSignPublicKey_RSA_fn ExportSignPublicKey_RSA;
+    SDF_ExportSignPublicKey_RSAEx_fn ExportSignPublicKey_RSAEx;
+    SDF_ExportEncPublicKey_RSA_fn ExportEncPublicKey_RSA;
+    SDF_ExportEncPublicKey_RSAEx_fn ExportEncPublicKey_RSAEx;
     SDF_DestroyKey_fn DestroyKey;
+    SDF_InternalPublicKeyOperation_RSA_fn InternalPublicKeyOperation_RSA;
+    SDF_InternalPrivateKeyOperation_RSA_fn InternalPrivateKeyOperation_RSA;
+    SDF_InternalPublicKeyOperation_RSA_Ex_fn InternalPublicKeyOperation_RSA_Ex;
+    SDF_InternalPrivateKeyOperation_RSA_Ex_fn InternalPrivateKeyOperation_RSA_Ex;
     SDF_InternalEncrypt_ECC_fn InternalEncrypt_ECC;
     SDF_InternalDecrypt_ECC_fn InternalDecrypt_ECC;
     SDF_InternalSign_ECC_fn InternalSign_ECC;

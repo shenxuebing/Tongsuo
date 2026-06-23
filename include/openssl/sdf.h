@@ -59,6 +59,26 @@ typedef struct OSSL_ECCCipher_st OSSL_ECCCipher;
 typedef struct OSSL_ECCSignature_st OSSL_ECCSignature;
 typedef struct OSSL_ECCrefPrivateKey_st OSSL_ECCrefPrivateKey;
 typedef struct OSSL_ECCrefPublicKey_st OSSL_ECCrefPublicKey;
+typedef struct OSSL_RSArefPublicKey_st OSSL_RSArefPublicKey;
+typedef struct OSSL_RSArefPublicKeyEx_st OSSL_RSArefPublicKeyEx;
+
+# define OSSL_RSAref_MAX_BITS        2048
+# define OSSL_RSAref_MAX_LEN         ((OSSL_RSAref_MAX_BITS + 7) / 8)
+# define OSSL_RSAref_MAX_BITS_EX     4096
+# define OSSL_RSAref_MAX_LEN_EX      ((OSSL_RSAref_MAX_BITS_EX + 7) / 8)
+
+struct OSSL_RSArefPublicKey_st {
+    unsigned int bits;
+    unsigned char m[OSSL_RSAref_MAX_LEN];
+    unsigned char e[OSSL_RSAref_MAX_LEN];
+};
+
+struct OSSL_RSArefPublicKeyEx_st {
+    unsigned int bits;
+    unsigned char m[OSSL_RSAref_MAX_LEN_EX];
+    unsigned char e[OSSL_RSAref_MAX_LEN_EX];
+};
+
 int TSAPI_SDF_OpenDevice(void **phDeviceHandle);
 int TSAPI_SDF_CloseDevice(void *hDeviceHandle);
 int TSAPI_SDF_OpenSession(void *hDeviceHandle, void **phSessionHandle);
@@ -113,6 +133,44 @@ int TSAPI_SDF_InternalSign_ECC(void *hSessionHandle, unsigned int uiISKIndex,
                                unsigned char *pucData,
                                unsigned int uiDataLength,
                                OSSL_ECCSignature *pucSignature);
+int TSAPI_SDF_ExportSignPublicKey_RSA(void *hSessionHandle,
+                                      unsigned int uiKeyIndex,
+                                      OSSL_RSArefPublicKey *pucPublicKey);
+int TSAPI_SDF_ExportSignPublicKey_RSAEx(void *hSessionHandle,
+                                        unsigned int uiKeyIndex,
+                                        OSSL_RSArefPublicKeyEx *pucPublicKey);
+int TSAPI_SDF_ExportEncPublicKey_RSA(void *hSessionHandle,
+                                     unsigned int uiKeyIndex,
+                                     OSSL_RSArefPublicKey *pucPublicKey);
+int TSAPI_SDF_ExportEncPublicKey_RSAEx(void *hSessionHandle,
+                                       unsigned int uiKeyIndex,
+                                       OSSL_RSArefPublicKeyEx *pucPublicKey);
+int TSAPI_SDF_InternalPublicKeyOperation_RSA(void *hSessionHandle,
+                                             unsigned int uiKeyIndex,
+                                             unsigned char *pucDataInput,
+                                             unsigned int uiInputLength,
+                                             unsigned char *pucDataOutput,
+                                             unsigned int *puiOutputLength);
+int TSAPI_SDF_InternalPrivateKeyOperation_RSA(void *hSessionHandle,
+                                              unsigned int uiKeyIndex,
+                                              unsigned char *pucDataInput,
+                                              unsigned int uiInputLength,
+                                              unsigned char *pucDataOutput,
+                                              unsigned int *puiOutputLength);
+int TSAPI_SDF_InternalPublicKeyOperation_RSA_Ex(void *hSessionHandle,
+                                                unsigned int uiKeyIndex,
+                                                unsigned int uiKeyUsage,
+                                                unsigned char *pucDataInput,
+                                                unsigned int uiInputLength,
+                                                unsigned char *pucDataOutput,
+                                                unsigned int *puiOutputLength);
+int TSAPI_SDF_InternalPrivateKeyOperation_RSA_Ex(void *hSessionHandle,
+                                                 unsigned int uiKeyIndex,
+                                                 unsigned int uiKeyUsage,
+                                                 unsigned char *pucDataInput,
+                                                 unsigned int uiInputLength,
+                                                 unsigned char *pucDataOutput,
+                                                 unsigned int *puiOutputLength);
 
 /* SDF Key Agreement API */
 int TSAPI_SDF_GenerateAgreementDataWithECCEx(void *hSessionHandle,
@@ -141,7 +199,7 @@ int TSAPI_SDF_GenerateAgreementDataAndKeyWithECCEx(
     unsigned char *pucSharedSecret, unsigned int *puiSecretLength,
     void **phKeyHandle);
 
-/* 厂商特定接口：BYCSM_LoadModule（百旺等厂商的模块初始化接口）
+/* 厂商特定接口：BYCSM_LoadModule（博雅等厂商的模块初始化接口）
  * 返回值: 0 表示成功，非 0 表示失败
  * 注意：不是所有厂商库都提供此接口，调用前需检查返回值
  */

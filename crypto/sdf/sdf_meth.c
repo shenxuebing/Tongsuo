@@ -81,6 +81,34 @@ static int x_ExportEncPublicKey_ECC(void *hSessionHandle,
     return OSSL_SDR_NOTSUPPORT;
 }
 
+static int x_ExportSignPublicKey_RSA(void *hSessionHandle,
+                                     unsigned int uiKeyIndex,
+                                     OSSL_RSArefPublicKey *pucPublicKey)
+{
+    return OSSL_SDR_NOTSUPPORT;
+}
+
+static int x_ExportSignPublicKey_RSAEx(void *hSessionHandle,
+                                       unsigned int uiKeyIndex,
+                                       OSSL_RSArefPublicKeyEx *pucPublicKey)
+{
+    return OSSL_SDR_NOTSUPPORT;
+}
+
+static int x_ExportEncPublicKey_RSA(void *hSessionHandle,
+                                    unsigned int uiKeyIndex,
+                                    OSSL_RSArefPublicKey *pucPublicKey)
+{
+    return OSSL_SDR_NOTSUPPORT;
+}
+
+static int x_ExportEncPublicKey_RSAEx(void *hSessionHandle,
+                                      unsigned int uiKeyIndex,
+                                      OSSL_RSArefPublicKeyEx *pucPublicKey)
+{
+    return OSSL_SDR_NOTSUPPORT;
+}
+
 static int x_DestroyKey(void *hSessionHandle, void *hKeyHandle)
 {
     return OSSL_SDR_NOTSUPPORT;
@@ -108,6 +136,48 @@ static int x_InternalSign_ECC(void *hSessionHandle, unsigned int uiISKIndex,
                               unsigned char * pucData,
                               unsigned int uiDataLength,
                               OSSL_ECCSignature *pucSignature)
+{
+    return OSSL_SDR_NOTSUPPORT;
+}
+
+static int x_InternalPublicKeyOperation_RSA(void *hSessionHandle,
+                                            unsigned int uiKeyIndex,
+                                            unsigned char *pucDataInput,
+                                            unsigned int uiInputLength,
+                                            unsigned char *pucDataOutput,
+                                            unsigned int *puiOutputLength)
+{
+    return OSSL_SDR_NOTSUPPORT;
+}
+
+static int x_InternalPrivateKeyOperation_RSA(void *hSessionHandle,
+                                             unsigned int uiKeyIndex,
+                                             unsigned char *pucDataInput,
+                                             unsigned int uiInputLength,
+                                             unsigned char *pucDataOutput,
+                                             unsigned int *puiOutputLength)
+{
+    return OSSL_SDR_NOTSUPPORT;
+}
+
+static int x_InternalPublicKeyOperation_RSA_Ex(void *hSessionHandle,
+                                               unsigned int uiKeyIndex,
+                                               unsigned int uiKeyUsage,
+                                               unsigned char *pucDataInput,
+                                               unsigned int uiInputLength,
+                                               unsigned char *pucDataOutput,
+                                               unsigned int *puiOutputLength)
+{
+    return OSSL_SDR_NOTSUPPORT;
+}
+
+static int x_InternalPrivateKeyOperation_RSA_Ex(void *hSessionHandle,
+                                                unsigned int uiKeyIndex,
+                                                unsigned int uiKeyUsage,
+                                                unsigned char *pucDataInput,
+                                                unsigned int uiInputLength,
+                                                unsigned char *pucDataOutput,
+                                                unsigned int *puiOutputLength)
 {
     return OSSL_SDR_NOTSUPPORT;
 }
@@ -192,7 +262,15 @@ SDF_METHOD ts_sdf_meth = {
     x_ImportKeyWithKEK,
     x_ExportSignPublicKey_ECC,
     x_ExportEncPublicKey_ECC,
+    x_ExportSignPublicKey_RSA,
+    x_ExportSignPublicKey_RSAEx,
+    x_ExportEncPublicKey_RSA,
+    x_ExportEncPublicKey_RSAEx,
     x_DestroyKey,
+    x_InternalPublicKeyOperation_RSA,
+    x_InternalPrivateKeyOperation_RSA,
+    x_InternalPublicKeyOperation_RSA_Ex,
+    x_InternalPrivateKeyOperation_RSA_Ex,
     x_InternalEncrypt_ECC,
     x_InternalDecrypt_ECC,
     x_InternalSign_ECC,

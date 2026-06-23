@@ -29,12 +29,7 @@ static void *sdfprov_get_session(void)
     if (sdfctx == NULL)
         return NULL;
 
-    if (!sdfctx->initialized) {
-        if (!sdfprov_ctx_init_device(sdfctx))
-            return NULL;
-    }
-
-    return sdfctx->hSession;
+    return sdfprov_ctx_get_session(sdfctx);
 }
 
 static void *sdfprov_sm2_newdata(void *provctx)
@@ -70,6 +65,7 @@ static void sdfprov_sm2_freedata(void *keydata)
     }
 
     OPENSSL_free(key->key_password);
+    RSA_free(key->rsa);
     EC_KEY_free(key->ec_key);
     OPENSSL_free(key);
 }
@@ -743,6 +739,84 @@ static void *sdfprov_sm2_load(const void *reference, size_t reference_sz)
     return key;
 }
 
+static void *sdfprov_sm2_load_ex(const void *reference, size_t reference_sz)
+{
+    SDF_SM2_KEY *key = NULL;
+    OSSL_ECCrefPublicKey sdf_pub;
+    SDFPROV_KEY_URI uri_info;
+    SDFPROV_CTX *sdfctx = NULL;
+    void *hSession = NULL;
+    char *ref_str = NULL;
+    int ret;
+
+    if (reference == NULL || reference_sz == 0)
+        return NULL;
+
+    ref_str = OPENSSL_strndup(reference, reference_sz);
+    if (ref_str == NULL)
+        return NULL;
+
+    if (!sdfprov_parse_key_uri(ref_str, &uri_info)) {
+        OPENSSL_free(ref_str);
+        return NULL;
+    }
+    OPENSSL_free(ref_str);
+
+    if (uri_info.algo != SDF_ALGO_SM2) {
+        sdfprov_key_uri_cleanup(&uri_info);
+        return NULL;
+    }
+
+    hSession = uri_info.external_session ? uri_info.session : sdfprov_get_session();
+    if (hSession == NULL) {
+        sdfprov_key_uri_cleanup(&uri_info);
+        return NULL;
+    }
+
+    key = OPENSSL_zalloc(sizeof(*key));
+    if (key == NULL) {
+        sdfprov_key_uri_cleanup(&uri_info);
+        return NULL;
+    }
+
+    sdfctx = sdfprov_get_global_ctx();
+    key->libctx = sdfctx->libctx;
+    key->algo = uri_info.algo;
+    key->ec_key = EC_KEY_new_by_curve_name_ex(key->libctx, NULL, NID_sm2);
+    if (key->ec_key == NULL) {
+        OPENSSL_free(key);
+        sdfprov_key_uri_cleanup(&uri_info);
+        return NULL;
+    }
+
+    key->is_hardware_key = 1;
+    key->key_index = uri_info.key_index;
+    key->key_type = uri_info.key_type;
+    key->hSession = hSession;
+    key->external_session = uri_info.external_session;
+    key->key_password = uri_info.key_password;
+    uri_info.key_password = NULL;
+
+    memset(&sdf_pub, 0, sizeof(sdf_pub));
+    if (key->key_type == 0)
+        ret = TSAPI_SDF_ExportSignPublicKey_ECC(hSession, key->key_index, &sdf_pub);
+    else
+        ret = TSAPI_SDF_ExportEncPublicKey_ECC(hSession, key->key_index, &sdf_pub);
+
+    if (ret != OSSL_SDR_OK
+        || !sdfprov_eccrefpub_to_ec_key(&sdf_pub, key->ec_key)) {
+        OPENSSL_free(key->key_password);
+        EC_KEY_free(key->ec_key);
+        OPENSSL_free(key);
+        sdfprov_key_uri_cleanup(&uri_info);
+        return NULL;
+    }
+
+    memcpy(&key->cached_pubkey, &sdf_pub, sizeof(sdf_pub));
+    sdfprov_key_uri_cleanup(&uri_info);
+    return key;
+}
+
 /* match 操作 - 比较两个密钥是否匹配 */
 static int sdfprov_sm2_match(const void *keydata1, const void *keydata2,
                               int selection)
@@ -882,7 +956,7 @@ const OSSL_DISPATCH sdfprov_sm2_keymgmt_functions[] = {
     { OSSL_FUNC_KEYMGMT_SET_PARAMS, (void (*)(void))sdfprov_sm2_set_params },
     { OSSL_FUNC_KEYMGMT_SETTABLE_PARAMS,
       (void (*)(void))sdfprov_sm2_settable_params },
-    { OSSL_FUNC_KEYMGMT_LOAD, (void (*)(void))sdfprov_sm2_load },
+    { OSSL_FUNC_KEYMGMT_LOAD, (void (*)(void))sdfprov_sm2_load_ex },
     { OSSL_FUNC_KEYMGMT_MATCH, (void (*)(void))sdfprov_sm2_match },
     { OSSL_FUNC_KEYMGMT_VALIDATE, (void (*)(void))sdfprov_sm2_validate },
     { OSSL_FUNC_KEYMGMT_QUERY_OPERATION_NAME,

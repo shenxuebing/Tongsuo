@@ -7,6 +7,7 @@
 # define OSSL_PROVIDERS_SDFPROV_INTERNAL_H
 
 # include <openssl/ec.h>
+# include <openssl/rsa.h>
 # include <openssl/sdf.h>
 # include "crypto/sdf/sdf_local.h"
 
@@ -17,13 +18,15 @@
 /* SDF 密钥数据结构 - 用于 KEYMGMT/SIGNATURE/ASYM_CIPHER/KEYEXCH */
 typedef struct sdf_sm2_key_st {
     OSSL_LIB_CTX *libctx;
-    EC_KEY *ec_key;
+    EC_KEY *ec_key;              /* SM2 软/硬件公钥壳 */
+    RSA *rsa;                    /* RSA 软/硬件公钥壳 */
     int is_hardware_key;         /* 1=硬件密钥, 0=软件密钥 */
     unsigned int key_index;      /* SDF 设备密钥索引 */
     int key_type;                /* 0=签名密钥, 1=加密密钥 */
     int algo;                    /* SDF_ALGO_SM2 / SDF_ALGO_RSA */
     void *hSession;              /* SDF 会话句柄 */
-    OSSL_ECCrefPublicKey cached_pubkey;
+    int external_session;        /* 1=URI 传入的外部 session */
+    OSSL_ECCrefPublicKey cached_pubkey;  /* SM2 协商场景缓存公钥 */
 
     /* 私钥访问控制码 (GetPrivateKeyAccessRight), 通过 URI 传入 */
     char *key_password;

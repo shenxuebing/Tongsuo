@@ -46,6 +46,7 @@ SDFPROV_CTX *sdfprov_ctx_new(OSSL_LIB_CTX *libctx,
 void sdfprov_ctx_free(SDFPROV_CTX *ctx);
 int sdfprov_ctx_init_device(SDFPROV_CTX *ctx);
 void sdfprov_ctx_teardown_device(SDFPROV_CTX *ctx);
+void *sdfprov_ctx_get_session(SDFPROV_CTX *ctx);
 
 /* 获取全局 SDF 上下文 (定义在 sdfprov.c) */
 SDFPROV_CTX *sdfprov_get_global_ctx(void);

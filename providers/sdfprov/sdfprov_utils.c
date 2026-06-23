@@ -3,7 +3,9 @@
  * Copyright 2024-2026 The Tongsuo Project Authors. All Rights Reserved.
  */
 
+#include <stdio.h>
 #include <string.h>
+#include <limits.h>
 #include <openssl/bn.h>
 #include <openssl/ec.h>
 #include <openssl/ecdsa.h>
@@ -11,8 +13,223 @@
 #include <openssl/objects.h>
 #include <openssl/proverr.h>
 #include <openssl/tsapi.h>
+#include <openssl/crypto.h>
 #include "sdfprov_utils.h"
 #include "crypto/sm2.h"
+
+static char *sdfprov_next_token(char **cursor, const char *delim)
+{
+    char *start;
+    char *end;
+
+    if (cursor == NULL || *cursor == NULL)
+        return NULL;
+
+    start = *cursor;
+    end = start + strcspn(start, delim);
+    if (*end == '\0') {
+        *cursor = NULL;
+    } else {
+        *end = '\0';
+        *cursor = end + 1;
+    }
+    return start;
+}
+
+/*
+ * 解析 session 地址字符串。
+ * 支持：
+ *   "12345678"
+ *   "0x12345678"
+ *   "session:12345678"
+ */
+static int sdfprov_parse_session_value(const char *value, void **session)
+{
+    unsigned long long raw;
+    char *endp = NULL;
+
+    if (value == NULL || session == NULL)
+        return 0;
+
+    if (strncmp(value, "session:", 8) == 0)
+        value += 8;
+
+    if (*value == '\0')
+        return 0;
+
+    raw = strtoull(value, &endp, 0);
+    if (endp == NULL || *endp != '\0')
+        return 0;
+
+    *session = (void *)(uintptr_t)raw;
+    return 1;
+}
+
+/*
+ * 解析老格式 URI 末尾的可选参数。
+ * 兼容：
+ *   :<pwd>
+ *   :session:<addr>
+ *   :<pwd>:session:<addr>
+ */
+static int sdfprov_parse_old_uri_tail(const char *tail, char **key_password,
+                                      void **session, int *external_session)
+{
+    char *tail_dup = NULL;
+    char *cursor = NULL;
+    char *token = NULL;
+    int ok = 1;
+
+    if (tail == NULL || *tail == '\0')
+        return 1;
+
+    tail_dup = OPENSSL_strdup(tail);
+    if (tail_dup == NULL)
+        return 0;
+
+    cursor = tail_dup;
+    while ((token = sdfprov_next_token(&cursor, ":")) != NULL) {
+        if (*token == '\0')
+            continue;
+        if (strncmp(token, "session=", 8) == 0) {
+            if (!sdfprov_parse_session_value(token + 8, session))
+                ok = 0;
+            else
+                *external_session = 1;
+            break;
+        }
+        if (strcmp(token, "session") == 0 && cursor != NULL) {
+            if (!sdfprov_parse_session_value(cursor, session))
+                ok = 0;
+            else
+                *external_session = 1;
+            break;
+        }
+        if (*key_password == NULL) {
+            *key_password = OPENSSL_strdup(token);
+            if (*key_password == NULL)
+                ok = 0;
+        }
+    }
+
+    OPENSSL_free(tail_dup);
+    return ok;
+}
+
+/* 解析老 Engine 风格 URI: sdf:<algo>:<index>:<type>[:<pwd>] */
+static int sdfprov_parse_old_uri(const char *p, SDFPROV_KEY_URI *info)
+{
+    char *endp = NULL;
+    const char *tail = NULL;
+
+    if (strncmp(p, "sm2:", 4) == 0) {
+        info->algo = SDF_ALGO_SM2;
+        p += 4;
+    } else if (strncmp(p, "rsa:", 4) == 0) {
+        info->algo = SDF_ALGO_RSA;
+        p += 4;
+    } else {
+        return 0;
+    }
+
+    info->key_index = (unsigned int)strtoul(p, &endp, 10);
+    if (endp == NULL || *endp != ':')
+        return 0;
+    p = endp + 1;
+
+    if (strncmp(p, "sign", 4) == 0 && (p[4] == '\0' || p[4] == ':')) {
+        info->key_type = 0;
+        tail = p + 4;
+    } else if (strncmp(p, "enc", 3) == 0 && (p[3] == '\0' || p[3] == ':')) {
+        info->key_type = 1;
+        tail = p + 3;
+    } else {
+        return 0;
+    }
+
+    if (tail != NULL && *tail == ':')
+        tail++;
+
+    return sdfprov_parse_old_uri_tail(tail, &info->key_password,
+                                      &info->session,
+                                      &info->external_session);
+}
+
+/*
+ * 解析 key=value 风格 URI：
+ *   sdf:key=<index>;type=<sign|enc>[;algo=<sm2|rsa>][;pwd=<password>][;session=<addr>]
+ */
+static int sdfprov_parse_kv_uri(const char *p, SDFPROV_KEY_URI *info)
+{
+    char *uri_dup = NULL;
+    char *cursor = NULL;
+    char *item = NULL;
+    int saw_key = 0;
+    int saw_type = 0;
+    int ok = 1;
+
+    uri_dup = OPENSSL_strdup(p);
+    if (uri_dup == NULL)
+        return 0;
+
+    info->algo = SDF_ALGO_SM2;
+    cursor = uri_dup;
+
+    while ((item = sdfprov_next_token(&cursor, ";&")) != NULL) {
+        char *eq = NULL;
+        if (*item == '\0')
+            continue;
+        eq = strchr(item, '=');
+        if (eq == NULL)
+            continue;
+        *eq++ = '\0';
+
+        if (strcmp(item, "key") == 0 || strcmp(item, "index") == 0) {
+            char *endp = NULL;
+            info->key_index = (unsigned int)strtoul(eq, &endp, 10);
+            if (endp == NULL || *endp != '\0') {
+                ok = 0;
+                break;
+            }
+            saw_key = 1;
+        } else if (strcmp(item, "type") == 0) {
+            if (strcmp(eq, "sign") == 0 || strcmp(eq, "0") == 0) {
+                info->key_type = 0;
+            } else if (strcmp(eq, "enc") == 0 || strcmp(eq, "1") == 0) {
+                info->key_type = 1;
+            } else {
+                ok = 0;
+                break;
+            }
+            saw_type = 1;
+        } else if (strcmp(item, "algo") == 0) {
+            if (strcmp(eq, "sm2") == 0)
+                info->algo = SDF_ALGO_SM2;
+            else if (strcmp(eq, "rsa") == 0)
+                info->algo = SDF_ALGO_RSA;
+            else {
+                ok = 0;
+                break;
+            }
+        } else if (strcmp(item, "pwd") == 0) {
+            OPENSSL_free(info->key_password);
+            info->key_password = OPENSSL_strdup(eq);
+            if (info->key_password == NULL) {
+                ok = 0;
+                break;
+            }
+        } else if (strcmp(item, "session") == 0) {
+            if (!sdfprov_parse_session_value(eq, &info->session)) {
+                ok = 0;
+                break;
+            }
+            info->external_session = 1;
+        }
+    }
+
+    OPENSSL_free(uri_dup);
+    return ok && saw_key && saw_type;
+}
 
 int sdfprov_eccrefpub_to_ec_key(const OSSL_ECCrefPublicKey *pub,
                                 EC_KEY *ec_key)
@@ -265,5 +482,136 @@ end:
     EC_POINT_free(C1);
     OPENSSL_free(C2);
     OPENSSL_free(C3);
+    return ret;
+}
+
+int sdfprov_parse_key_uri(const char *uri, SDFPROV_KEY_URI *info)
+{
+    if (uri == NULL || info == NULL || strncmp(uri, "sdf:", 4) != 0)
+        return 0;
+
+    memset(info, 0, sizeof(*info));
+
+    if (strncmp(uri + 4, "key=", 4) == 0 || strncmp(uri + 4, "index=", 6) == 0)
+        return sdfprov_parse_kv_uri(uri + 4, info);
+
+    return sdfprov_parse_old_uri(uri + 4, info);
+}
+
+/* 释放 URI 解析结果中动态分配的字段。 */
+void sdfprov_key_uri_cleanup(SDFPROV_KEY_URI *info)
+{
+    if (info == NULL)
+        return;
+    OPENSSL_free(info->key_password);
+    memset(info, 0, sizeof(*info));
+}
+
+/* 统一把解析结果格式化为 KEYMGMT load 使用的 reference。 */
+int sdfprov_format_key_reference(char *buf, size_t buf_size,
+                                 const SDFPROV_KEY_URI *info)
+{
+    const char *algo_name;
+    int len;
+
+    if (buf == NULL || info == NULL)
+        return 0;
+
+    algo_name = info->algo == SDF_ALGO_RSA ? "rsa" : "sm2";
+
+    len = snprintf(buf, buf_size, "sdf:key=%u;type=%s;algo=%s",
+                   info->key_index,
+                   info->key_type == 0 ? "sign" : "enc",
+                   algo_name);
+    if (len <= 0 || (size_t)len >= buf_size)
+        return 0;
+
+    if (info->key_password != NULL) {
+        len += snprintf(buf + len, buf_size - (size_t)len,
+                        ";pwd=%s", info->key_password);
+        if ((size_t)len >= buf_size)
+            return 0;
+    }
+
+    if (info->external_session) {
+        len += snprintf(buf + len, buf_size - (size_t)len,
+                        ";session=0x%llx",
+                        (unsigned long long)(uintptr_t)info->session);
+        if ((size_t)len >= buf_size)
+            return 0;
+    }
+
+    return 1;
+}
+
+/* 把 2048 位 RSA 公钥结构转换成 OpenSSL RSA 对象。 */
+int sdfprov_rsa_pubkey_to_rsa(const OSSL_RSArefPublicKey *pub, RSA **rsa)
+{
+    BIGNUM *n = NULL;
+    BIGNUM *e = NULL;
+    RSA *tmp = NULL;
+    int nbytes;
+    int ret = 0;
+
+    if (pub == NULL || rsa == NULL || pub->bits == 0)
+        return 0;
+
+    nbytes = (int)((pub->bits + 7) / 8);
+    if (nbytes <= 0 || nbytes > OSSL_RSAref_MAX_LEN)
+        return 0;
+
+    n = BN_bin2bn(pub->m + (OSSL_RSAref_MAX_LEN - nbytes), nbytes, NULL);
+    e = BN_bin2bn(pub->e, OSSL_RSAref_MAX_LEN, NULL);
+    tmp = RSA_new();
+    if (n == NULL || e == NULL || tmp == NULL)
+        goto end;
+
+    if (!RSA_set0_key(tmp, n, e, NULL))
+        goto end;
+    n = e = NULL;
+
+    *rsa = tmp;
+    tmp = NULL;
+    ret = 1;
+end:
+    BN_free(n);
+    BN_free(e);
+    RSA_free(tmp);
+    return ret;
+}
+
+/* 把 4096 位扩展 RSA 公钥结构转换成 OpenSSL RSA 对象。 */
+int sdfprov_rsa_pubkeyex_to_rsa(const OSSL_RSArefPublicKeyEx *pub, RSA **rsa)
+{
+    BIGNUM *n = NULL;
+    BIGNUM *e = NULL;
+    RSA *tmp = NULL;
+    int nbytes;
+    int ret = 0;
+
+    if (pub == NULL || rsa == NULL || pub->bits == 0)
+        return 0;
+
+    nbytes = (int)((pub->bits + 7) / 8);
+    if (nbytes <= 0 || nbytes > OSSL_RSAref_MAX_LEN_EX)
+        return 0;
+
+    n = BN_bin2bn(pub->m + (OSSL_RSAref_MAX_LEN_EX - nbytes), nbytes, NULL);
+    e = BN_bin2bn(pub->e, OSSL_RSAref_MAX_LEN_EX, NULL);
+    tmp = RSA_new();
+    if (n == NULL || e == NULL || tmp == NULL)
+        goto end;
+
+    if (!RSA_set0_key(tmp, n, e, NULL))
+        goto end;
+    n = e = NULL;
+
+    *rsa = tmp;
+    tmp = NULL;
+    ret = 1;
+end:
+    BN_free(n);
+    BN_free(e);
+    RSA_free(tmp);
     return ret;
 }

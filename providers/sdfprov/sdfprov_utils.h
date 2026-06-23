@@ -10,9 +10,21 @@
 #ifndef OSSL_PROVIDERS_SDFPROV_UTILS_H
 # define OSSL_PROVIDERS_SDFPROV_UTILS_H
 
+# include <stdint.h>
 # include <openssl/ec.h>
+# include <openssl/rsa.h>
 # include <openssl/sdf.h>
 # include "crypto/sdf/sdf_local.h"
+# include "sdfprov_internal.h"
+
+typedef struct {
+    unsigned int key_index;
+    int key_type;
+    int algo;
+    char *key_password;
+    void *session;
+    int external_session;
+} SDFPROV_KEY_URI;
 
 /* ECCrefPublicKey -> EC_KEY 公钥点 */
 int sdfprov_eccrefpub_to_ec_key(const OSSL_ECCrefPublicKey *pub,
@@ -42,5 +54,12 @@ int sdfprov_sm2_der_to_ecccipher(const unsigned char *der, size_t der_len,
                                  OSSL_ECCCipher *cipher,
                                  int encdata_format,
                                  size_t cipher_buf_size);
+
+int sdfprov_parse_key_uri(const char *uri, SDFPROV_KEY_URI *info);
+void sdfprov_key_uri_cleanup(SDFPROV_KEY_URI *info);
+int sdfprov_format_key_reference(char *buf, size_t buf_size,
+                                 const SDFPROV_KEY_URI *info);
+int sdfprov_rsa_pubkey_to_rsa(const OSSL_RSArefPublicKey *pub, RSA **rsa);
+int sdfprov_rsa_pubkeyex_to_rsa(const OSSL_RSArefPublicKeyEx *pub, RSA **rsa);
 
 #endif

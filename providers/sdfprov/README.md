@@ -115,7 +115,7 @@ activate = 1
 # 切换厂家驱动只需修改此路径，无需重新编译
 sdf_lib_path = byzk0018.dll
 # 是否调用 BYCSM_LoadModule 接口（可选，默认: 1）
-# 1=调用（适用于百旺等需要此接口的厂商）
+# 1=调用（适用于博雅等需要此接口的厂商）
 # 0=不调用（适用于不需要此接口的厂商）
 sdf_use_loadmodule = 1
 # SDF 模块密码（可选，默认: 88888888）
@@ -559,7 +559,7 @@ SDF Provider 涉及两层密码：
 ### SDF 设备
 
 - 支持国密 SDF 规范（GM/T 0028-2014）的硬件安全模块
-- 例如：百旺（byzk0018.dll）等 SDF 设备驱动
+- 例如：博雅（byzk0018.dll）等 SDF 设备驱动
 
 ### 运行时文件
 
@@ -762,4 +762,93 @@ SDF Provider 注册了与 default Provider 同名的 SM2 算法。使用 `-provi
 
 ---
 
-**最后更新**: 2026-05-09
+**最后更新**: 2026-06-23
+
+## 2026-06 增量说明
+
+### RSA 已支持
+
+当前 `sdfprov` 已支持 RSA 硬件密钥能力，不再是“未来支持”状态：
+
+- KEYMGMT：通过 URI / STORE 加载 RSA 签名密钥和加密密钥
+- SIGNATURE：RSA 签名与验签
+- ASYM_CIPHER：RSA 公钥加密与私钥解密
+
+当前接入的 SDF RSA 接口包括：
+
+- `SDF_ExportSignPublicKey_RSA`
+- `SDF_ExportSignPublicKey_RSAEx`
+- `SDF_ExportEncPublicKey_RSA`
+- `SDF_ExportEncPublicKey_RSAEx`
+- `SDF_InternalPublicKeyOperation_RSA`
+- `SDF_InternalPrivateKeyOperation_RSA`
+- `SDF_InternalPublicKeyOperation_RSA_Ex`
+- `SDF_InternalPrivateKeyOperation_RSA_Ex`
+
+说明：
+
+- 普通 `..._RSA` 接口用于 2048 位及以下 RSA 公私钥运算
+- 扩展 `..._RSAEx` / `..._RSA_Ex` 接口用于 3072/4096 位场景
+- `_RSA_Ex` 版本额外带 `uiKeyUsage`，用于区分签名密钥和加密密钥用途
+
+### 密钥 URI 扩展
+
+除了原有 URI 写法，现在还支持在 URI 中外送会话句柄地址，直接复用外部 session。
+
+推荐写法：
+
+```bash
+sdf:key=1;type=sign;algo=rsa;pwd=12345678
+sdf:key=1;type=enc;algo=rsa
+sdf:key=1;type=sign;algo=rsa;session=0x12345678
+sdf:key=1;type=enc;algo=sm2;session=12345678
+```
+
+兼容写法：
+
+```bash
+sdf:key=1;type=sign;algo=rsa;session=session:12345678
+sdf:rsa:1:sign:mypwd:session:12345678
+```
+
+URI 参数说明补充：
+
+- `algo`：支持 `sm2` 和 `rsa`
+- `type`：支持 `sign` 和 `enc`
+- `pwd`：私钥访问控制码，可选
+- `session`：外部会话句柄地址，可选，支持十进制和十六进制字符串
+
+### 外部 Session 使用约定
+
+- 传入 `session` 后，Provider 直接使用外部会话句柄，不再为该密钥自动创建会话
+- 外部会话生命周期由调用方负责，Provider 不会关闭该会话
+- `pwd` 与 `session` 可以同时使用，适用于“外部会话 + 私钥访问控制码”场景
+- 推荐优先使用 `key=value` 风格 URI；旧的 `sdf:<algo>:<index>:<type>[:<pwd>]` 仍兼容
+
+### RSA 示例
+
+RSA 签名：
+
+```bash
+openssl dgst -provider sdfprov -provider default -sha256 \
+  -sign "sdf:key=1;type=sign;algo=rsa;pwd=12345678" \
+  -out sig.bin data.txt
+```
+
+RSA 公钥加密：
+
+```bash
+openssl pkeyutl -provider sdfprov -provider default \
+  -encrypt -pubin \
+  -inkey "sdf:key=1;type=enc;algo=rsa" \
+  -in plaintext.txt -out ciphertext.bin
+```
+
+RSA 私钥解密（复用外部 session）：
+
+```bash
+openssl pkeyutl -provider sdfprov -provider default \
+  -decrypt \
+  -inkey "sdf:key=1;type=enc;algo=rsa;pwd=12345678;session=0x12345678" \
+  -in ciphertext.bin -out plaintext.txt
+```

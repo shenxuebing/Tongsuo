@@ -27,7 +27,7 @@
  *   Linux 默认: "libsdf.so"
  * password: BYCSM_LoadModule 的密码参数
  *
- * 注意：BYCSM_LoadModule 是特定厂商（如百旺）的模块初始化接口，
+ * 注意：BYCSM_LoadModule 是特定厂商（如博雅）的模块初始化接口，
  * 不是标准 SDF API 的一部分。通过 sdf_use_loadmodule 配置参数控制是否调用。
  *
  * 这里必须直接用 GetProcAddress/dlsym 从已加载的 DLL 获取函数指针，
@@ -207,4 +207,15 @@ void sdfprov_ctx_teardown_device(SDFPROV_CTX *ctx)
     ctx->hDevice = NULL;
     ctx->initialized = 0;
     ctx->module_loaded = 0;
+}
+
+void *sdfprov_ctx_get_session(SDFPROV_CTX *ctx)
+{
+    if (ctx == NULL)
+        return NULL;
+
+    if (!ctx->initialized && !sdfprov_ctx_init_device(ctx))
+        return NULL;
+
+    return ctx->hSession;
 }
