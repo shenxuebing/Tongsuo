@@ -175,6 +175,7 @@ sdf:sm2:0:enc:11111111            # 索引0 加密密钥，口令 11111111
 sdf:sm2:1:sign:mypassword         # 索引1 签名密钥，自定义口令
 
 # RSA 密钥（未来支持）
+# NOTE: RSA is supported in current sdfprov releases.
 sdf:rsa:0:sign:password
 sdf:rsa:0:enc
 ```

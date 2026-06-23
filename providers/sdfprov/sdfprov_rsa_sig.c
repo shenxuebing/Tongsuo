@@ -214,9 +214,18 @@ static int sdfprov_rsa_sig_verify(void *vctx, const unsigned char *sig,
     if (ctx->md != NULL)
         md_nid = EVP_MD_get_type(ctx->md);
 
-    if (md_nid != NID_undef)
-        return RSA_verify(md_nid, tbs, (unsigned int)tbslen, sig,
-                          (unsigned int)siglen, ctx->key->rsa);
+    if (md_nid != NID_undef) {
+        ret = RSA_verify(md_nid, tbs, (unsigned int)tbslen, sig,
+                         (unsigned int)siglen, ctx->key->rsa);
+        if (ret != 1) {
+            TLOG_ERROR("rsa_verify: RSA_verify failed key_index=%u md_nid=%d siglen=%zu",
+                       ctx->key->key_index, md_nid, siglen);
+            ERR_raise_data(ERR_LIB_PROV, PROV_R_INVALID_SIGNATURE_SIZE,
+                           "rsa verify failed: key_index=%u md_nid=%d siglen=%zu",
+                           ctx->key->key_index, md_nid, siglen);
+        }
+        return ret;
+    }
 
     buf = OPENSSL_malloc(siglen);
     if (buf == NULL) {
@@ -225,8 +234,22 @@ static int sdfprov_rsa_sig_verify(void *vctx, const unsigned char *sig,
     }
     ret = RSA_public_decrypt((int)siglen, sig, buf, ctx->key->rsa,
                              RSA_PKCS1_PADDING);
-    if (ret > 0)
+    if (ret > 0) {
         ret = ret == (int)tbslen && CRYPTO_memcmp(buf, tbs, tbslen) == 0;
+        if (!ret) {
+            TLOG_ERROR("rsa_verify: decrypted signature mismatch key_index=%u siglen=%zu tbslen=%zu",
+                       ctx->key->key_index, siglen, tbslen);
+            ERR_raise_data(ERR_LIB_PROV, PROV_R_INVALID_DATA,
+                           "rsa verify mismatch: key_index=%u tbslen=%zu",
+                           ctx->key->key_index, tbslen);
+        }
+    } else {
+        TLOG_ERROR("rsa_verify: RSA_public_decrypt failed key_index=%u siglen=%zu",
+                   ctx->key->key_index, siglen);
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_FAILED_TO_DECRYPT,
+                       "rsa public decrypt failed during verify: key_index=%u siglen=%zu",
+                       ctx->key->key_index, siglen);
+    }
     OPENSSL_clear_free(buf, siglen);
     return ret;
 }

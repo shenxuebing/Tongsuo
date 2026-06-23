@@ -98,6 +98,7 @@ static const OSSL_PARAM *sdfprov_rsa_gettable_params(void *provctx)
 static void *sdfprov_rsa_load(const void *reference, size_t reference_sz)
 {
     SDF_SM2_KEY *key = NULL;
+    SDFPROV_CTX *gctx = NULL;
     SDFPROV_KEY_URI uri_info;
     char *ref = NULL;
     void *hSession;
@@ -132,8 +133,9 @@ static void *sdfprov_rsa_load(const void *reference, size_t reference_sz)
         return NULL;
     }
 
+    gctx = sdfprov_get_global_ctx();
     hSession = uri_info.external_session ? uri_info.session
-                                         : sdfprov_ctx_get_session(sdfprov_get_global_ctx());
+                                         : sdfprov_ctx_get_session(gctx);
     if (hSession == NULL) {
         TLOG_ERROR("rsa_load: no session available for key_index=%u type=%d",
                    uri_info.key_index, uri_info.key_type);
@@ -187,7 +189,7 @@ static void *sdfprov_rsa_load(const void *reference, size_t reference_sz)
         return NULL;
     }
 
-    key->libctx = sdfprov_get_global_ctx()->libctx;
+    key->libctx = gctx != NULL ? gctx->libctx : NULL;
     key->rsa = rsa;
     key->algo = SDF_ALGO_RSA;
     key->is_hardware_key = 1;
