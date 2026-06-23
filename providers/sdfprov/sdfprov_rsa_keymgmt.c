@@ -8,7 +8,10 @@
 #include <openssl/core_names.h>
 #include <openssl/params.h>
 #include <openssl/bn.h>
+#include <openssl/err.h>
 #include <openssl/rsa.h>
+#include <openssl/proverr.h>
+#include "internal/tlog.h"
 #include "prov/provider_ctx.h"
 #include "sdfprov_internal.h"
 #include "sdfprov_ctx.h"
@@ -107,16 +110,24 @@ static void *sdfprov_rsa_load(const void *reference, size_t reference_sz)
         return NULL;
 
     ref = OPENSSL_strndup(reference, reference_sz);
-    if (ref == NULL)
+    if (ref == NULL) {
+        ERR_raise(ERR_LIB_PROV, ERR_R_MALLOC_FAILURE);
         return NULL;
+    }
 
     if (!sdfprov_parse_key_uri(ref, &uri_info)) {
+        TLOG_ERROR("rsa_load: failed to parse reference: %s", ref);
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_INVALID_KEY,
+                       "rsa uri parse failed: %s", ref);
         OPENSSL_free(ref);
         return NULL;
     }
     OPENSSL_free(ref);
 
     if (uri_info.algo != SDF_ALGO_RSA) {
+        TLOG_ERROR("rsa_load: unsupported algo=%d for ref", uri_info.algo);
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_INVALID_KEY,
+                       "unexpected key algo=%d", uri_info.algo);
         sdfprov_key_uri_cleanup(&uri_info);
         return NULL;
     }
@@ -124,9 +135,15 @@ static void *sdfprov_rsa_load(const void *reference, size_t reference_sz)
     hSession = uri_info.external_session ? uri_info.session
                                          : sdfprov_ctx_get_session(sdfprov_get_global_ctx());
     if (hSession == NULL) {
+        TLOG_ERROR("rsa_load: no session available for key_index=%u type=%d",
+                   uri_info.key_index, uri_info.key_type);
+        ERR_raise(ERR_LIB_PROV, PROV_R_MISSING_KEY);
         sdfprov_key_uri_cleanup(&uri_info);
         return NULL;
     }
+    TLOG_DEBUG("rsa_load: key_index=%u type=%d external_session=%d session=%p",
+               uri_info.key_index, uri_info.key_type,
+               uri_info.external_session, hSession);
 
     memset(&pub, 0, sizeof(pub));
     memset(&pub_ex, 0, sizeof(pub_ex));
@@ -135,6 +152,7 @@ static void *sdfprov_rsa_load(const void *reference, size_t reference_sz)
         if (ret == OSSL_SDR_OK)
             ret = sdfprov_rsa_pubkey_to_rsa(&pub, &rsa) ? OSSL_SDR_OK : OSSL_SDR_OUTARGERR;
         if (ret != OSSL_SDR_OK) {
+            TLOG_DEBUG("rsa_load: ExportSignPublicKey_RSA failed ret=0x%08x, trying Ex", ret);
             ret = TSAPI_SDF_ExportSignPublicKey_RSAEx(hSession, uri_info.key_index, &pub_ex);
             if (ret == OSSL_SDR_OK && !sdfprov_rsa_pubkeyex_to_rsa(&pub_ex, &rsa))
                 ret = OSSL_SDR_OUTARGERR;
@@ -144,6 +162,7 @@ static void *sdfprov_rsa_load(const void *reference, size_t reference_sz)
         if (ret == OSSL_SDR_OK)
             ret = sdfprov_rsa_pubkey_to_rsa(&pub, &rsa) ? OSSL_SDR_OK : OSSL_SDR_OUTARGERR;
         if (ret != OSSL_SDR_OK) {
+            TLOG_DEBUG("rsa_load: ExportEncPublicKey_RSA failed ret=0x%08x, trying Ex", ret);
             ret = TSAPI_SDF_ExportEncPublicKey_RSAEx(hSession, uri_info.key_index, &pub_ex);
             if (ret == OSSL_SDR_OK && !sdfprov_rsa_pubkeyex_to_rsa(&pub_ex, &rsa))
                 ret = OSSL_SDR_OUTARGERR;
@@ -151,12 +170,18 @@ static void *sdfprov_rsa_load(const void *reference, size_t reference_sz)
     }
 
     if (ret != OSSL_SDR_OK || rsa == NULL) {
+        TLOG_ERROR("rsa_load: export public key failed key_index=%u type=%d ret=0x%08x",
+                   uri_info.key_index, uri_info.key_type, ret);
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_FAILED_TO_DECRYPT,
+                       "rsa public key export failed: key_index=%u type=%d ret=0x%08x",
+                       uri_info.key_index, uri_info.key_type, ret);
         sdfprov_key_uri_cleanup(&uri_info);
         return NULL;
     }
 
     key = OPENSSL_zalloc(sizeof(*key));
     if (key == NULL) {
+        ERR_raise(ERR_LIB_PROV, ERR_R_MALLOC_FAILURE);
         RSA_free(rsa);
         sdfprov_key_uri_cleanup(&uri_info);
         return NULL;

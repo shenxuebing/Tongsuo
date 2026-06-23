@@ -8,8 +8,10 @@
 #include <openssl/core_names.h>
 #include <openssl/params.h>
 #include <openssl/evp.h>
+#include <openssl/err.h>
 #include <openssl/rsa.h>
 #include <openssl/proverr.h>
+#include "internal/tlog.h"
 #include "crypto/rsa.h"
 #include "prov/provider_ctx.h"
 #include "sdfprov_internal.h"
@@ -43,56 +45,81 @@ static int sdfprov_rsa_sig_do_sign(SDFPROV_RSA_SIG_CTX *ctx,
         return 1;
     }
     rsa_size = RSA_size(ctx->key->rsa);
-    if (sigsize < (size_t)rsa_size)
+    if (sigsize < (size_t)rsa_size) {
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_OUTPUT_BUFFER_TOO_SMALL,
+                       "sigsize=%zu rsa_size=%d", sigsize, rsa_size);
         return 0;
+    }
 
     if (ctx->md != NULL) {
         int md_nid = EVP_MD_get_type(ctx->md);
         size_t prefix_len = 0;
         const unsigned char *prefix = ossl_rsa_digestinfo_encoding(md_nid, &prefix_len);
 
-        if (prefix == NULL)
+        if (prefix == NULL) {
+            ERR_raise_data(ERR_LIB_PROV, PROV_R_INVALID_DIGEST,
+                           "unsupported digest nid=%d", md_nid);
             return 0;
+        }
         /* 先构造 DigestInfo，后续再交给 SDF 做 PKCS#1 v1.5 私钥运算。 */
         encoded = OPENSSL_malloc(prefix_len + tbslen);
-        if (encoded == NULL)
+        if (encoded == NULL) {
+            ERR_raise(ERR_LIB_PROV, ERR_R_MALLOC_FAILURE);
             return 0;
+        }
         memcpy(encoded, prefix, prefix_len);
         memcpy(encoded + prefix_len, tbs, tbslen);
         encoded_len = prefix_len + tbslen;
     } else {
         encoded = OPENSSL_memdup(tbs, tbslen);
-        if (encoded == NULL)
+        if (encoded == NULL) {
+            ERR_raise(ERR_LIB_PROV, ERR_R_MALLOC_FAILURE);
             return 0;
+        }
         encoded_len = tbslen;
     }
 
     padded = OPENSSL_malloc((size_t)rsa_size);
-    if (padded == NULL)
+    if (padded == NULL) {
+        ERR_raise(ERR_LIB_PROV, ERR_R_MALLOC_FAILURE);
         goto end;
+    }
     /* byzk 的 InternalPrivateKeyOperation_RSA 要求输入已经完成 PKCS#1 v1.5 填充。 */
     if (RSA_padding_add_PKCS1_type_1(padded, rsa_size, encoded,
-                                     (int)encoded_len) != 1)
+                                     (int)encoded_len) != 1) {
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_INVALID_DIGEST_LENGTH,
+                       "encoded_len=%zu rsa_size=%d", encoded_len, rsa_size);
         goto end;
+    }
 
     if (ctx->key->key_password != NULL) {
         ret = TSAPI_SDF_GetPrivateKeyAccessRight(ctx->key->hSession,
                                                  ctx->key->key_index,
                                                  (unsigned char *)ctx->key->key_password,
                                                  (unsigned int)strlen(ctx->key->key_password));
-        if (ret != OSSL_SDR_OK)
+        if (ret != OSSL_SDR_OK) {
+            TLOG_ERROR("rsa_sign: GetPrivateKeyAccessRight failed key_index=%u ret=0x%08x",
+                       ctx->key->key_index, ret);
+            ERR_raise_data(ERR_LIB_PROV, PROV_R_FAILED_TO_SIGN,
+                           "get private key access right failed: key_index=%u ret=0x%08x",
+                           ctx->key->key_index, ret);
             goto end;
+        }
     }
 
     outlen = (unsigned int)sigsize;
     if (RSA_bits(ctx->key->rsa) > OSSL_RSAref_MAX_BITS) {
         /* 3072/4096 位 RSA 走扩展接口，并显式指定 sign/enc 用途。 */
+        TLOG_DEBUG("rsa_sign: using RSA_Ex key_index=%u key_type=%d bits=%d",
+                   ctx->key->key_index, ctx->key->key_type, RSA_bits(ctx->key->rsa));
         ret = TSAPI_SDF_InternalPrivateKeyOperation_RSA_Ex(ctx->key->hSession,
                     ctx->key->key_index,
                     ctx->key->key_type == 0 ? SDFPROV_RSA_KEYTYPE_SIGN
                                             : SDFPROV_RSA_KEYTYPE_ENC,
                     padded, (unsigned int)rsa_size, sig, &outlen);
     } else {
+        TLOG_DEBUG("rsa_sign: using RSA key_index=%u key_type=%d bits=%d",
+                   ctx->key->key_index, ctx->key->key_type, RSA_bits(ctx->key->rsa));
         ret = TSAPI_SDF_InternalPrivateKeyOperation_RSA(ctx->key->hSession,
                     ctx->key->key_index, padded, (unsigned int)rsa_size,
                     sig, &outlen);
@@ -105,6 +132,11 @@ static int sdfprov_rsa_sig_do_sign(SDFPROV_RSA_SIG_CTX *ctx,
         *siglen = outlen;
         ret = 1;
     } else {
+        TLOG_ERROR("rsa_sign: InternalPrivateKeyOperation failed key_index=%u ret=0x%08x",
+                   ctx->key->key_index, ret);
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_FAILED_TO_SIGN,
+                       "rsa internal private op failed: key_index=%u ret=0x%08x",
+                       ctx->key->key_index, ret);
         ret = 0;
     }
 
@@ -130,11 +162,20 @@ static int sdfprov_rsa_sig_sign_init(void *vctx, void *vkey,
     SDFPROV_RSA_SIG_CTX *ctx = vctx;
 
     (void)params;
-    if (ctx == NULL || vkey == NULL)
+    if (ctx == NULL || vkey == NULL) {
+        ERR_raise(ERR_LIB_PROV, PROV_R_NO_KEY_SET);
         return 0;
+    }
 
     ctx->key = vkey;
-    return ctx->key->rsa != NULL;
+    if (ctx->key->rsa == NULL) {
+        ERR_raise(ERR_LIB_PROV, PROV_R_INVALID_KEY);
+        return 0;
+    }
+    TLOG_DEBUG("rsa_sign_init: key_index=%u key_type=%d session=%p external_session=%d",
+               ctx->key->key_index, ctx->key->key_type, ctx->key->hSession,
+               ctx->key->external_session);
+    return 1;
 }
 
 static int sdfprov_rsa_sig_verify_init(void *vctx, void *vkey,
@@ -149,8 +190,10 @@ static int sdfprov_rsa_sig_sign(void *vctx, unsigned char *sig, size_t *siglen,
 {
     SDFPROV_RSA_SIG_CTX *ctx = vctx;
 
-    if (ctx == NULL || ctx->key == NULL || ctx->key->hSession == NULL)
+    if (ctx == NULL || ctx->key == NULL || ctx->key->hSession == NULL) {
+        ERR_raise(ERR_LIB_PROV, PROV_R_NO_KEY_SET);
         return 0;
+    }
     return sdfprov_rsa_sig_do_sign(ctx, sig, siglen, sigsize, tbs, tbslen);
 }
 
@@ -163,8 +206,10 @@ static int sdfprov_rsa_sig_verify(void *vctx, const unsigned char *sig,
     unsigned char *buf = NULL;
     int ret;
 
-    if (ctx == NULL || ctx->key == NULL || ctx->key->rsa == NULL)
+    if (ctx == NULL || ctx->key == NULL || ctx->key->rsa == NULL) {
+        ERR_raise(ERR_LIB_PROV, PROV_R_NO_KEY_SET);
         return 0;
+    }
 
     if (ctx->md != NULL)
         md_nid = EVP_MD_get_type(ctx->md);
@@ -174,8 +219,10 @@ static int sdfprov_rsa_sig_verify(void *vctx, const unsigned char *sig,
                           (unsigned int)siglen, ctx->key->rsa);
 
     buf = OPENSSL_malloc(siglen);
-    if (buf == NULL)
+    if (buf == NULL) {
+        ERR_raise(ERR_LIB_PROV, ERR_R_MALLOC_FAILURE);
         return 0;
+    }
     ret = RSA_public_decrypt((int)siglen, sig, buf, ctx->key->rsa,
                              RSA_PKCS1_PADDING);
     if (ret > 0)
@@ -194,13 +241,18 @@ static int sdfprov_rsa_sig_digest_sign_init(void *vctx, const char *mdname,
 
     if (ctx->mdctx == NULL)
         ctx->mdctx = EVP_MD_CTX_new();
-    if (ctx->mdctx == NULL)
+    if (ctx->mdctx == NULL) {
+        ERR_raise(ERR_LIB_PROV, ERR_R_MALLOC_FAILURE);
         return 0;
+    }
 
     EVP_MD_free(ctx->md);
     ctx->md = EVP_MD_fetch(ctx->libctx, mdname, NULL);
-    if (ctx->md == NULL)
+    if (ctx->md == NULL) {
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_INVALID_DIGEST,
+                       "digest fetch failed: %s", mdname);
         return 0;
+    }
 
     OPENSSL_strlcpy(ctx->mdname, mdname, sizeof(ctx->mdname));
     return EVP_DigestInit_ex(ctx->mdctx, ctx->md, NULL);
@@ -228,12 +280,16 @@ static int sdfprov_rsa_sig_digest_sign_final(void *vctx, unsigned char *sig,
     unsigned char digest[EVP_MAX_MD_SIZE];
     unsigned int dlen = 0;
 
-    if (ctx == NULL || ctx->mdctx == NULL)
+    if (ctx == NULL || ctx->mdctx == NULL) {
+        ERR_raise(ERR_LIB_PROV, PROV_R_MISSING_MESSAGE_DIGEST);
         return 0;
+    }
     if (sig == NULL)
         return sdfprov_rsa_sig_sign(vctx, NULL, siglen, sigsize, NULL, 0);
-    if (!EVP_DigestFinal_ex(ctx->mdctx, digest, &dlen))
+    if (!EVP_DigestFinal_ex(ctx->mdctx, digest, &dlen)) {
+        ERR_raise(ERR_LIB_PROV, PROV_R_FAILED_TO_SIGN);
         return 0;
+    }
     return sdfprov_rsa_sig_do_sign(ctx, sig, siglen, sigsize, digest, dlen);
 }
 
@@ -244,10 +300,14 @@ static int sdfprov_rsa_sig_digest_verify_final(void *vctx, const unsigned char *
     unsigned char digest[EVP_MAX_MD_SIZE];
     unsigned int dlen = 0;
 
-    if (ctx == NULL || ctx->mdctx == NULL)
+    if (ctx == NULL || ctx->mdctx == NULL) {
+        ERR_raise(ERR_LIB_PROV, PROV_R_MISSING_MESSAGE_DIGEST);
         return 0;
-    if (!EVP_DigestFinal_ex(ctx->mdctx, digest, &dlen))
+    }
+    if (!EVP_DigestFinal_ex(ctx->mdctx, digest, &dlen)) {
+        ERR_raise(ERR_LIB_PROV, PROV_R_INVALID_DATA);
         return 0;
+    }
     return sdfprov_rsa_sig_verify(vctx, sig, siglen, digest, dlen);
 }
 

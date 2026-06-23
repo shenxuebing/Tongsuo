@@ -7,7 +7,10 @@
 #include <openssl/core_dispatch.h>
 #include <openssl/core_names.h>
 #include <openssl/params.h>
+#include <openssl/err.h>
+#include <openssl/proverr.h>
 #include <openssl/rsa.h>
+#include "internal/tlog.h"
 #include "prov/provider_ctx.h"
 #include "sdfprov_internal.h"
 
@@ -35,9 +38,14 @@ static int sdfprov_rsa_asym_encrypt_init(void *vctx, void *vkey,
     SDFPROV_RSA_ASYM_CTX *ctx = vctx;
 
     (void)params;
-    if (ctx == NULL || vkey == NULL)
+    if (ctx == NULL || vkey == NULL) {
+        ERR_raise(ERR_LIB_PROV, PROV_R_NO_KEY_SET);
         return 0;
+    }
     ctx->key = vkey;
+    TLOG_DEBUG("rsa_asym_init: key_index=%u key_type=%d session=%p external_session=%d",
+               ctx->key->key_index, ctx->key->key_type, ctx->key->hSession,
+               ctx->key->external_session);
     return 1;
 }
 
@@ -57,34 +65,49 @@ static int sdfprov_rsa_asym_encrypt(void *vctx, unsigned char *out,
     int rsa_size;
     int ret;
 
-    if (ctx == NULL || ctx->key == NULL || ctx->key->rsa == NULL)
+    if (ctx == NULL || ctx->key == NULL || ctx->key->rsa == NULL) {
+        ERR_raise(ERR_LIB_PROV, PROV_R_NO_KEY_SET);
         return 0;
+    }
 
     rsa_size = RSA_size(ctx->key->rsa);
     if (out == NULL) {
         *outlen = rsa_size;
         return 1;
     }
-    if (outsize < (size_t)rsa_size)
+    if (outsize < (size_t)rsa_size) {
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_OUTPUT_BUFFER_TOO_SMALL,
+                       "outsize=%zu rsa_size=%d", outsize, rsa_size);
         return 0;
+    }
 
     buf = OPENSSL_malloc((size_t)rsa_size);
-    if (buf == NULL)
+    if (buf == NULL) {
+        ERR_raise(ERR_LIB_PROV, ERR_R_MALLOC_FAILURE);
         return 0;
+    }
 
     if (ctx->pad_mode == RSA_PKCS1_PADDING) {
         /* SDF 内部公钥运算要求输入块已按 PKCS#1 v1.5 组装。 */
         if (RSA_padding_add_PKCS1_type_2(buf, rsa_size, in, (int)inlen) != 1) {
+            ERR_raise_data(ERR_LIB_PROV, PROV_R_INVALID_PADDING_MODE,
+                           "PKCS1 type 2 padding failed: inlen=%zu rsa_size=%d",
+                           inlen, rsa_size);
             OPENSSL_free(buf);
             return 0;
         }
     } else if (ctx->pad_mode == RSA_NO_PADDING) {
         if (inlen != (size_t)rsa_size) {
+            ERR_raise_data(ERR_LIB_PROV, PROV_R_BAD_LENGTH,
+                           "RSA_NO_PADDING requires inlen=%d, got %zu",
+                           rsa_size, inlen);
             OPENSSL_free(buf);
             return 0;
         }
         memcpy(buf, in, inlen);
     } else {
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_INVALID_PADDING_MODE,
+                       "unsupported pad_mode=%d", ctx->pad_mode);
         OPENSSL_free(buf);
         return 0;
     }
@@ -92,20 +115,30 @@ static int sdfprov_rsa_asym_encrypt(void *vctx, unsigned char *out,
     olen = (unsigned int)outsize;
     if (RSA_bits(ctx->key->rsa) > OSSL_RSAref_MAX_BITS) {
         /* 扩展接口需要显式给出密钥用途，便于区分 sign/enc 槽位。 */
+        TLOG_DEBUG("rsa_encrypt: using RSA_Ex key_index=%u key_type=%d bits=%d",
+                   ctx->key->key_index, ctx->key->key_type, RSA_bits(ctx->key->rsa));
         ret = TSAPI_SDF_InternalPublicKeyOperation_RSA_Ex(ctx->key->hSession,
                     ctx->key->key_index,
                     ctx->key->key_type == 0 ? SDFPROV_RSA_KEYTYPE_SIGN
                                             : SDFPROV_RSA_KEYTYPE_ENC,
                     buf, (unsigned int)rsa_size, out, &olen);
     } else {
+        TLOG_DEBUG("rsa_encrypt: using RSA key_index=%u key_type=%d bits=%d",
+                   ctx->key->key_index, ctx->key->key_type, RSA_bits(ctx->key->rsa));
         ret = TSAPI_SDF_InternalPublicKeyOperation_RSA(ctx->key->hSession,
                     ctx->key->key_index, buf, (unsigned int)rsa_size,
                     out, &olen);
     }
 
     OPENSSL_clear_free(buf, (size_t)rsa_size);
-    if (ret != OSSL_SDR_OK)
+    if (ret != OSSL_SDR_OK) {
+        TLOG_ERROR("rsa_encrypt: InternalPublicKeyOperation failed key_index=%u ret=0x%08x",
+                   ctx->key->key_index, ret);
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_CIPHER_OPERATION_FAILED,
+                       "rsa internal public op failed: key_index=%u ret=0x%08x",
+                       ctx->key->key_index, ret);
         return 0;
+    }
     *outlen = olen;
     return 1;
 }
@@ -121,8 +154,10 @@ static int sdfprov_rsa_asym_decrypt(void *vctx, unsigned char *out,
     int ret;
     int plain_len;
 
-    if (ctx == NULL || ctx->key == NULL || ctx->key->rsa == NULL)
+    if (ctx == NULL || ctx->key == NULL || ctx->key->rsa == NULL) {
+        ERR_raise(ERR_LIB_PROV, PROV_R_NO_KEY_SET);
         return 0;
+    }
 
     rsa_size = RSA_size(ctx->key->rsa);
     if (out == NULL) {
@@ -131,8 +166,10 @@ static int sdfprov_rsa_asym_decrypt(void *vctx, unsigned char *out,
     }
 
     buf = OPENSSL_malloc((size_t)rsa_size);
-    if (buf == NULL)
+    if (buf == NULL) {
+        ERR_raise(ERR_LIB_PROV, ERR_R_MALLOC_FAILURE);
         return 0;
+    }
 
     if (ctx->key->key_password != NULL) {
         ret = TSAPI_SDF_GetPrivateKeyAccessRight(ctx->key->hSession,
@@ -140,6 +177,11 @@ static int sdfprov_rsa_asym_decrypt(void *vctx, unsigned char *out,
                                                  (unsigned char *)ctx->key->key_password,
                                                  (unsigned int)strlen(ctx->key->key_password));
         if (ret != OSSL_SDR_OK) {
+            TLOG_ERROR("rsa_decrypt: GetPrivateKeyAccessRight failed key_index=%u ret=0x%08x",
+                       ctx->key->key_index, ret);
+            ERR_raise_data(ERR_LIB_PROV, PROV_R_FAILED_TO_DECRYPT,
+                           "get private key access right failed: key_index=%u ret=0x%08x",
+                           ctx->key->key_index, ret);
             OPENSSL_free(buf);
             return 0;
         }
@@ -148,12 +190,16 @@ static int sdfprov_rsa_asym_decrypt(void *vctx, unsigned char *out,
     olen = (unsigned int)rsa_size;
     if (RSA_bits(ctx->key->rsa) > OSSL_RSAref_MAX_BITS) {
         /* 3072/4096 位解密走 _Ex 接口。 */
+        TLOG_DEBUG("rsa_decrypt: using RSA_Ex key_index=%u key_type=%d bits=%d",
+                   ctx->key->key_index, ctx->key->key_type, RSA_bits(ctx->key->rsa));
         ret = TSAPI_SDF_InternalPrivateKeyOperation_RSA_Ex(ctx->key->hSession,
                     ctx->key->key_index,
                     ctx->key->key_type == 0 ? SDFPROV_RSA_KEYTYPE_SIGN
                                             : SDFPROV_RSA_KEYTYPE_ENC,
                     (unsigned char *)in, (unsigned int)inlen, buf, &olen);
     } else {
+        TLOG_DEBUG("rsa_decrypt: using RSA key_index=%u key_type=%d bits=%d",
+                   ctx->key->key_index, ctx->key->key_type, RSA_bits(ctx->key->rsa));
         ret = TSAPI_SDF_InternalPrivateKeyOperation_RSA(ctx->key->hSession,
                     ctx->key->key_index, (unsigned char *)in,
                     (unsigned int)inlen, buf, &olen);
@@ -163,6 +209,11 @@ static int sdfprov_rsa_asym_decrypt(void *vctx, unsigned char *out,
         TSAPI_SDF_ReleasePrivateKeyAccessRight(ctx->key->hSession, ctx->key->key_index);
 
     if (ret != OSSL_SDR_OK) {
+        TLOG_ERROR("rsa_decrypt: InternalPrivateKeyOperation failed key_index=%u ret=0x%08x",
+                   ctx->key->key_index, ret);
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_FAILED_TO_DECRYPT,
+                       "rsa internal private op failed: key_index=%u ret=0x%08x",
+                       ctx->key->key_index, ret);
         OPENSSL_clear_free(buf, (size_t)rsa_size);
         return 0;
     }
@@ -172,19 +223,25 @@ static int sdfprov_rsa_asym_decrypt(void *vctx, unsigned char *out,
                                                    (int)olen, rsa_size);
     else if (ctx->pad_mode == RSA_NO_PADDING) {
         if (outsize < olen) {
+            ERR_raise_data(ERR_LIB_PROV, PROV_R_OUTPUT_BUFFER_TOO_SMALL,
+                           "outsize=%zu plaintext_len=%u", outsize, olen);
             OPENSSL_clear_free(buf, (size_t)rsa_size);
             return 0;
         }
         memcpy(out, buf, olen);
         plain_len = (int)olen;
     } else {
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_INVALID_PADDING_MODE,
+                       "unsupported pad_mode=%d", ctx->pad_mode);
         OPENSSL_clear_free(buf, (size_t)rsa_size);
         return 0;
     }
 
     OPENSSL_clear_free(buf, (size_t)rsa_size);
-    if (plain_len < 0)
+    if (plain_len < 0) {
+        ERR_raise(ERR_LIB_PROV, PROV_R_FAILED_TO_DECRYPT);
         return 0;
+    }
     *outlen = (size_t)plain_len;
     return 1;
 }
