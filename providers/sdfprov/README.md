@@ -853,3 +853,12 @@ openssl pkeyutl -provider sdfprov -provider default \
   -inkey "sdf:key=1;type=enc;algo=rsa;pwd=12345678;session=0x12345678" \
   -in ciphertext.bin -out plaintext.txt
 ```
+
+RSA 鏈€灏忚仈璋冩祴璇曪細
+
+```bash
+test_sdfprov_rsa.exe \
+  "sdf:key=1;type=sign;algo=rsa;pwd=12345678" \
+  "sdf:key=1;type=enc;algo=rsa;pwd=12345678;session=0x12345678" \
+  SHA256
+```
