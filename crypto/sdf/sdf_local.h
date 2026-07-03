@@ -13,35 +13,6 @@
 # include <openssl/types.h>
 # include <openssl/sdf.h>
 
-# define OSSL_ECCref_MAX_BITS            512
-# define OSSL_ECCref_MAX_LEN             ((OSSL_ECCref_MAX_BITS + 7) / 8)
-
-# pragma pack(1)
-struct OSSL_ECCrefPrivateKey_st {
-    unsigned int bits;
-    unsigned char K[OSSL_ECCref_MAX_LEN];
-};
-
-struct OSSL_ECCrefPublicKey_st{
-    unsigned int bits;
-    unsigned char x[OSSL_ECCref_MAX_LEN];
-    unsigned char y[OSSL_ECCref_MAX_LEN];
-};
-
-struct OSSL_ECCCipher_st {
-    unsigned char x[OSSL_ECCref_MAX_LEN];
-    unsigned char y[OSSL_ECCref_MAX_LEN];
-    unsigned char M[32];
-    unsigned int L;
-    unsigned char C[1];
-};
-
-struct OSSL_ECCSignature_st {
-    unsigned char r[OSSL_ECCref_MAX_LEN];
-    unsigned char s[OSSL_ECCref_MAX_LEN];
-};
-# pragma pack()
-
 typedef int (*SDF_OpenDevice_fn)(void **phDeviceHandle);
 typedef int (*SDF_CloseDevice_fn)(void *hDeviceHandle);
 typedef int (*SDF_OpenSession_fn)(void *hDeviceHandle, void **phSessionHandle);
@@ -158,12 +129,157 @@ typedef int (*SDF_GenerateAgreementDataAndKeyWithECCEx_fn)(
     unsigned char *pucSharedSecret, unsigned int *puiSecretLength,
     void **phKeyHandle);
 
-/* 厂商特定接口：BYCSM_LoadModule（博雅等厂商的模块初始化接口） */
 typedef int (*SDFE_LoadModule_fn)(const char *password);
 
-/*
- * Returns 0 for success, others for error code
- */
+typedef int (*_CP_SDF_OpenDevice)(void **phDeviceHandle);
+typedef int (*_CP_SDF_CloseDevice)(void *hDeviceHandle);
+typedef int (*_CP_SDF_OpenSession)(void *hDeviceHandle, void **phSessionHandle);
+typedef int (*_CP_SDF_CloseSession)(void *hSessionHandle);
+typedef int (*_CP_SDF_GenerateRandom)(void *hSessionHandle,
+    unsigned int uiLength, unsigned char *pucRandom);
+
+typedef int (*_CP_SDF_GetPrivateKeyAccessRight)(void *hSessionHandle,
+    unsigned int uiKeyIndex, unsigned char *pucPassword,
+    unsigned int uiPwdLength);
+
+typedef int (*_CP_SDF_ReleasePrivateKeyAccessRight)(void *hSessionHandle,
+    unsigned int uiKeyIndex);
+
+typedef int (*_CP_SDF_ImportKeyWithISK_ECC)(void *hSessionHandle,
+    unsigned int uiISKIndex, OSSL_ECCCipher *pucKey, void **phKeyHandle);
+
+typedef int (*_CP_SDF_ImportKeyWithKEK)(void *hSessionHandle,
+    unsigned int uiAlgID, unsigned int uiKEKIndex, unsigned char *pucKey,
+    unsigned int puiKeyLength, void **phKeyHandle);
+
+typedef int (*_CP_SDF_DestroyKey)(void *hSessionHandle, void *hKeyHandle);
+
+typedef int (*_CP_SDF_Encrypt)(void *hSessionHandle, void *hKeyHandle,
+    unsigned int uiAlgID, unsigned char *pucIV, unsigned char *pucData,
+    unsigned int uiDataLength, unsigned char *pucEncData,
+    unsigned int *puiEncDataLength);
+
+typedef int (*_CP_SDF_Decrypt)(void *hSessionHandle, void *hKeyHandle,
+    unsigned int uiAlgID, unsigned char *pucIV, unsigned char *pucEncData,
+    unsigned int uiEncDataLength, unsigned char *pucData,
+    unsigned int *puiDataLength);
+
+typedef int (*_CP_SDF_CalculateMAC)(void *hSessionHandle, void *hKeyHandle,
+    unsigned int uiAlgID, unsigned char *pucIV, unsigned char *pucData,
+    unsigned int uiDataLength, unsigned char *pucMac,
+    unsigned int *puiMACLength);
+
+typedef int (*_CP_SDF_ExportSignPublicKey_ECC)(void *hSessionHandle,
+    unsigned int uiKeyIndex, OSSL_ECCrefPublicKey *pucPublicKey);
+
+typedef int (*_CP_SDF_ExportEncPublicKey_ECC)(void *hSessionHandle,
+    unsigned int uiKeyIndex, OSSL_ECCrefPublicKey *pucPublicKey);
+
+typedef int (*_CP_SDF_ExportSignPublicKey_RSA)(void *hSessionHandle,
+    unsigned int uiKeyIndex, OSSL_RSArefPublicKey *pucPublicKey);
+
+typedef int (*_CP_SDF_ExportSignPublicKey_RSAEx)(void *hSessionHandle,
+    unsigned int uiKeyIndex, OSSL_RSArefPublicKeyEx *pucPublicKey);
+
+typedef int (*_CP_SDF_ExportEncPublicKey_RSA)(void *hSessionHandle,
+    unsigned int uiKeyIndex, OSSL_RSArefPublicKey *pucPublicKey);
+
+typedef int (*_CP_SDF_ExportEncPublicKey_RSAEx)(void *hSessionHandle,
+    unsigned int uiKeyIndex, OSSL_RSArefPublicKeyEx *pucPublicKey);
+
+typedef int (*_CP_SDF_InternalEncrypt_ECC)(void *hSessionHandle,
+    unsigned int uiISKIndex, unsigned int uiAlgID, unsigned char *pucData,
+    unsigned int uiDataLength, OSSL_ECCCipher *pucEncData);
+
+typedef int (*_CP_SDF_InternalDecrypt_ECC)(void *hSessionHandle,
+    unsigned int uiISKIndex, unsigned int uiAlgID, OSSL_ECCCipher *pucEncData,
+    unsigned char *pucData, unsigned int *puiDataLength);
+
+typedef int (*_CP_SDF_InternalSign_ECC)(void *hSessionHandle,
+    unsigned int uiISKIndex, unsigned char *pucData, unsigned int uiDataLength,
+    OSSL_ECCSignature *pucSignature);
+
+typedef int (*_CP_SDF_InternalPublicKeyOperation_RSA)(void *hSessionHandle,
+    unsigned int uiKeyIndex, unsigned char *pucDataInput,
+    unsigned int uiInputLength, unsigned char *pucDataOutput,
+    unsigned int *puiOutputLength);
+
+typedef int (*_CP_SDF_InternalPrivateKeyOperation_RSA)(void *hSessionHandle,
+    unsigned int uiKeyIndex, unsigned char *pucDataInput,
+    unsigned int uiInputLength, unsigned char *pucDataOutput,
+    unsigned int *puiOutputLength);
+
+typedef int (*_CP_SDF_InternalPublicKeyOperation_RSA_Ex)(void *hSessionHandle,
+    unsigned int uiKeyIndex, unsigned int uiKeyUsage,
+    unsigned char *pucDataInput, unsigned int uiInputLength,
+    unsigned char *pucDataOutput, unsigned int *puiOutputLength);
+
+typedef int (*_CP_SDF_InternalPrivateKeyOperation_RSA_Ex)(void *hSessionHandle,
+    unsigned int uiKeyIndex, unsigned int uiKeyUsage,
+    unsigned char *pucDataInput, unsigned int uiInputLength,
+    unsigned char *pucDataOutput, unsigned int *puiOutputLength);
+
+typedef int (*_CP_SDF_GenerateAgreementDataWithECCEx)(void *hSessionHandle,
+    unsigned int uiISKIndex, unsigned int uiKeyBits,
+    unsigned char *pucSponsorID, unsigned int uiSponsorIDLength,
+    OSSL_ECCrefPublicKey *pucSponsorPublicKey,
+    OSSL_ECCrefPublicKey *pucSponsorTmpPublicKey,
+    void **phAgreementHandle);
+
+typedef int (*_CP_SDF_GenerateKeyWithECCEx)(void *hSessionHandle,
+    unsigned char *pucResponseID, unsigned int uiResponseIDLength,
+    OSSL_ECCrefPublicKey *pucResponsePublicKey,
+    OSSL_ECCrefPublicKey *pucResponseTmpPublicKey,
+    void *hAgreementHandle,
+    unsigned char *pucSharedSecret, unsigned int *puiSecretLength,
+    void **phKeyHandle);
+
+typedef int (*_CP_SDF_GenerateAgreementDataAndKeyWithECCEx)(
+    void *hSessionHandle, unsigned int uiISKIndex, unsigned int uiKeyBits,
+    unsigned char *pucResponseID, unsigned int uiResponseIDLength,
+    unsigned char *pucSponsorID, unsigned int uiSponsorIDLength,
+    OSSL_ECCrefPublicKey *pucSponsorPublicKey,
+    OSSL_ECCrefPublicKey *pucSponsorTmpPublicKey,
+    OSSL_ECCrefPublicKey *pucResponsePublicKey,
+    OSSL_ECCrefPublicKey *pucResponseTmpPublicKey,
+    unsigned char *pucSharedSecret, unsigned int *puiSecretLength,
+    void **phKeyHandle);
+
+typedef int (*_CP_SDFE_LoadModule)(const char *password);
+
+typedef struct _SD_FUNCTION_LIST {
+    _CP_SDF_OpenDevice OpenDevice;
+    _CP_SDF_CloseDevice CloseDevice;
+    _CP_SDF_OpenSession OpenSession;
+    _CP_SDF_CloseSession CloseSession;
+    _CP_SDF_GenerateRandom GenerateRandom;
+    _CP_SDF_GetPrivateKeyAccessRight GetPrivateKeyAccessRight;
+    _CP_SDF_ReleasePrivateKeyAccessRight ReleasePrivateKeyAccessRight;
+    _CP_SDF_ImportKeyWithISK_ECC ImportKeyWithISK_ECC;
+    _CP_SDF_ImportKeyWithKEK ImportKeyWithKEK;
+    _CP_SDF_ExportSignPublicKey_ECC ExportSignPublicKey_ECC;
+    _CP_SDF_ExportEncPublicKey_ECC ExportEncPublicKey_ECC;
+    _CP_SDF_ExportSignPublicKey_RSA ExportSignPublicKey_RSA;
+    _CP_SDF_ExportSignPublicKey_RSAEx ExportSignPublicKey_RSAEx;
+    _CP_SDF_ExportEncPublicKey_RSA ExportEncPublicKey_RSA;
+    _CP_SDF_ExportEncPublicKey_RSAEx ExportEncPublicKey_RSAEx;
+    _CP_SDF_DestroyKey DestroyKey;
+    _CP_SDF_InternalPublicKeyOperation_RSA InternalPublicKeyOperation_RSA;
+    _CP_SDF_InternalPrivateKeyOperation_RSA InternalPrivateKeyOperation_RSA;
+    _CP_SDF_InternalPublicKeyOperation_RSA_Ex InternalPublicKeyOperation_RSA_Ex;
+    _CP_SDF_InternalPrivateKeyOperation_RSA_Ex InternalPrivateKeyOperation_RSA_Ex;
+    _CP_SDF_InternalEncrypt_ECC InternalEncrypt_ECC;
+    _CP_SDF_InternalDecrypt_ECC InternalDecrypt_ECC;
+    _CP_SDF_InternalSign_ECC InternalSign_ECC;
+    _CP_SDF_Encrypt Encrypt;
+    _CP_SDF_Decrypt Decrypt;
+    _CP_SDF_CalculateMAC CalculateMAC;
+    _CP_SDF_GenerateAgreementDataWithECCEx GenerateAgreementDataWithECCEx;
+    _CP_SDF_GenerateKeyWithECCEx GenerateKeyWithECCEx;
+    _CP_SDF_GenerateAgreementDataAndKeyWithECCEx GenerateAgreementDataAndKeyWithECCEx;
+    _CP_SDFE_LoadModule LoadModule;
+} SD_FUNCTION_LIST;
+
 struct sdf_method_st {
     SDF_OpenDevice_fn OpenDevice;
     SDF_CloseDevice_fn CloseDevice;

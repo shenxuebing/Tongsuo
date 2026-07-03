@@ -13,6 +13,7 @@
 # include <openssl/core.h>
 # include <openssl/types.h>
 # include "internal/cryptlib.h"
+# include "sdf_types.h"
 
 typedef struct sdfprov_ctx_st {
     const OSSL_CORE_HANDLE *handle;
@@ -37,7 +38,9 @@ typedef struct sdfprov_ctx_st {
     unsigned int sign_key_index;
     unsigned int enc_key_index;
 
-    /* 线程安全 */
+    /* Provider 私有 SDF 函数分发表 */
+    SD_FUNCTION_LIST sdfList;
+
     CRYPTO_RWLOCK *lock;
 } SDFPROV_CTX;
 
@@ -47,7 +50,6 @@ void sdfprov_ctx_free(SDFPROV_CTX *ctx);
 int sdfprov_ctx_init_device(SDFPROV_CTX *ctx);
 void sdfprov_ctx_teardown_device(SDFPROV_CTX *ctx);
 void *sdfprov_ctx_get_session(SDFPROV_CTX *ctx);
-
 /* 获取全局 SDF 上下文 (定义在 sdfprov.c) */
 SDFPROV_CTX *sdfprov_get_global_ctx(void);
 

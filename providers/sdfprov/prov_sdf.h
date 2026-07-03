@@ -48,15 +48,10 @@
 
 #include "sdf_types.h"
 
-/* Provider 代码中使用的类型别名 (映射到 e_sdf.h 中的类型) */
-#define OSSL_ECCref_MAX_BITS  512
-#define OSSL_ECCref_MAX_LEN   64
+/* Provider 代码中使用的类型别名 */
+#define OSSL_ECCref_MAX_BITS  ECCref_MAX_BITS
+#define OSSL_ECCref_MAX_LEN   ECCref_MAX_LEN
 #define SGD_NULL               ((SGD_HANDLE)NULL)
-
-typedef ECCrefPublicKey  OSSL_ECCrefPublicKey;
-typedef ECCrefPrivateKey OSSL_ECCrefPrivateKey;
-typedef ECCCipher        OSSL_ECCCipher;
-typedef ECCSignature     OSSL_ECCSignature;
 
 /* Provider 上下文 */
 typedef struct sdf_prov_ctx_st {

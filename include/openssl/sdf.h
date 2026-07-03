@@ -13,6 +13,7 @@
 
 # include <stdint.h>
 # include <openssl/evp.h>
+# include <internal/sdf_gmt_types.h>
 
 # ifdef __cplusplus
 extern "C" {
@@ -55,29 +56,21 @@ extern "C" {
 #define OSSL_SDFE_ASYM_KEY_TYPE_SM2         (0xa0)
 #define OSSL_SDFE_SYM_KEY_TYPE_SM4          (0xb0)
 
-typedef struct OSSL_ECCCipher_st OSSL_ECCCipher;
-typedef struct OSSL_ECCSignature_st OSSL_ECCSignature;
-typedef struct OSSL_ECCrefPrivateKey_st OSSL_ECCrefPrivateKey;
-typedef struct OSSL_ECCrefPublicKey_st OSSL_ECCrefPublicKey;
-typedef struct OSSL_RSArefPublicKey_st OSSL_RSArefPublicKey;
-typedef struct OSSL_RSArefPublicKeyEx_st OSSL_RSArefPublicKeyEx;
+#define OSSL_RSAref_MAX_BITS        RSAref_MAX_BITS
+#define OSSL_RSAref_MAX_LEN         RSAref_MAX_LEN
+#define OSSL_RSAref_MAX_BITS_EX     RSAref_MAX_BITS_EX
+#define OSSL_RSAref_MAX_LEN_EX      RSAref_MAX_LEN_EX
+#define OSSL_ECCref_MAX_BITS        ECCref_MAX_BITS
+#define OSSL_ECCref_MAX_LEN         ECCref_MAX_LEN
 
-# define OSSL_RSAref_MAX_BITS        2048
-# define OSSL_RSAref_MAX_LEN         ((OSSL_RSAref_MAX_BITS + 7) / 8)
-# define OSSL_RSAref_MAX_BITS_EX     4096
-# define OSSL_RSAref_MAX_LEN_EX      ((OSSL_RSAref_MAX_BITS_EX + 7) / 8)
-
-struct OSSL_RSArefPublicKey_st {
-    unsigned int bits;
-    unsigned char m[OSSL_RSAref_MAX_LEN];
-    unsigned char e[OSSL_RSAref_MAX_LEN];
-};
-
-struct OSSL_RSArefPublicKeyEx_st {
-    unsigned int bits;
-    unsigned char m[OSSL_RSAref_MAX_LEN_EX];
-    unsigned char e[OSSL_RSAref_MAX_LEN_EX];
-};
+typedef RSArefPublicKey    OSSL_RSArefPublicKey;
+typedef RSArefPublicKeyEx  OSSL_RSArefPublicKeyEx;
+typedef RSArefPrivateKey   OSSL_RSArefPrivateKey;
+typedef RSArefPrivateKeyEx OSSL_RSArefPrivateKeyEx;
+typedef ECCrefPublicKey    OSSL_ECCrefPublicKey;
+typedef ECCrefPrivateKey   OSSL_ECCrefPrivateKey;
+typedef ECCCipher          OSSL_ECCCipher;
+typedef ECCSignature       OSSL_ECCSignature;
 
 int TSAPI_SDF_OpenDevice(void **phDeviceHandle);
 int TSAPI_SDF_CloseDevice(void *hDeviceHandle);

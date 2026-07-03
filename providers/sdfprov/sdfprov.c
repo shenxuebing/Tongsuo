@@ -8,6 +8,7 @@
  */
 
 #include <string.h>
+#include <stdlib.h>
 #include <openssl/core_dispatch.h>
 #include <openssl/core_names.h>
 #include <openssl/params.h>
@@ -222,16 +223,24 @@ int OSSL_provider_init_int(const OSSL_CORE_HANDLE *handle,
     /* Store as global for access by provider operations */
     g_sdfctx = sdfctx;
 
-    /* Read configuration parameters from openssl.cnf provider section */
-    char password_buf[256] = {0};
-    char lib_path_buf[1024] = {0};
+    /* Read configuration parameters from openssl.cnf provider section
+     *
+     * 重要：core 的 OSSL_PROVIDER_get_conf_parameters 始终用
+     * OSSL_PARAM_set_utf8_ptr（data_type=6）设置值，因此这里必须用
+     * OSSL_PARAM_construct_utf8_ptr（data_type=6）接收指针，
+     * 而不能用 OSSL_PARAM_utf8_string（data_type=4）接收 buffer，
+     * 否则类型不匹配导致 c_get_params 整体失败（返回 0）。
+     */
+    const char *password_ptr = NULL;
+    const char *lib_path_ptr = NULL;
+    const char *use_load_module_ptr = NULL;
     int use_load_module_val = 1;  /* 默认启用 BYCSM_LoadModule（byzk0018 需要） */
     TLOG_DEBUG("Reading config parameters, c_get_params=%p", (void *)c_get_params);
     if (c_get_params != NULL) {
         OSSL_PARAM config_params[] = {
-            OSSL_PARAM_utf8_string("sdf_module_password", password_buf, sizeof(password_buf) - 1),
-            OSSL_PARAM_utf8_string("sdf_lib_path", lib_path_buf, sizeof(lib_path_buf) - 1),
-            OSSL_PARAM_int("sdf_use_loadmodule", &use_load_module_val),
+            OSSL_PARAM_construct_utf8_ptr("sdf_module_password", (char **)&password_ptr, 0),
+            OSSL_PARAM_construct_utf8_ptr("sdf_lib_path", (char **)&lib_path_ptr, 0),
+            OSSL_PARAM_construct_utf8_ptr("sdf_use_loadmodule", (char **)&use_load_module_ptr, 0),
             OSSL_PARAM_END
         };
 
@@ -239,19 +248,16 @@ int OSSL_provider_init_int(const OSSL_CORE_HANDLE *handle,
         int ret = c_get_params(handle, config_params);
         TLOG_DEBUG("c_get_params returned %d", ret);
         if (ret) {
-            const OSSL_PARAM *p;
-            p = OSSL_PARAM_locate_const(config_params, "sdf_module_password");
-            if (p != NULL && password_buf[0] != '\0') {
-                sdfctx->password = OPENSSL_strdup(password_buf);
-                TLOG_DEBUG("Read password: %s", password_buf);
+            if (password_ptr != NULL) {
+                sdfctx->password = OPENSSL_strdup(password_ptr);
+                TLOG_DEBUG("Read password: %s", password_ptr);
             }
-            p = OSSL_PARAM_locate_const(config_params, "sdf_lib_path");
-            if (p != NULL && lib_path_buf[0] != '\0') {
-                sdfctx->sdf_lib_path = OPENSSL_strdup(lib_path_buf);
-                TLOG_DEBUG("Read lib_path: %s", lib_path_buf);
+            if (lib_path_ptr != NULL) {
+                sdfctx->sdf_lib_path = OPENSSL_strdup(lib_path_ptr);
+                TLOG_DEBUG("Read lib_path: %s", lib_path_ptr);
             }
-            p = OSSL_PARAM_locate_const(config_params, "sdf_use_loadmodule");
-            if (p != NULL) {
+            if (use_load_module_ptr != NULL) {
+                use_load_module_val = atoi(use_load_module_ptr);
                 sdfctx->use_load_module = use_load_module_val;
                 TLOG_DEBUG("Read use_load_module: %d", use_load_module_val);
             }
