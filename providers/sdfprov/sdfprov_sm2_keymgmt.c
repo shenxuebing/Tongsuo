@@ -60,7 +60,9 @@ static void sdfprov_sm2_freedata(void *keydata)
 
     /* 释放 SDF 协商句柄 */
     if (key->agreement_handle != NULL && key->hSession != NULL) {
-        TSAPI_SDF_DestroyKey(key->hSession, key->agreement_handle);
+        SDFPROV_CTX *sdfctx = sdfprov_get_global_ctx();
+        if (sdfctx != NULL && sdfctx->sdfList.DestroyKey != NULL)
+            sdfctx->sdfList.DestroyKey(key->hSession, key->agreement_handle);
         key->agreement_handle = NULL;
     }
 
@@ -99,6 +101,15 @@ static const OSSL_PARAM *sdfprov_sm2_gettable_params(void *provctx)
         OSSL_PARAM_int(OSSL_PKEY_PARAM_MAX_SIZE, NULL),
         OSSL_PARAM_octet_string(OSSL_PKEY_PARAM_ENCODED_PUBLIC_KEY, NULL, 0),
         OSSL_PARAM_octet_string(OSSL_PKEY_PARAM_PUB_KEY, NULL, 0),
+        /*
+         * 默认摘要：SM2 强制使用 SM3。
+         * 通过 OSSL_PKEY_PARAM_MANDATORY_DIGEST 声明，使上层
+         * EVP_PKEY_get_default_digest_nid/name 能自动解析出 SM3，
+         * 让 PKCS7_sign / PKCS7_sign_add_signer 传 NULL md 时能
+         * 自动选择 SM3（与软件层 set_alias_type(SM2) 后的行为一致）。
+         */
+        OSSL_PARAM_utf8_string(OSSL_PKEY_PARAM_DEFAULT_DIGEST, NULL, 0),
+        OSSL_PARAM_utf8_string(OSSL_PKEY_PARAM_MANDATORY_DIGEST, NULL, 0),
         OSSL_PARAM_END
     };
     return params;
@@ -158,6 +169,18 @@ static int sdfprov_sm2_get_params(void *keydata, OSSL_PARAM params[])
         }
         OPENSSL_free(buf);
     }
+
+    /*
+     * 默认/强制摘要：SM2 必须用 SM3。
+     * 让 EVP_PKEY_get_default_digest_nid 自动解析为 SM3，
+     * 上层 PKCS7_sign 等无需显式传 md 即可正确签名。
+     */
+    p = OSSL_PARAM_locate(params, OSSL_PKEY_PARAM_DEFAULT_DIGEST);
+    if (p != NULL && !OSSL_PARAM_set_utf8_string(p, OSSL_DIGEST_NAME_SM3))
+        return 0;
+    p = OSSL_PARAM_locate(params, OSSL_PKEY_PARAM_MANDATORY_DIGEST);
+    if (p != NULL && !OSSL_PARAM_set_utf8_string(p, OSSL_DIGEST_NAME_SM3))
+        return 0;
 
     return 1;
 }
@@ -225,7 +248,13 @@ static void *sdfprov_sm2_gen(void *genctx, OSSL_CALLBACK *cb, void *cbarg)
             memset(&sponsor_pub, 0, sizeof(sponsor_pub));
             memset(&sponsor_tmp_pub, 0, sizeof(sponsor_tmp_pub));
 
-            ret = TSAPI_SDF_GenerateAgreementDataWithECCEx(
+            if (sdfctx == NULL || sdfctx->sdfList.GenerateAgreementDataWithECCEx == NULL) {
+                EC_KEY_free(key->ec_key);
+                OPENSSL_free(key);
+                return NULL;
+            }
+
+            ret = sdfctx->sdfList.GenerateAgreementDataWithECCEx(
                 hSession,
                 key_index,
                 384,
@@ -296,8 +325,10 @@ static void *sdfprov_sm2_gen(void *genctx, OSSL_CALLBACK *cb, void *cbarg)
                 }
 
                 /* 硬件路径全部失败，释放协商句柄 */
-                if (agreement_handle != NULL && hSession != NULL)
-                    TSAPI_SDF_DestroyKey(hSession, agreement_handle);
+                if (agreement_handle != NULL && hSession != NULL) {
+                    if (sdfctx != NULL && sdfctx->sdfList.DestroyKey != NULL)
+                        sdfctx->sdfList.DestroyKey(hSession, agreement_handle);
+                }
             }
         }
 
@@ -384,9 +415,7 @@ static int sdfprov_sm2_import(void *keydata, int selection,
     /* 导入私钥（用于软件密钥回退路径） */
     if ((selection & OSSL_KEYMGMT_SELECT_PRIVATE_KEY) != 0) {
         p = OSSL_PARAM_locate_const(params, OSSL_PKEY_PARAM_PRIV_KEY);
-        if (p == NULL) {
-            return 0;
-        } else {
+        if (p != NULL) {
             BIGNUM *priv = NULL;
 
             if (!OSSL_PARAM_get_BN(p, &priv))
@@ -433,15 +462,21 @@ static int sdfprov_sm2_export(void *keydata, int selection,
         return 0;
 
     /*
-     * 硬件密钥无法导出私钥。如果请求方需要私钥，必须返回失败，
-     * 以便 OpenSSL 框架回退到密钥自身 Provider 的 ASYM_CIPHER 操作。
+     * 硬件密钥私钥不可导出。
+     *
+     * 这里必须直接失败，而不能“剥离 PRIVATE 再继续导出公钥”：
+     * 对 NTLS ECDHE 的硬件临时/证书密钥，derive_init 第1轮如果能把主密钥
+     * 导到 default provider，就会直接绑定 default 的 sm2dh_exch；
+     * 后续 SELF_ENC_KEY 再因为没有私钥而初始化失败，而且 EVP 核心不会在
+     * init 失败后自动回退到第2轮同-provider fetch。
+     *
+     * 因此，凡是请求 PRIVATE_KEY 的硬件 SM2，都强制让跨 provider export
+     * 失败，让上层转去使用 SDF provider 自己的 signature/keyexch 实现。
+     * 需要取公钥的兼容场景，应在调用处先尝试 get0，再按需单独处理。
      */
     if (key->is_hardware_key
-        && (selection & OSSL_KEYMGMT_SELECT_PRIVATE_KEY) != 0) {
-        if (!key->has_agreement)
-            return 0;
-        selection &= ~OSSL_KEYMGMT_SELECT_PRIVATE_KEY;
-    }
+        && (selection & OSSL_KEYMGMT_SELECT_PRIVATE_KEY) != 0)
+        return 0;
 
     bld = OSSL_PARAM_BLD_new();
     if (bld == NULL)
@@ -712,10 +747,28 @@ static void *sdfprov_sm2_load(const void *reference, size_t reference_sz)
 
     /* 从设备导出公钥 */
     memset(&sdf_pub, 0, sizeof(sdf_pub));
+    if (sdfctx == NULL) {
+        OPENSSL_free(key->key_password);
+        EC_KEY_free(key->ec_key);
+        OPENSSL_free(key);
+        return NULL;
+    }
     if (key_type == 0) {
-        ret = TSAPI_SDF_ExportSignPublicKey_ECC(hSession, key_index, &sdf_pub);
+        if (sdfctx->sdfList.ExportSignPublicKey_ECC == NULL
+            || (ret = sdfctx->sdfList.ExportSignPublicKey_ECC(hSession, key_index, &sdf_pub)) != OSSL_SDR_OK) {
+            OPENSSL_free(key->key_password);
+            EC_KEY_free(key->ec_key);
+            OPENSSL_free(key);
+            return NULL;
+        }
     } else {
-        ret = TSAPI_SDF_ExportEncPublicKey_ECC(hSession, key_index, &sdf_pub);
+        if (sdfctx->sdfList.ExportEncPublicKey_ECC == NULL
+            || (ret = sdfctx->sdfList.ExportEncPublicKey_ECC(hSession, key_index, &sdf_pub)) != OSSL_SDR_OK) {
+            OPENSSL_free(key->key_password);
+            EC_KEY_free(key->ec_key);
+            OPENSSL_free(key);
+            return NULL;
+        }
     }
 
     if (ret != OSSL_SDR_OK) {
@@ -798,10 +851,24 @@ static void *sdfprov_sm2_load_ex(const void *reference, size_t reference_sz)
     uri_info.key_password = NULL;
 
     memset(&sdf_pub, 0, sizeof(sdf_pub));
-    if (key->key_type == 0)
-        ret = TSAPI_SDF_ExportSignPublicKey_ECC(hSession, key->key_index, &sdf_pub);
-    else
-        ret = TSAPI_SDF_ExportEncPublicKey_ECC(hSession, key->key_index, &sdf_pub);
+    if (sdfctx == NULL) {
+        OPENSSL_free(key->key_password);
+        EC_KEY_free(key->ec_key);
+        OPENSSL_free(key);
+        sdfprov_key_uri_cleanup(&uri_info);
+        return NULL;
+    }
+    if (key->key_type == 0) {
+        if (sdfctx->sdfList.ExportSignPublicKey_ECC == NULL)
+            ret = OSSL_SDR_NOTSUPPORT;
+        else
+            ret = sdfctx->sdfList.ExportSignPublicKey_ECC(hSession, key->key_index, &sdf_pub);
+    } else {
+        if (sdfctx->sdfList.ExportEncPublicKey_ECC == NULL)
+            ret = OSSL_SDR_NOTSUPPORT;
+        else
+            ret = sdfctx->sdfList.ExportEncPublicKey_ECC(hSession, key->key_index, &sdf_pub);
+    }
 
     if (ret != OSSL_SDR_OK
         || !sdfprov_eccrefpub_to_ec_key(&sdf_pub, key->ec_key)) {

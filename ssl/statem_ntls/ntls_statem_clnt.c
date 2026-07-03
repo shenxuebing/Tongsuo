@@ -1967,6 +1967,8 @@ static int tls_construct_cke_sm2dhe_ntls(SSL_CONNECTION *s, WPACKET *pkt)
                     && EVP_PKEY_keygen(kctx, &ckey) > 0) {
                 TLOG_DEBUG("[NTLS-CLNT] CKE: generated software SM2 eph key");
             }
+        } else {
+            ckey = ssl_generate_pkey(s, local_enc);
         }
     }
 

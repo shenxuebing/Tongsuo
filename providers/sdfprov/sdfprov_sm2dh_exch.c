@@ -15,6 +15,7 @@
 #include <openssl/sm3.h>
 #include "prov/provider_ctx.h"
 #include "sdfprov_internal.h"
+#include "sdfprov_ctx.h"
 #include "crypto/sm2.h"
 #include "sdfprov_utils.h"
 #include "internal/tlog.h"
@@ -57,8 +58,7 @@ static int sdfprov_sm2dh_init(void *vctx, void *vkey, const OSSL_PARAM params[])
     }
     ctx->k = vkey;
     if (params != NULL) {
-        int ret = sdfprov_sm2dh_set_ctx_params(vctx, params);
-        return ret;
+        return sdfprov_sm2dh_set_ctx_params(vctx, params);
     }
     return 1;
 }
@@ -120,8 +120,15 @@ static int sdfprov_sm2dh_derive(void *vctx, unsigned char *secret,
         if (peer_enc_ec != NULL
                 && sdfprov_ec_key_to_eccrefpub(peer_enc_ec, &peer_enc_pub)
                 && sdfprov_ec_key_to_eccrefpub(ctx->peerk->ec_key, &peer_tmp_pub)) {
+
+            SDFPROV_CTX *sdfctx = sdfprov_get_global_ctx();
+            if (sdfctx == NULL || sdfctx->sdfList.GenerateKeyWithECCEx == NULL) {
+                ERR_raise(ERR_LIB_PROV, PROV_R_FAILED_TO_GENERATE_KEY);
+                return 0;
+            }
+
             secret_len = (unsigned int)outlen;
-            ret = TSAPI_SDF_GenerateKeyWithECCEx(
+            ret = sdfctx->sdfList.GenerateKeyWithECCEx(
                 ctx->k->hSession,
                 ctx->peer_id != NULL ? ctx->peer_id : sm2_default_id,
                 (unsigned int)(ctx->peer_id != NULL ? ctx->peer_id_len
@@ -134,8 +141,8 @@ static int sdfprov_sm2dh_derive(void *vctx, unsigned char *secret,
                 &key_handle);
 
             if (ret == OSSL_SDR_OK) {
-                if (key_handle != NULL)
-                    TSAPI_SDF_DestroyKey(ctx->k->hSession, key_handle);
+                if (key_handle != NULL && sdfctx->sdfList.DestroyKey != NULL)
+                    sdfctx->sdfList.DestroyKey(ctx->k->hSession, key_handle);
                 *psecretlen = secret_len;
                 TLOG_DEBUG("sm2dh_derive: hardware agreement ok, secret_len=%u", secret_len);
                 return 1;

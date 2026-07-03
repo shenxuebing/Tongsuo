@@ -194,15 +194,15 @@ void *sm2dh_dupctx(void *vpecdhctx)
     dstctx->peer_id = NULL;
 
     /* up-ref all ref-counted objects referenced in dstctx */
-    if (srcctx->k != NULL && !EC_KEY_up_ref(srcctx->k))
+    if (srcctx->enc_k != NULL && !EC_KEY_up_ref(srcctx->enc_k))
         goto err;
     else
-        dstctx->k = srcctx->k;
+        dstctx->enc_k = srcctx->enc_k;
 
-    if (srcctx->peerk != NULL && !EC_KEY_up_ref(srcctx->peerk))
+    if (srcctx->enc_peerk != NULL && !EC_KEY_up_ref(srcctx->enc_peerk))
         goto err;
     else
-        dstctx->peerk = srcctx->peerk;
+        dstctx->enc_peerk = srcctx->enc_peerk;
 
     if (srcctx->k != NULL && !EC_KEY_up_ref(srcctx->k))
         goto err;

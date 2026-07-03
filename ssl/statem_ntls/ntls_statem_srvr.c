@@ -20,6 +20,7 @@
 #include <openssl/rand.h>
 #include <openssl/objects.h>
 #include <openssl/evp.h>
+#include <openssl/provider.h>
 #include <openssl/hmac.h>
 #include <openssl/x509.h>
 #include <openssl/dh.h>
@@ -1637,8 +1638,29 @@ int tls_construct_server_key_exchange_ntls(SSL_CONNECTION *s, WPACKET *pkt)
         }
         /* Cache the group used in the SSL_SESSION */
         s->session->kex_group = curve_id;
-        /* Generate a new key for this curve */
-        s->s3.tmp.pkey = ssl_generate_pkey_group(s, curve_id);
+        {
+            EVP_PKEY *local_enc = s->cert->pkeys[SSL_PKEY_SM2_ENC].privatekey;
+            const OSSL_PROVIDER *p = NULL;
+            const char *prov_name = NULL;
+
+            /*
+             * For NTLS SM2DHE with hardware-backed local encryption keys, the
+             * ephemeral key must come from the same provider. Otherwise the
+             * main derive init can bind to default SM2DH and hang while mixing
+             * default-provider temp keys with SDF-only certificate key params.
+             */
+            if (local_enc != NULL)
+                p = EVP_PKEY_get0_provider(local_enc);
+            if (p != NULL)
+                prov_name = OSSL_PROVIDER_get0_name(p);
+
+            if (prov_name != NULL
+                && OPENSSL_strcasecmp(prov_name, "default") != 0) {
+                s->s3.tmp.pkey = ssl_generate_pkey(s, local_enc);
+            } else {
+                s->s3.tmp.pkey = ssl_generate_pkey_group(s, curve_id);
+            }
+        }
         if (s->s3.tmp.pkey == NULL) {
             /* SSLfatal() already called */
             goto err;
