@@ -405,8 +405,16 @@ BIO *ossl_pkcs7_dataInit_ex(PKCS7 *p7, BIO *bio, int no_hash,
 
 		md = EVP_get_digestbyobj(alg->algorithm);
 
-		/* compute Z */
-		if (EVP_MD_type(md) == NID_sm3) {
+		/*
+		 * SM2 Z 值预处理：计算 ZA 并写入 BIO（当 no_hash != 2 时）。
+		 * ossl_sm2_compute_z_digest 需要 EC_KEY* 获取公钥（公钥参与 ZA 运算）。
+		 * 对 Provider 密钥（如 SDF 硬件密钥），EVP_PKEY_get0_EC_KEY 返回 NULL，
+		 * 需通过 EVP_PKEY_get1_EC_KEY 降级获取公钥侧。
+		 *
+		 * 当 no_hash == 2（原文裸签，PKCS7 默认）时，Z 值不写入 BIO，
+		 * 由后续 Provider 的 digest_sign 路径自动处理，此处跳过避免降级副作用。
+		 */
+		if (no_hash != 2 && EVP_MD_type(md) == NID_sm3) {
 			PKCS7_SIGNER_INFO* si = NULL;
 			si = sk_PKCS7_SIGNER_INFO_value(p7->d.sign->signer_info, 0);
 			pkey = si->pkey;
@@ -428,12 +436,22 @@ BIO *ossl_pkcs7_dataInit_ex(PKCS7 *p7, BIO *bio, int no_hash,
 				pkey_new_flag = 1;
 			}
 
-			if (!ossl_sm2_compute_z_digest(digest,EVP_sm3(),NULL,0, (const EC_KEY*)EVP_PKEY_get0_EC_KEY(pkey) )) {
-				goto err;
+			EC_KEY *ec_key = EVP_PKEY_get0_EC_KEY(pkey);
+			int need_free = 0;
+
+			/* 如果是 Provider 密钥，使用 get1 获取副本（需要 free） */
+			if (ec_key == NULL && EVP_PKEY_is_a(pkey, "SM2")) {
+				ec_key = EVP_PKEY_get1_EC_KEY(pkey);
+				need_free = 1;
 			}
-			else {
-                dgst_len = 32;
-				have_z = 1;
+
+			if (ec_key != NULL) {
+				if (ossl_sm2_compute_z_digest(digest, EVP_sm3(), NULL, 0, ec_key)) {
+					dgst_len = 32;
+					have_z = 1;
+				}
+				if (need_free)
+					EC_KEY_free(ec_key);
 			}
 		}
 	}
@@ -1284,34 +1302,40 @@ int PKCS7_signatureVerify(BIO *bio, PKCS7 *p7, PKCS7_SIGNER_INFO *si,
             (void)ERR_clear_last_mark();
             goto err;
         }
-        (void)ERR_pop_to_mark();       
+        (void)ERR_pop_to_mark();
 		pkey = X509_get_pubkey(x509);
-		if (!pkey) {
-			ret = -1;
-			goto err;
-		}
-
-		if (EVP_PKEY_get0_EC_KEY(pkey))
-		{
-			if (EC_GROUP_get_curve_name(EC_KEY_get0_group(EVP_PKEY_get0_EC_KEY(pkey))) == NID_sm2)
-			{
-				/*Need Set SM2 Sign And Verify Extra Data: Add Message Z*/
-				unsigned char ex_dgst[EVP_MAX_MD_SIZE];
-				size_t ex_dgstlen = EVP_MAX_MD_SIZE;
-                
-                if (!ossl_sm2_compute_z_digest(ex_dgst, EVP_get_digestbynid(md_type), NULL, 0, (const EC_KEY*)EVP_PKEY_get0_EC_KEY(pkey))) //应该是EVP_sm3()
-                {
-                    goto err;
-                }
-                else
-                {
-                    ex_dgstlen = 32; //sm3
-                }                 
-				if (!EVP_DigestUpdate(mdc_tmp, ex_dgst, ex_dgstlen))
-					goto err;
+			if (!pkey) {
+				ret = -1;
+				goto err;
 			}
-		}
-		EVP_PKEY_free(pkey);
+
+			/* SM2 验签：计算 Z 值并注入摘要上下文（公钥参与 ZA 运算） */
+			{
+				EC_KEY *ec_key = EVP_PKEY_get0_EC_KEY(pkey);
+				int need_free = 0;
+
+				/* 如果是 Provider 密钥，使用 get1 获取副本（需要 free） */
+				if (ec_key == NULL && EVP_PKEY_is_a(pkey, "SM2")) {
+					ec_key = EVP_PKEY_get1_EC_KEY(pkey);
+					need_free = 1;
+				}
+
+				if (ec_key != NULL
+				    && EC_GROUP_get_curve_name(EC_KEY_get0_group(ec_key)) == NID_sm2) {
+					unsigned char ex_dgst[EVP_MAX_MD_SIZE];
+					size_t ex_dgstlen = EVP_MAX_MD_SIZE;
+
+					if (ossl_sm2_compute_z_digest(ex_dgst, EVP_get_digestbynid(md_type),
+					                              NULL, 0, ec_key)) {
+						ex_dgstlen = 32; /* SM3 */
+						if (!EVP_DigestUpdate(mdc_tmp, ex_dgst, ex_dgstlen))
+							goto err;
+					}
+				}
+				if (need_free && ec_key != NULL)
+					EC_KEY_free(ec_key);
+			}
+			EVP_PKEY_free(pkey);
         alen = ASN1_item_i2d((ASN1_VALUE *)sk, &abuf,
                              ASN1_ITEM_rptr(PKCS7_ATTR_VERIFY));
         if (alen <= 0) {
