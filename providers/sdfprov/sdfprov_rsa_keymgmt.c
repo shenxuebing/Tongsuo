@@ -64,6 +64,7 @@ static int sdfprov_rsa_get_params(void *keydata, OSSL_PARAM params[])
     SDF_SM2_KEY *key = keydata;
     OSSL_PARAM *p;
     int bits;
+    const BIGNUM *n = NULL, *e = NULL;
 
     if (key == NULL || key->rsa == NULL)
         return 0;
@@ -80,6 +81,28 @@ static int sdfprov_rsa_get_params(void *keydata, OSSL_PARAM params[])
         && !OSSL_PARAM_set_int(p, bits >= 4096 ? 152 : (bits >= 3072 ? 128 : 112)))
         return 0;
 
+    /*
+     * 默认摘要：RSA 通常用 sha256（与 default provider 行为一致）。
+     * 让 EVP_PKEY_get_default_digest_nid 自动解析，
+     * 上层 PKCS7_sign 等无需显式传 md 即可正确签名。
+     */
+    if ((p = OSSL_PARAM_locate(params, OSSL_PKEY_PARAM_DEFAULT_DIGEST)) != NULL
+        && !OSSL_PARAM_set_utf8_string(p, SN_sha256))
+        return 0;
+
+    /*
+     * 暴露 RSA 公钥参数（n, e）：
+     * - X509_check_private_key / EVP_PKEY_eq 需要这些参数做跨 provider 比较
+     * - PKCS7 数字信封解密前会用证书校验私钥匹配性
+     */
+    RSA_get0_key(key->rsa, &n, &e, NULL);
+    if ((p = OSSL_PARAM_locate(params, OSSL_PKEY_PARAM_RSA_N)) != NULL
+        && !OSSL_PARAM_set_BN(p, n))
+        return 0;
+    if ((p = OSSL_PARAM_locate(params, OSSL_PKEY_PARAM_RSA_E)) != NULL
+        && !OSSL_PARAM_set_BN(p, e))
+        return 0;
+
     return 1;
 }
 
@@ -89,9 +112,85 @@ static const OSSL_PARAM *sdfprov_rsa_gettable_params(void *provctx)
         OSSL_PARAM_int(OSSL_PKEY_PARAM_BITS, NULL),
         OSSL_PARAM_int(OSSL_PKEY_PARAM_MAX_SIZE, NULL),
         OSSL_PARAM_int(OSSL_PKEY_PARAM_SECURITY_BITS, NULL),
+        OSSL_PARAM_utf8_string(OSSL_PKEY_PARAM_DEFAULT_DIGEST, NULL, 0),
+        OSSL_PARAM_BN(OSSL_PKEY_PARAM_RSA_N, NULL, 0),
+        OSSL_PARAM_BN(OSSL_PKEY_PARAM_RSA_E, NULL, 0),
         OSSL_PARAM_END
     };
 
+    return params;
+}
+
+/*
+ * RSA KEYMGMT export：把 SDF RSA 公钥（n, e）以 OSSL_PARAM 形式回传给
+ * 跨 provider 调用方（如 X509_check_private_key / EVP_PKEY_eq / PKCS7 解密）。
+ *
+ * 硬件密钥私钥永不出卡，故含 PRIVATE_KEY 的请求统一降级为仅公钥
+ * （与 SM2 export 策略一致），让 EVP 框架第二轮 fetch 时仍回退到
+ * SDF Provider 用原始 keydata 完成 sign/decrypt。
+ */
+static int sdfprov_rsa_export(void *keydata, int selection,
+                              OSSL_CALLBACK *cb, void *cbarg)
+{
+    SDF_SM2_KEY *key = keydata;
+    const BIGNUM *n = NULL, *e = NULL;
+    /*
+     * 预分配足够大的本地缓冲区保存 n/e 的 native 编码。
+     * RSA-4096 的 n 为 512 字节，e 通常很小，这里取一个充裕的上界。
+     */
+    unsigned char nbuf[OSSL_RSAref_MAX_LEN_EX];
+    unsigned char ebuf[OSSL_RSAref_MAX_LEN_EX];
+    int nlen, elen;
+    OSSL_PARAM params[3];
+
+    if (key == NULL || key->rsa == NULL)
+        return 0;
+
+    if ((selection & OSSL_KEYMGMT_SELECT_PUBLIC_KEY) == 0)
+        return 0;
+
+    /*
+     * 硬件密钥的私钥永不出卡。
+     *
+     * 当跨 provider 请求包含私钥（典型场景：EVP_PKEY_decrypt 先把 key
+     * 导入 default RSA keymgmt 再操作）时，必须返回失败，迫使 EVP 框架
+     * 回退到第二轮流定位——从 SDF Provider 自身 fetch RSA asym_cipher /
+     * signature，直接用原始 keydata 完成 sign/decrypt（私钥不离卡）。
+     *
+     * 若降级为仅公钥导出，default RSA keymgmt 会得到一个只有公钥的 key，
+     * 后续私钥操作（decrypt/sign）会因 "missing private key" 失败，
+     * 且 EVP 不会再次回退——这正是 PKCS7 数字信封 RSA 解封失败的根因。
+     *
+     * 仅当请求只含公钥（如 X509_check_private_key 的比较、pkey -pubout
+     * 的编码导出）时，才导出 n/e 公钥参数。
+     */
+    if (key->is_hardware_key
+        && (selection & OSSL_KEYMGMT_SELECT_PRIVATE_KEY) != 0)
+        return 0;
+
+    RSA_get0_key(key->rsa, &n, &e, NULL);
+    if (n == NULL || e == NULL)
+        return 0;
+
+    nlen = BN_bn2nativepad(n, nbuf, sizeof(nbuf));
+    elen = BN_bn2nativepad(e, ebuf, sizeof(ebuf));
+    if (nlen <= 0 || elen <= 0)
+        return 0;
+
+    params[0] = OSSL_PARAM_construct_BN(OSSL_PKEY_PARAM_RSA_N, nbuf, (size_t)nlen);
+    params[1] = OSSL_PARAM_construct_BN(OSSL_PKEY_PARAM_RSA_E, ebuf, (size_t)elen);
+    params[2] = OSSL_PARAM_construct_end();
+
+    return cb(params, cbarg) > 0;
+}
+
+static const OSSL_PARAM *sdfprov_rsa_export_types(int selection)
+{
+    static const OSSL_PARAM params[] = {
+        OSSL_PARAM_BN(OSSL_PKEY_PARAM_RSA_N, NULL, 0),
+        OSSL_PARAM_BN(OSSL_PKEY_PARAM_RSA_E, NULL, 0),
+        OSSL_PARAM_END
+    };
     return params;
 }
 
@@ -149,23 +248,33 @@ static void *sdfprov_rsa_load(const void *reference, size_t reference_sz)
 
     memset(&pub, 0, sizeof(pub));
     memset(&pub_ex, 0, sizeof(pub_ex));
+
+    SDFPROV_CTX *sdfctx = sdfprov_get_global_ctx();
+    if (sdfctx == NULL) {
+        return 0;
+    }
+
     if (uri_info.key_type == 0) {
-        ret = TSAPI_SDF_ExportSignPublicKey_RSA(hSession, uri_info.key_index, &pub);
-        if (ret == OSSL_SDR_OK)
-            ret = sdfprov_rsa_pubkey_to_rsa(&pub, &rsa) ? OSSL_SDR_OK : OSSL_SDR_OUTARGERR;
-        if (ret != OSSL_SDR_OK) {
+        if (sdfctx->sdfList.ExportSignPublicKey_RSA != NULL) {
+            ret = sdfctx->sdfList.ExportSignPublicKey_RSA(hSession, uri_info.key_index, &pub);
+            if (ret == OSSL_SDR_OK)
+                ret = sdfprov_rsa_pubkey_to_rsa(&pub, &rsa) ? OSSL_SDR_OK : OSSL_SDR_OUTARGERR;
+        }
+        if (ret != OSSL_SDR_OK && sdfctx->sdfList.ExportSignPublicKey_RSAEx != NULL) {
             TLOG_DEBUG("rsa_load: ExportSignPublicKey_RSA failed ret=0x%08x, trying Ex", ret);
-            ret = TSAPI_SDF_ExportSignPublicKey_RSAEx(hSession, uri_info.key_index, &pub_ex);
+            ret = sdfctx->sdfList.ExportSignPublicKey_RSAEx(hSession, uri_info.key_index, &pub_ex);
             if (ret == OSSL_SDR_OK && !sdfprov_rsa_pubkeyex_to_rsa(&pub_ex, &rsa))
                 ret = OSSL_SDR_OUTARGERR;
         }
     } else {
-        ret = TSAPI_SDF_ExportEncPublicKey_RSA(hSession, uri_info.key_index, &pub);
-        if (ret == OSSL_SDR_OK)
-            ret = sdfprov_rsa_pubkey_to_rsa(&pub, &rsa) ? OSSL_SDR_OK : OSSL_SDR_OUTARGERR;
-        if (ret != OSSL_SDR_OK) {
+        if (sdfctx->sdfList.ExportEncPublicKey_RSA != NULL) {
+            ret = sdfctx->sdfList.ExportEncPublicKey_RSA(hSession, uri_info.key_index, &pub);
+            if (ret == OSSL_SDR_OK)
+                ret = sdfprov_rsa_pubkey_to_rsa(&pub, &rsa) ? OSSL_SDR_OK : OSSL_SDR_OUTARGERR;
+        }
+        if (ret != OSSL_SDR_OK && sdfctx->sdfList.ExportEncPublicKey_RSAEx != NULL) {
             TLOG_DEBUG("rsa_load: ExportEncPublicKey_RSA failed ret=0x%08x, trying Ex", ret);
-            ret = TSAPI_SDF_ExportEncPublicKey_RSAEx(hSession, uri_info.key_index, &pub_ex);
+            ret = sdfctx->sdfList.ExportEncPublicKey_RSAEx(hSession, uri_info.key_index, &pub_ex);
             if (ret == OSSL_SDR_OK && !sdfprov_rsa_pubkeyex_to_rsa(&pub_ex, &rsa))
                 ret = OSSL_SDR_OUTARGERR;
         }
@@ -252,6 +361,9 @@ const OSSL_DISPATCH sdfprov_rsa_keymgmt_functions[] = {
       (void (*)(void))sdfprov_rsa_gettable_params },
     { OSSL_FUNC_KEYMGMT_LOAD, (void (*)(void))sdfprov_rsa_load },
     { OSSL_FUNC_KEYMGMT_MATCH, (void (*)(void))sdfprov_rsa_match },
+    { OSSL_FUNC_KEYMGMT_EXPORT, (void (*)(void))sdfprov_rsa_export },
+    { OSSL_FUNC_KEYMGMT_EXPORT_TYPES,
+      (void (*)(void))sdfprov_rsa_export_types },
     { OSSL_FUNC_KEYMGMT_VALIDATE, (void (*)(void))sdfprov_rsa_validate },
     { OSSL_FUNC_KEYMGMT_QUERY_OPERATION_NAME,
       (void (*)(void))sdfprov_rsa_query_operation_name },

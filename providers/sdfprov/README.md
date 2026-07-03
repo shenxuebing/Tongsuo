@@ -862,3 +862,110 @@ test_sdfprov_rsa.exe \
   "sdf:key=1;type=enc;algo=rsa;pwd=12345678;session=0x12345678" \
   SHA256
 ```
+
+## 2026-07 增量说明
+
+### dgst 命令支持 SM2/RSA 硬件签名验签
+
+`openssl dgst` 通过 `sdf:` URI 加载 SDF 硬件私钥完成签名，用证书公钥完成验签。
+底层 `load_key()` 走 `OSSL_STORE_open_ex`，自动按 scheme 路由到 SDF Provider，
+不需要额外改 apps 代码。
+
+#### SM2 签名 / 验签
+
+```bash
+# 签名（SDF 硬件私钥）
+openssl dgst -sm3 -provider sdfprov -provider default \
+  -sign "sdf:sm2:0:sign" -out sig.bin data.txt
+
+# 验签：先从签名证书提取公钥
+openssl x509 -in test/certs/sm2/server_sign.crt -pubkey -noout > sm2pub.pem
+openssl dgst -sm3 -provider sdfprov -provider default \
+  -verify sm2pub.pem -signature sig.bin data.txt
+```
+
+#### RSA 签名 / 验签
+
+```bash
+# 签名（SDF 硬件私钥，默认 PKCS1）
+openssl dgst -sha256 -provider sdfprov -provider default \
+  -sign "sdf:rsa:0:sign" -out sig.bin data.txt
+
+# 验签
+openssl x509 -in test/certs/server-rsa-sign.crt -pubkey -noout > rsapub.pem
+openssl dgst -sha256 -provider default \
+  -verify rsapub.pem -signature sig.bin data.txt
+```
+
+### PKCS7 数字信封（封装 / 解封）
+
+`openssl pkcs7 -encrypt/-decrypt` 支持数字信封。`PKCS7_encrypt_ex` 已修复为
+纯信封语义——`-encrypt` 默认就是 EnvelopedData，无需 `-nosigs`（与 cms/smime
+一致）。SM2 信封使用 `sm2_enveloped` OID（需 `-gmt0010`），标准信封使用
+`pkcs7_enveloped` OID。
+
+#### SM2 数字信封
+
+```bash
+# 封装：用 SM2 加密证书公钥
+openssl pkcs7 -encrypt -provider sdfprov -provider default \
+  -in plain.txt -out sm2_env.p7 -outform DER \
+  test/certs/sm2/server_enc.crt
+
+# 解封：用 SDF 硬件 SM2 加密私钥
+openssl pkcs7 -decrypt -provider sdfprov -provider default \
+  -in sm2_env.p7 -inform DER -out plain2.txt \
+  -inkey "sdf:sm2:0:enc" -recip test/certs/sm2/server_enc.crt
+```
+
+#### RSA 数字信封
+
+```bash
+# 封装：用 RSA 加密证书公钥
+openssl pkcs7 -encrypt -provider sdfprov -provider default \
+  -in plain.txt -out rsa_env.p7 -outform DER \
+  test/certs/server-rsa-enc.crt
+
+# 解封：用 SDF 硬件 RSA 加密私钥
+openssl pkcs7 -decrypt -provider sdfprov -provider default \
+  -in rsa_env.p7 -inform DER -out plain2.txt \
+  -inkey "sdf:rsa:0:enc" -recip test/certs/server-rsa-enc.crt
+```
+
+> **注意**：RSA 信封解封依赖 SDF 设备的 RSA 加密密钥（`SDF_InternalPrivateKeyOperation_RSA`
+> 走 `key_type=enc`）。请确认设备 0 号索引已导入与 `server-rsa-enc.crt` 匹配的
+> RSA 加密密钥对，否则解封会因 `RSA_padding_check_PKCS1_type_2` 失败。
+
+### 测试证书路径速查
+
+| 用途 | 证书 / 密钥 |
+|------|------------|
+| SM2 签名验签 | `test/certs/sm2/server_sign.crt` |
+| SM2 信封（解封侧） | `test/certs/sm2/server_enc.crt` |
+| RSA 签名验签 | `test/certs/server-rsa-sign.crt` |
+| RSA 信封（解封侧） | `test/certs/server-rsa-enc.crt` |
+
+### 常见坑：OPENSSL_CONF 必须指向正确配置
+
+若运行时报 `0x01020003` 等厂商错误码，通常是加载了错误的 `openssl.cnf`。
+Tongsuo 默认读取 `OPENSSLDIR/openssl.cnf`（如 `C:\Program Files\Common Files\SSL\openssl.cnf`），
+该文件可能未配置 `sdf_use_loadmodule` 或 `sdf_lib_path` 错误。
+
+**解决**：显式设置环境变量指向项目自带的配置：
+
+```bash
+# Windows
+set OPENSSL_CONF=E:\path\to\Tongsuo\apps\openssl.cnf
+# 关键配置项：
+#   sdf_lib_path = <绝对路径>\byzk0018.dll
+#   sdf_use_loadmodule = 1
+#   sdf_module_password = 88888888
+```
+
+### 一键测试
+
+```bash
+# 在 apps 目录下执行，覆盖 SM2/RSA 签名验签 + SM2 信封 + RSA 信封
+test_sdf_sign_envelope.bat
+```
+
