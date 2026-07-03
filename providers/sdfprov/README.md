@@ -969,3 +969,153 @@ set OPENSSL_CONF=E:\path\to\Tongsuo\apps\openssl.cnf
 test_sdf_sign_envelope.bat
 ```
 
+## pkeyutl 命令使用说明（SM2/RSA 硬件加解密与签名验签）
+
+`openssl pkeyutl` 是非对称密码运算的基础命令，支持签名、验签、加密、解密和密钥派生。
+通过 `sdf:` URI 加载 SDF 硬件密钥，私钥永不出卡，所有私钥操作由硬件完成。
+
+### 前置条件
+
+```bash
+# 必须设置 OPENSSL_CONF 指向正确配置（sdf_use_loadmodule=1）
+set OPENSSL_CONF=...\apps\openssl.cnf
+
+# 加载 SDF Provider + default Provider
+set PROV=-provider sdfprov -provider default
+```
+
+### 1. SM2 签名与验签
+
+```bash
+# SM2 签名（硬件私钥，-rawin + -digest sm3 走 Provider 的 digest_sign 路径，
+# 内部自动完成 SM3 摘要 + Z 值预处理 + 硬件 SM2 签名）
+openssl pkeyutl -sign -rawin -digest sm3 %PROV% \
+  -inkey "sdf:sm2:0:sign" \
+  -in data.txt -out sm2_sig.bin
+
+# SM2 验签（证书公钥，用 default Provider 即可）
+openssl pkeyutl -verify -rawin -digest sm3 -provider default \
+  -inkey sm2_sign_pub.pem -pubin \
+  -sigfile sm2_sig.bin \
+  -in data.txt
+```
+
+> **提示**：从证书提取公钥：`openssl x509 -in server_sign.crt -pubkey -noout > sm2_sign_pub.pem`
+
+### 2. RSA 签名与验签
+
+```bash
+# RSA 签名（硬件私钥，默认 PKCS#1 v1.5 + SHA256）
+openssl pkeyutl -sign -rawin -digest sha256 %PROV% \
+  -inkey "sdf:rsa:0:sign" \
+  -in data.txt -out rsa_sig.bin
+
+# RSA 验签（证书公钥）
+openssl pkeyutl -verify -rawin -digest sha256 -provider default \
+  -inkey rsa_sign_pub.pem -pubin \
+  -sigfile rsa_sig.bin \
+  -in data.txt
+```
+
+> **注意**：`-rawin` 表示输入是原始数据（未预先哈希），`-digest` 指定摘要算法。
+> 不加 `-rawin` 时，输入必须是已计算好的摘要值（裸签模式）。
+
+### 3. SM2 加密与解密（普通加解密，非数字信封）
+
+```bash
+# SM2 加密（使用加密证书的公钥，软件加密）
+openssl pkeyutl -encrypt -provider default \
+  -inkey sm2_enc_pub.pem -pubin \
+  -in plaintext.txt -out sm2_ct.bin
+
+# SM2 解密（硬件加密私钥，私钥不出卡）
+openssl pkeyutl -decrypt %PROV% \
+  -inkey "sdf:sm2:0:enc" \
+  -in sm2_ct.bin -out sm2_pt.txt
+```
+
+### 4. RSA 加密与解密（普通加解密）
+
+```bash
+# RSA 加密（使用加密证书的公钥）
+openssl pkeyutl -encrypt -provider default \
+  -inkey rsa_enc_pub.pem -pubin \
+  -in plaintext.txt -out rsa_ct.bin
+
+# RSA 解密（硬件加密私钥）
+openssl pkeyutl -decrypt %PROV% \
+  -inkey "sdf:rsa:0:enc" \
+  -in rsa_ct.bin -out rsa_pt.txt
+```
+
+> **注意**：RSA sign 和 enc 是不同的密钥槽位（由 SDF 设备 `uiKeyUsage` 区分）。
+> Provider 会优先走 `_Ex` 扩展接口（带 `uiKeyUsage` 参数），正确路由到对应密钥。
+
+### 5. 直接使用证书做公钥操作（-certin）
+
+```bash
+# 用证书直接加密（省去提取公钥步骤）
+openssl pkeyutl -encrypt -provider default \
+  -certin -inkey server_enc.crt \
+  -in plaintext.txt -out ct.bin
+
+# 用证书验签
+openssl pkeyutl -verify -rawin -digest sm3 -provider default \
+  -certin -inkey server_sign.crt \
+  -sigfile sig.bin -in data.txt
+```
+
+### URI 参数说明
+
+| URI 格式 | 示例 | 说明 |
+|---------|------|------|
+| `sdf:sm2:<index>:sign[:<pwd>]` | `sdf:sm2:0:sign` | SM2 签名密钥 |
+| `sdf:sm2:<index>:enc[:<pwd>]` | `sdf:sm2:0:enc:11111111` | SM2 加密密钥 |
+| `sdf:rsa:<index>:sign[:<pwd>]` | `sdf:rsa:0:sign` | RSA 签名密钥 |
+| `sdf:rsa:<index>:enc[:<pwd>]` | `sdf:rsa:0:enc` | RSA 加密密钥 |
+| `sdf:key=<i>;type=<t>;algo=<a>[;pwd=<p>]` | `sdf:key=0;type=sign;algo=sm2` | key=value 风格 |
+
+### pkeyutl vs dgst 命令区别
+
+| 特性 | `pkeyutl` | `dgst` |
+|------|-----------|--------|
+| 签名输入 | 原始数据（`-rawin`）或摘要 | 原始数据（自动哈希） |
+| 摘要指定 | `-digest <algo>`（配合 `-rawin`） | `-<algo>`（如 `-sm3`、`-sha256`） |
+| 输出格式 | 纯签名值 | 可附加签名者信息 |
+| 适用场景 | 底层密码运算 | 文件摘要 + 签名一步完成 |
+
+两个命令都能加载 SDF 硬件密钥（通过 `-inkey "sdf:..."` 或 `-sign "sdf:..."`），
+底层走相同的 Provider 路径。推荐：
+- **简单签名验签**用 `dgst`（更简洁）
+- **需要精确控制（如指定 padding、KDF）**用 `pkeyutl`
+
+### RSA Padding 模式说明
+
+SDF Provider 的 RSA 默认使用 PKCS#1 v1.5 padding。如需指定：
+
+```bash
+# PKCS#1 v1.5（默认）
+openssl pkeyutl -sign -rawin -digest sha256 %PROV% \
+  -inkey "sdf:rsa:0:sign" -pkeyopt rsa_padding_mode:pkcs1 \
+  -in data.txt -out sig.bin
+```
+
+> **注意**：SDF Provider 当前支持 PKCS#1 v1.5（签名 type 1 / 加密 type 2）。
+> OAEP/PSS 等 padding 模式需要厂商 SDF 库支持。
+
+### 常见问题
+
+**Q: pkeyutl 报 "Could not find private key"？**
+- 检查 `-provider sdfprov -provider default` 是否都加载
+- 检查 `OPENSSL_CONF` 是否指向正确配置（`sdf_use_loadmodule=1`）
+- 检查 URI 格式是否正确（`sdf:sm2:0:sign` 而非 `sm2:0:sign`）
+
+**Q: RSA 加密密钥解密报 padding error？**
+- 确认使用的是 enc 密钥（`sdf:rsa:0:enc`）而非 sign 密钥
+- 确认加密用的证书公钥与解密用的硬件私钥配对
+
+**Q: SM2 签名时摘要如何处理？**
+- `-rawin -digest sm3`：输入原始数据，Provider 内部做 SM3 + Z 值预处理 + 硬件签名
+- 不加 `-rawin`：输入必须是 32 字节 SM3 摘要值（裸签，不做 Z 值预处理）
+
+
