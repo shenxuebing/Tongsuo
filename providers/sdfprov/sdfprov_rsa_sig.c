@@ -99,11 +99,11 @@ static int sdfprov_rsa_sig_do_sign(SDFPROV_RSA_SIG_CTX *ctx,
     }
 
     if (ctx->key->key_password != NULL) {
-        if (sdfctx->sdfList.GetPrivateKeyAccessRight == NULL) {
+        if (sdfctx->sdfList->GetPrivateKeyAccessRight == NULL) {
             ERR_raise_data(ERR_LIB_PROV, PROV_R_FAILED_TO_SIGN, "GetPrivateKeyAccessRight not available");
             goto end;
         }
-        ret = sdfctx->sdfList.GetPrivateKeyAccessRight(ctx->key->hSession,
+        ret = TSAPI_SDF_GetPrivateKeyAccessRight(ctx->key->hSession,
                                                     ctx->key->key_index,
                                                     (unsigned char *)ctx->key->key_password,
                                                     (unsigned int)strlen(ctx->key->key_password));
@@ -122,18 +122,18 @@ static int sdfprov_rsa_sig_do_sign(SDFPROV_RSA_SIG_CTX *ctx,
         /* 3072/4096 位 RSA 必须走扩展接口（RSAref 结构装不下）。 */
         TLOG_DEBUG("rsa_sign: using RSA_Ex key_index=%u key_type=%d bits=%d",
                    ctx->key->key_index, ctx->key->key_type, RSA_bits(ctx->key->rsa));
-        if (sdfctx->sdfList.InternalPrivateKeyOperation_RSA_Ex == NULL) {
-            if (ctx->key->key_password != NULL && sdfctx->sdfList.ReleasePrivateKeyAccessRight != NULL)
-                sdfctx->sdfList.ReleasePrivateKeyAccessRight(ctx->key->hSession, ctx->key->key_index);
+        if (sdfctx->sdfList->InternalPrivateKeyOperation_RSA_Ex == NULL) {
+            if (ctx->key->key_password != NULL && sdfctx->sdfList->ReleasePrivateKeyAccessRight != NULL)
+                TSAPI_SDF_ReleasePrivateKeyAccessRight(ctx->key->hSession, ctx->key->key_index);
             ERR_raise_data(ERR_LIB_PROV, PROV_R_FAILED_TO_SIGN, "InternalPrivateKeyOperation_RSA_Ex not available");
             goto end;
         }
-        ret = sdfctx->sdfList.InternalPrivateKeyOperation_RSA_Ex(ctx->key->hSession,
+        ret = TSAPI_SDF_InternalPrivateKeyOperation_RSA_Ex(ctx->key->hSession,
                     ctx->key->key_index,
                     ctx->key->key_type == 0 ? SDFPROV_RSA_KEYTYPE_SIGN
                                             : SDFPROV_RSA_KEYTYPE_ENC,
                     padded, (unsigned int)rsa_size, sig, &outlen);
-    } else if (sdfctx->sdfList.InternalPrivateKeyOperation_RSA_Ex != NULL) {
+    } else if (sdfctx->sdfList->InternalPrivateKeyOperation_RSA_Ex != NULL) {
         /*
          * 2048 位及以下：优先走 _Ex 接口。
          * 标准版 InternalPrivateKeyOperation_RSA 不带 uiKeyUsage 参数，
@@ -143,7 +143,7 @@ static int sdfprov_rsa_sig_do_sign(SDFPROV_RSA_SIG_CTX *ctx,
          */
         TLOG_DEBUG("rsa_sign: using RSA_Ex key_index=%u key_type=%d bits=%d",
                    ctx->key->key_index, ctx->key->key_type, RSA_bits(ctx->key->rsa));
-        ret = sdfctx->sdfList.InternalPrivateKeyOperation_RSA_Ex(ctx->key->hSession,
+        ret = TSAPI_SDF_InternalPrivateKeyOperation_RSA_Ex(ctx->key->hSession,
                     ctx->key->key_index,
                     ctx->key->key_type == 0 ? SDFPROV_RSA_KEYTYPE_SIGN
                                             : SDFPROV_RSA_KEYTYPE_ENC,
@@ -152,20 +152,20 @@ static int sdfprov_rsa_sig_do_sign(SDFPROV_RSA_SIG_CTX *ctx,
         /* 回退：厂商库不支持 _Ex，用标准接口（无法区分 sign/enc） */
         TLOG_DEBUG("rsa_sign: using RSA(legacy) key_index=%u key_type=%d bits=%d",
                    ctx->key->key_index, ctx->key->key_type, RSA_bits(ctx->key->rsa));
-        if (sdfctx->sdfList.InternalPrivateKeyOperation_RSA == NULL) {
-            if (ctx->key->key_password != NULL && sdfctx->sdfList.ReleasePrivateKeyAccessRight != NULL)
-                sdfctx->sdfList.ReleasePrivateKeyAccessRight(ctx->key->hSession, ctx->key->key_index);
+        if (sdfctx->sdfList->InternalPrivateKeyOperation_RSA == NULL) {
+            if (ctx->key->key_password != NULL && sdfctx->sdfList->ReleasePrivateKeyAccessRight != NULL)
+                TSAPI_SDF_ReleasePrivateKeyAccessRight(ctx->key->hSession, ctx->key->key_index);
             ERR_raise_data(ERR_LIB_PROV, PROV_R_FAILED_TO_SIGN, "InternalPrivateKeyOperation_RSA not available");
             goto end;
         }
-        ret = sdfctx->sdfList.InternalPrivateKeyOperation_RSA(ctx->key->hSession,
+        ret = TSAPI_SDF_InternalPrivateKeyOperation_RSA(ctx->key->hSession,
                     ctx->key->key_index, padded, (unsigned int)rsa_size,
                     sig, &outlen);
     }
 
     if (ctx->key->key_password != NULL) {
-        if (sdfctx->sdfList.ReleasePrivateKeyAccessRight != NULL)
-            sdfctx->sdfList.ReleasePrivateKeyAccessRight(ctx->key->hSession, ctx->key->key_index);
+        if (sdfctx->sdfList->ReleasePrivateKeyAccessRight != NULL)
+            TSAPI_SDF_ReleasePrivateKeyAccessRight(ctx->key->hSession, ctx->key->key_index);
     }
 
     if (ret == OSSL_SDR_OK) {

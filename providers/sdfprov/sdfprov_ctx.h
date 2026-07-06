@@ -24,11 +24,6 @@ typedef struct sdfprov_ctx_st {
     void *hSession;
     int initialized;
     int module_loaded;
-#ifdef _WIN32
-    HMODULE hModule;            /* 厂商 DLL 句柄 (LoadLibrary) */
-#else
-    void *hModule;              /* 厂商 DLL 句柄 (dlopen) */
-#endif
 
     /* 配置参数 */
     char *sdf_lib_path;
@@ -38,8 +33,13 @@ typedef struct sdfprov_ctx_st {
     unsigned int sign_key_index;
     unsigned int enc_key_index;
 
-    /* Provider 私有 SDF 函数分发表 */
-    SD_FUNCTION_LIST sdfList;
+    /*
+     * SDF 函数指针表（复用 TSAPI 层的 SDF_METHOD）。
+     * init_device 时指向 sdf_lib.c 的 ts_sdf_meth（由 DSO 动态加载厂商库）。
+     * 所有 provider 文件统一用 sdfctx->sdfList.xxx 调用，
+     * 未来修改只需改 sdf_lib.c 一处。
+     */
+    const SDF_METHOD *sdfList;
 
     CRYPTO_RWLOCK *lock;
 } SDFPROV_CTX;
