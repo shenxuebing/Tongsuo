@@ -666,21 +666,29 @@ SDF Provider 配合 NTLS 支持以下密码套件：
 
 ### 厂商初始化流程
 
-SDF Provider 加载时的初始化顺序：
+当前实现的初始化顺序如下：
 
 ```
 1. OSSL_provider_init()
-   └─ 读取 openssl.cnf: sdf_lib_path, sdf_module_password
+   ├─ 读取 openssl.cnf: sdf_lib_path, sdf_module_password, sdf_use_loadmodule
    └─ 创建 SDFPROV_CTX（不立即打开设备）
 
 2. 首次使用密钥时（KEYMGMT load / STORE open）
    └─ sdfprov_ctx_init_device()
-       ├─ sdfprov_load_module(sdf_lib_path, password)
-       │   └─ LoadLibrary(byzk0018.dll)          ← 加载厂商 DLL
-       │   └─ BYCSM_LoadModule("88888888")       ← 厂商特定的模块初始化
-       ├─ TSAPI_SDF_OpenDevice()                  ← 通过 DSO 调用厂商 SDF_OpenDevice
-       └─ TSAPI_SDF_OpenSession()                 ← 通过 DSO 调用厂商 SDF_OpenSession
+       ├─ ossl_sdf_lib_preload(sdf_lib_path, password, use_load_module)
+       │   └─ crypto/sdf/sdf_lib.c 统一完成
+       │      ├─ DSO/LoadLibrary/dlopen 加载厂商库一次
+       │      ├─ DSO_bind_func 绑定 SDF/扩展接口
+       │      └─ 可选调用 BYCSM_LoadModule("88888888")
+       ├─ TSAPI_SDF_OpenDevice()
+       └─ TSAPI_SDF_OpenSession()
 ```
+
+说明：
+
+- `sdfprov` 不再私自维护一套厂商库句柄和函数指针表。
+- Provider 内部统一通过 `TSAPI_SDF_*` 调用，底层动态库只由 `crypto/sdf/sdf_lib.c` 负责加载一次。
+- `BYCSM_LoadModule` 仍然是厂商特定初始化接口，但调用归口到 `ossl_sdf_lib_preload()` 后的框架层完成。
 
 ### Provider 注册算法
 

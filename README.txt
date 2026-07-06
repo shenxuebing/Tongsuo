@@ -20,6 +20,7 @@
 
 # 最优编译命令
 perl Configure VC-WIN64A no-shared no-module enable-ntls enable-sdfprov enable-sdf-lib-dynamic enable-legacy
+perl Configure VC-WIN64A no-shared no-module enable-ntls enable-sdfprov enable-sdf-lib-dynamic enable-legacy -DTLOG_ENABLE_DEBUG -DSDF_DEBUG no-tests --debug
 nmake
 ```
 
@@ -27,6 +28,10 @@ nmake
 
 ```bash
 # 最优编译命令
+
+./Configure --prefix=/usr/local/tongsuo  -Wl,-rpath,/usr/local/tongsuo/lib64 no-shared no-module enable-ntls enable-sdfprov enable-sdf-lib-dynamic enable-legacy -DTLOG_ENABLE_DEBUG -DSDF_DEBUG no-tests --debug
+
+
 ./Configure linux-x86_64 \
     --prefix=/usr/local/tongsuo \
     -Wl,-rpath,/usr/local/tongsuo/lib64 \
