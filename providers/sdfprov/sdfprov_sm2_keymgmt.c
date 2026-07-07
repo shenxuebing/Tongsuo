@@ -187,6 +187,10 @@ static int sdfprov_sm2_get_params(void *keydata, OSSL_PARAM params[])
 typedef struct sdfprov_gen_ctx_st {
     OSSL_LIB_CTX *libctx;
     int selection;
+    unsigned int key_index;
+    int key_type;
+    void *hSession;
+    char *key_password;
 } SDFPROV_GEN_CTX;
 
 static void *sdfprov_sm2_gen_init(void *provctx, int selection)
@@ -197,6 +201,31 @@ static void *sdfprov_sm2_gen_init(void *provctx, int selection)
     gctx->libctx = PROV_LIBCTX_OF(provctx);
     gctx->selection = selection;
     return gctx;
+}
+
+static int sdfprov_sm2_gen_set_template(void *genctx, void *templ)
+{
+    SDFPROV_GEN_CTX *gctx = genctx;
+    SDF_SM2_KEY *tkey = templ;
+
+    if (gctx == NULL)
+        return 0;
+    if (tkey == NULL)
+        return 1;
+
+    gctx->key_index = tkey->key_index;
+    gctx->key_type = tkey->key_type;
+    gctx->hSession = tkey->hSession;
+
+    OPENSSL_free(gctx->key_password);
+    gctx->key_password = NULL;
+    if (tkey->key_password != NULL) {
+        gctx->key_password = OPENSSL_strdup(tkey->key_password);
+        if (gctx->key_password == NULL)
+            return 0;
+    }
+
+    return 1;
 }
 
 static void *sdfprov_sm2_gen(void *genctx, OSSL_CALLBACK *cb, void *cbarg)
@@ -223,7 +252,9 @@ static void *sdfprov_sm2_gen(void *genctx, OSSL_CALLBACK *cb, void *cbarg)
     (void)cbarg;
 
     sdfctx = sdfprov_get_global_ctx();
-    if (sdfctx != NULL)
+    if (gctx->key_index != 0)
+        key_index = gctx->key_index;
+    else if (sdfctx != NULL)
         key_index = sdfctx->enc_key_index;
 
     /* 创建新密钥 */
@@ -240,7 +271,7 @@ static void *sdfprov_sm2_gen(void *genctx, OSSL_CALLBACK *cb, void *cbarg)
 
     /* 生成密钥对 */
     if ((gctx->selection & OSSL_KEYMGMT_SELECT_KEYPAIR) != 0) {
-        hSession = sdfprov_get_session();
+        hSession = gctx->hSession != NULL ? gctx->hSession : sdfprov_get_session();
 
         if (hSession != NULL) {
             memset(&sponsor_pub, 0, sizeof(sponsor_pub));
@@ -285,10 +316,24 @@ static void *sdfprov_sm2_gen(void *genctx, OSSL_CALLBACK *cb, void *cbarg)
                     key->algo = SDF_ALGO_SM2;
                     key->is_hardware_key = 1;
                     key->hSession = hSession;
+                    key->key_index = key_index;
+                    key->key_type = gctx->key_type;
                     key->agreement_handle = agreement_handle;
                     key->has_agreement = 1;
                     key->is_initiator = 1;
                     key->cached_pubkey = sponsor_pub;
+                    if (gctx->key_password != NULL) {
+                        key->key_password = OPENSSL_strdup(gctx->key_password);
+                        if (key->key_password == NULL) {
+                            TSAPI_SDF_DestroyKey(hSession, agreement_handle);
+                            BN_free(x);
+                            BN_free(y);
+                            EC_POINT_free(point);
+                            EC_KEY_free(key->ec_key);
+                            OPENSSL_free(key);
+                            return NULL;
+                        }
+                    }
 
                     BN_free(x);
                     BN_free(y);
@@ -314,10 +359,21 @@ static void *sdfprov_sm2_gen(void *genctx, OSSL_CALLBACK *cb, void *cbarg)
                     key->algo = SDF_ALGO_SM2;
                     key->is_hardware_key = 1;
                     key->hSession = hSession;
+                    key->key_index = key_index;
+                    key->key_type = gctx->key_type;
                     key->agreement_handle = agreement_handle;
                     key->has_agreement = 1;
                     key->is_initiator = 1;
                     key->cached_pubkey = sponsor_pub;
+                    if (gctx->key_password != NULL) {
+                        key->key_password = OPENSSL_strdup(gctx->key_password);
+                        if (key->key_password == NULL) {
+                            TSAPI_SDF_DestroyKey(hSession, agreement_handle);
+                            EC_KEY_free(key->ec_key);
+                            OPENSSL_free(key);
+                            return NULL;
+                        }
+                    }
 
                     return key;
                 }
@@ -334,6 +390,7 @@ static void *sdfprov_sm2_gen(void *genctx, OSSL_CALLBACK *cb, void *cbarg)
             OPENSSL_free(key);
             return NULL;
         }
+
     }
 
     key->algo = SDF_ALGO_SM2;
@@ -376,6 +433,10 @@ static const OSSL_PARAM *sdfprov_sm2_gen_settable_params(
 
 static void sdfprov_sm2_gen_cleanup(void *genctx)
 {
+    SDFPROV_GEN_CTX *gctx = genctx;
+
+    if (gctx != NULL)
+        OPENSSL_free(gctx->key_password);
     OPENSSL_free(genctx);
 }
 
@@ -412,9 +473,7 @@ static int sdfprov_sm2_import(void *keydata, int selection,
     /* 导入私钥（用于软件密钥回退路径） */
     if ((selection & OSSL_KEYMGMT_SELECT_PRIVATE_KEY) != 0) {
         p = OSSL_PARAM_locate_const(params, OSSL_PKEY_PARAM_PRIV_KEY);
-        if (p == NULL) {
-            return 0;   /* 请求了私钥但参数中没有 → 失败，让 EVP 回退到同 provider fetch */
-        } else {
+        if (p != NULL) {
             BIGNUM *priv = NULL;
 
             if (!OSSL_PARAM_get_BN(p, &priv))
@@ -461,21 +520,18 @@ static int sdfprov_sm2_export(void *keydata, int selection,
         return 0;
 
     /*
-     * 硬件密钥无法导出私钥。
+     * 硬件密钥私钥永不出卡。凡是请求 PRIVATE_KEY 的 export，统一返回失败，
+     * 让 EVP 框架回退到第 2 轮，从 sdfprov 自身 fetch 对应 operation。
      *
-     * 对 ECDHE 场景（has_agreement=1）：剥离 PRIVATE_KEY 位，继续导出公钥，
-     * 让 derive_init 能拿到公钥用于 SM2_compute_key。
-     *
-     * 对非 ECDHE 场景（has_agreement=0，如签名/解密）：
-     * 返回失败，让 EVP 框架回退到第2轮从 SDF Provider 自身 fetch signature
-     * / asym_cipher，直接用原始 keydata 完成 sign/decrypt（私钥不出卡）。
+     * 这对 NTLS ECDHE 也同样必须如此：如果临时硬件密钥在第 1 轮被成功导出到
+     * default provider，default SM2DH 会继续处理 SELF_ENC_KEY / PEER_ENC_KEY，
+     * 并在 provider-export 路径中把 EVP_PKEY * 当作 EC_KEY * 使用，触发
+     * refcount error。强制回到 sdfprov 后，SELF_ENC_KEY 仅作为 EVP_PKEY * 透传，
+     * 由 sdfprov_sm2dh_exch 自己取公钥即可。
      */
     if (key->is_hardware_key
-        && (selection & OSSL_KEYMGMT_SELECT_PRIVATE_KEY) != 0) {
-        if (!key->has_agreement)
-            return 0;
-        selection &= ~OSSL_KEYMGMT_SELECT_PRIVATE_KEY;
-    }
+        && (selection & OSSL_KEYMGMT_SELECT_PRIVATE_KEY) != 0)
+        return 0;
 
     bld = OSSL_PARAM_BLD_new();
     if (bld == NULL)
@@ -1007,6 +1063,8 @@ const OSSL_DISPATCH sdfprov_sm2_keymgmt_functions[] = {
     { OSSL_FUNC_KEYMGMT_GET_PARAMS, (void (*)(void))sdfprov_sm2_get_params },
     { OSSL_FUNC_KEYMGMT_GEN_INIT, (void (*)(void))sdfprov_sm2_gen_init },
     { OSSL_FUNC_KEYMGMT_GEN, (void (*)(void))sdfprov_sm2_gen },
+    { OSSL_FUNC_KEYMGMT_GEN_SET_TEMPLATE,
+      (void (*)(void))sdfprov_sm2_gen_set_template },
     { OSSL_FUNC_KEYMGMT_GEN_SET_PARAMS,
       (void (*)(void))sdfprov_sm2_gen_set_params },
     { OSSL_FUNC_KEYMGMT_GEN_SETTABLE_PARAMS,
