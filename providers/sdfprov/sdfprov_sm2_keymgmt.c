@@ -412,7 +412,9 @@ static int sdfprov_sm2_import(void *keydata, int selection,
     /* 导入私钥（用于软件密钥回退路径） */
     if ((selection & OSSL_KEYMGMT_SELECT_PRIVATE_KEY) != 0) {
         p = OSSL_PARAM_locate_const(params, OSSL_PKEY_PARAM_PRIV_KEY);
-        if (p != NULL) {
+        if (p == NULL) {
+            return 0;   /* 请求了私钥但参数中没有 → 失败，让 EVP 回退到同 provider fetch */
+        } else {
             BIGNUM *priv = NULL;
 
             if (!OSSL_PARAM_get_BN(p, &priv))
@@ -459,21 +461,21 @@ static int sdfprov_sm2_export(void *keydata, int selection,
         return 0;
 
     /*
-     * 硬件密钥私钥不可导出。
+     * 硬件密钥无法导出私钥。
      *
-     * 这里必须直接失败，而不能“剥离 PRIVATE 再继续导出公钥”：
-     * 对 NTLS ECDHE 的硬件临时/证书密钥，derive_init 第1轮如果能把主密钥
-     * 导到 default provider，就会直接绑定 default 的 sm2dh_exch；
-     * 后续 SELF_ENC_KEY 再因为没有私钥而初始化失败，而且 EVP 核心不会在
-     * init 失败后自动回退到第2轮同-provider fetch。
+     * 对 ECDHE 场景（has_agreement=1）：剥离 PRIVATE_KEY 位，继续导出公钥，
+     * 让 derive_init 能拿到公钥用于 SM2_compute_key。
      *
-     * 因此，凡是请求 PRIVATE_KEY 的硬件 SM2，都强制让跨 provider export
-     * 失败，让上层转去使用 SDF provider 自己的 signature/keyexch 实现。
-     * 需要取公钥的兼容场景，应在调用处先尝试 get0，再按需单独处理。
+     * 对非 ECDHE 场景（has_agreement=0，如签名/解密）：
+     * 返回失败，让 EVP 框架回退到第2轮从 SDF Provider 自身 fetch signature
+     * / asym_cipher，直接用原始 keydata 完成 sign/decrypt（私钥不出卡）。
      */
     if (key->is_hardware_key
-        && (selection & OSSL_KEYMGMT_SELECT_PRIVATE_KEY) != 0)
-        return 0;
+        && (selection & OSSL_KEYMGMT_SELECT_PRIVATE_KEY) != 0) {
+        if (!key->has_agreement)
+            return 0;
+        selection &= ~OSSL_KEYMGMT_SELECT_PRIVATE_KEY;
+    }
 
     bld = OSSL_PARAM_BLD_new();
     if (bld == NULL)
