@@ -10,6 +10,9 @@
 #include <openssl/crypto.h>
 #include <openssl/types.h>
 #include <openssl/sdf.h>
+#ifdef _WIN32
+# include <windows.h>
+#endif
 #include "internal/thread_once.h"
 #include "internal/dso.h"
 #include "internal/sdf.h"
@@ -148,55 +151,176 @@ extern int SDF_GenerateAgreementDataAndKeyWithECCEx(
     void **phKeyHandle) __attribute__((weak));
 # endif
 
+/*
+ * SDF 框架层全局状态
+ *
+ * sdf_dso: 厂商库 DSO 句柄（DSO_load 加载），整个进程只加载一次
+ * sdfm: SDF_METHOD 函数指针表，所有 TSAPI_SDF_* 接口通过它转发到厂商库
+ * sdf_preload_*: 由 ossl_sdf_lib_preload() 设置的预加载参数，
+ *                在 RUN_ONCE 初始化时使用
+ */
 static CRYPTO_ONCE sdf_lib_once = CRYPTO_ONCE_STATIC_INIT;
 static SDF_METHOD sdfm;
+static char *sdf_preload_path = NULL;
+static char *sdf_preload_password = NULL;
+static int sdf_preload_use_load_module = 0;
 
+#ifdef _WIN32
+/*
+ * 切换当前工作目录到厂商 DLL 所在目录（Windows 专用）
+ *
+ * 某些厂商 DLL（如 byzk0018.dll）在加载时会依赖同目录下的配置文件
+ * （如 softModule.ini、yj.db），DSO_load 用相对路径加载时需要先
+ * 切换到 DLL 所在目录，加载完成后再恢复原目录。
+ *
+ * 参数：
+ *   dll_path  - 厂商库路径（如 "E:\\...\\byzk0018.dll"）
+ *   saved_cwd - 输出：切换前的原始目录（调用方负责 OPENSSL_free）
+ * 返回：1=成功，0=失败
+ */
+static int ossl_sdf_push_dll_dir(const char *dll_path, char **saved_cwd)
+{
+    DWORD cwd_len;
+    char *cwd = NULL;
+    char *dir = NULL;
+    char *sep;
+
+    if (saved_cwd == NULL || dll_path == NULL)
+        return 0;
+
+    cwd_len = GetCurrentDirectoryA(0, NULL);
+    if (cwd_len == 0)
+        return 0;
+
+    cwd = OPENSSL_malloc(cwd_len);
+    if (cwd == NULL)
+        return 0;
+
+    if (GetCurrentDirectoryA(cwd_len, cwd) == 0) {
+        OPENSSL_free(cwd);
+        return 0;
+    }
+
+    dir = OPENSSL_strdup(dll_path);
+    if (dir == NULL) {
+        OPENSSL_free(cwd);
+        return 0;
+    }
+
+    sep = strrchr(dir, '\\');
+    if (sep == NULL)
+        sep = strrchr(dir, '/');
+    if (sep == NULL) {
+        OPENSSL_free(dir);
+        OPENSSL_free(cwd);
+        return 0;
+    }
+    *sep = '\0';
+
+    if (!SetCurrentDirectoryA(dir)) {
+        OPENSSL_free(dir);
+        OPENSSL_free(cwd);
+        return 0;
+    }
+
+    OPENSSL_free(dir);
+    *saved_cwd = cwd;
+    return 1;
+}
+
+/* 恢复原工作目录（配合 ossl_sdf_push_dll_dir 使用） */
+static void ossl_sdf_pop_dll_dir(char *saved_cwd)
+{
+    if (saved_cwd != NULL) {
+        SetCurrentDirectoryA(saved_cwd);
+        OPENSSL_free(saved_cwd);
+    }
+}
+#endif
+
+/*
+ * SDF 框架层一次性初始化（通过 RUN_ONCE 保证线程安全，整个进程只执行一次）
+ *
+ * 流程：
+ *   1. DSO_load() 加载厂商库（如 byzk0018.dll）
+ *   2. DSO_bind_func() 绑定所有标准 SDF API 函数指针到 sdfm
+ *   3. 绑定扩展 API（GenerateKey、GenerateAgreementData 等，可能不存在）
+ *   4. 绑定厂商特定接口 BYCSM_LoadModule（博雅等厂商需要，可能不存在）
+ *   5. 如果 use_load_module=1 且 LoadModule 可用，调用 BYCSM_LoadModule(password)
+ *
+ * 静态链接时（非 SDF_LIB_SHARED），直接用编译时链接的 SDF_* 符号。
+ */
 DEFINE_RUN_ONCE_STATIC(ossl_sdf_lib_init)
 {
 # ifdef SDF_LIB_SHARED
 #  ifndef LIBSDF
 #   define LIBSDF "sdf"
 #  endif
+#  ifdef _WIN32
+    char *saved_cwd = NULL;
+#  endif
 
-    sdf_dso = DSO_load(NULL, LIBSDF, NULL, 0);
+#  ifdef _WIN32
+    if (sdf_preload_path != NULL)
+        (void)ossl_sdf_push_dll_dir(sdf_preload_path, &saved_cwd);
+#  endif
+
+    sdf_dso = DSO_load(NULL,
+                       sdf_preload_path != NULL ? sdf_preload_path : LIBSDF,
+                       NULL, 0);
     if (sdf_dso != NULL) {
-        sdfm.OpenDevice = DSO_bind_func(sdf_dso, "SDF_OpenDevice");
-        sdfm.CloseDevice = DSO_bind_func(sdf_dso, "SDF_CloseDevice");
-        sdfm.OpenSession = DSO_bind_func(sdf_dso, "SDF_OpenSession");
-        sdfm.CloseSession = DSO_bind_func(sdf_dso, "SDF_CloseSession");
-        sdfm.GenerateRandom = DSO_bind_func(sdf_dso, "SDF_GenerateRandom");
-        sdfm.GetPrivateKeyAccessRight = DSO_bind_func(sdf_dso, "SDF_GetPrivateKeyAccessRight");
-        sdfm.ReleasePrivateKeyAccessRight = DSO_bind_func(sdf_dso, "SDF_ReleasePrivateKeyAccessRight");
-        sdfm.ImportKeyWithISK_ECC = DSO_bind_func(sdf_dso, "SDF_ImportKeyWithISK_ECC");
-        sdfm.ImportKeyWithKEK = DSO_bind_func(sdf_dso, "SDF_ImportKeyWithKEK");
-        sdfm.ExportSignPublicKey_ECC = DSO_bind_func(sdf_dso, "SDF_ExportSignPublicKey_ECC");
-        sdfm.ExportEncPublicKey_ECC = DSO_bind_func(sdf_dso, "SDF_ExportEncPublicKey_ECC");
-        sdfm.ExportSignPublicKey_RSA = DSO_bind_func(sdf_dso, "SDF_ExportSignPublicKey_RSA");
-        sdfm.ExportSignPublicKey_RSAEx = DSO_bind_func(sdf_dso, "SDF_ExportSignPublicKey_RSAEx");
-        sdfm.ExportEncPublicKey_RSA = DSO_bind_func(sdf_dso, "SDF_ExportEncPublicKey_RSA");
-        sdfm.ExportEncPublicKey_RSAEx = DSO_bind_func(sdf_dso, "SDF_ExportEncPublicKey_RSAEx");
-        sdfm.DestroyKey = DSO_bind_func(sdf_dso, "SDF_DestroyKey");
-        sdfm.InternalPublicKeyOperation_RSA = DSO_bind_func(sdf_dso, "SDF_InternalPublicKeyOperation_RSA");
-        sdfm.InternalPrivateKeyOperation_RSA = DSO_bind_func(sdf_dso, "SDF_InternalPrivateKeyOperation_RSA");
-        sdfm.InternalPublicKeyOperation_RSA_Ex = DSO_bind_func(sdf_dso, "SDF_InternalPublicKeyOperation_RSA_Ex");
-        sdfm.InternalPrivateKeyOperation_RSA_Ex = DSO_bind_func(sdf_dso, "SDF_InternalPrivateKeyOperation_RSA_Ex");
-        sdfm.InternalEncrypt_ECC = DSO_bind_func(sdf_dso, "SDF_InternalEncrypt_ECC");
-        sdfm.InternalDecrypt_ECC = DSO_bind_func(sdf_dso, "SDF_InternalDecrypt_ECC");
-        sdfm.InternalSign_ECC = DSO_bind_func(sdf_dso, "SDF_InternalSign_ECC");
-        sdfm.Encrypt = DSO_bind_func(sdf_dso, "SDF_Encrypt");
-        sdfm.Decrypt = DSO_bind_func(sdf_dso, "SDF_Decrypt");
-        sdfm.CalculateMAC = DSO_bind_func(sdf_dso, "SDF_CalculateMAC");
+        sdfm.OpenDevice = (SDF_OpenDevice_fn)DSO_bind_func(sdf_dso, "SDF_OpenDevice");
+        sdfm.CloseDevice = (SDF_CloseDevice_fn)DSO_bind_func(sdf_dso, "SDF_CloseDevice");
+        sdfm.OpenSession = (SDF_OpenSession_fn)DSO_bind_func(sdf_dso, "SDF_OpenSession");
+        sdfm.CloseSession = (SDF_CloseSession_fn)DSO_bind_func(sdf_dso, "SDF_CloseSession");
+        sdfm.GenerateRandom = (SDF_GenerateRandom_fn)DSO_bind_func(sdf_dso, "SDF_GenerateRandom");
+        sdfm.GetPrivateKeyAccessRight = (SDF_GetPrivateKeyAccessRight_fn)DSO_bind_func(sdf_dso, "SDF_GetPrivateKeyAccessRight");
+        sdfm.ReleasePrivateKeyAccessRight = (SDF_ReleasePrivateKeyAccessRight_fn)DSO_bind_func(sdf_dso, "SDF_ReleasePrivateKeyAccessRight");
+        sdfm.ImportKeyWithISK_ECC = (SDF_ImportKeyWithISK_ECC_fn)DSO_bind_func(sdf_dso, "SDF_ImportKeyWithISK_ECC");
+        sdfm.ImportKeyWithKEK = (SDF_ImportKeyWithKEK_fn)DSO_bind_func(sdf_dso, "SDF_ImportKeyWithKEK");
+        sdfm.ExportSignPublicKey_ECC = (SDF_ExportSignPublicKey_ECC_fn)DSO_bind_func(sdf_dso, "SDF_ExportSignPublicKey_ECC");
+        sdfm.ExportEncPublicKey_ECC = (SDF_ExportEncPublicKey_ECC_fn)DSO_bind_func(sdf_dso, "SDF_ExportEncPublicKey_ECC");
+        sdfm.ExportSignPublicKey_RSA = (SDF_ExportSignPublicKey_RSA_fn)DSO_bind_func(sdf_dso, "SDF_ExportSignPublicKey_RSA");
+        sdfm.ExportSignPublicKey_RSAEx = (SDF_ExportSignPublicKey_RSAEx_fn)DSO_bind_func(sdf_dso, "SDF_ExportSignPublicKey_RSAEx");
+        sdfm.ExportEncPublicKey_RSA = (SDF_ExportEncPublicKey_RSA_fn)DSO_bind_func(sdf_dso, "SDF_ExportEncPublicKey_RSA");
+        sdfm.ExportEncPublicKey_RSAEx = (SDF_ExportEncPublicKey_RSAEx_fn)DSO_bind_func(sdf_dso, "SDF_ExportEncPublicKey_RSAEx");
+        sdfm.DestroyKey = (SDF_DestroyKey_fn)DSO_bind_func(sdf_dso, "SDF_DestroyKey");
+        sdfm.InternalPublicKeyOperation_RSA = (SDF_InternalPublicKeyOperation_RSA_fn)DSO_bind_func(sdf_dso, "SDF_InternalPublicKeyOperation_RSA");
+        sdfm.InternalPrivateKeyOperation_RSA = (SDF_InternalPrivateKeyOperation_RSA_fn)DSO_bind_func(sdf_dso, "SDF_InternalPrivateKeyOperation_RSA");
+        sdfm.InternalPublicKeyOperation_RSA_Ex = (SDF_InternalPublicKeyOperation_RSA_Ex_fn)DSO_bind_func(sdf_dso, "SDF_InternalPublicKeyOperation_RSA_Ex");
+        sdfm.InternalPrivateKeyOperation_RSA_Ex = (SDF_InternalPrivateKeyOperation_RSA_Ex_fn)DSO_bind_func(sdf_dso, "SDF_InternalPrivateKeyOperation_RSA_Ex");
+        sdfm.InternalEncrypt_ECC = (SDF_InternalEncrypt_ECC_fn)DSO_bind_func(sdf_dso, "SDF_InternalEncrypt_ECC");
+        sdfm.InternalDecrypt_ECC = (SDF_InternalDecrypt_ECC_fn)DSO_bind_func(sdf_dso, "SDF_InternalDecrypt_ECC");
+        sdfm.InternalSign_ECC = (SDF_InternalSign_ECC_fn)DSO_bind_func(sdf_dso, "SDF_InternalSign_ECC");
+        sdfm.Encrypt = (SDF_Encrypt_fn)DSO_bind_func(sdf_dso, "SDF_Encrypt");
+        sdfm.Decrypt = (SDF_Decrypt_fn)DSO_bind_func(sdf_dso, "SDF_Decrypt");
+        sdfm.CalculateMAC = (SDF_CalculateMAC_fn)DSO_bind_func(sdf_dso, "SDF_CalculateMAC");
 
         /* SDFE_GenerateKey 是扩展函数，部分厂商 DLL 不提供，绑定失败不影响基本功能 */
         ERR_set_mark();
-        sdfm.GenerateKey = DSO_bind_func(sdf_dso, "SDFE_GenerateKey");
-        sdfm.GenerateAgreementDataWithECCEx = DSO_bind_func(sdf_dso, "SDF_GenerateAgreementDataWithECCEx");
-        sdfm.GenerateKeyWithECCEx = DSO_bind_func(sdf_dso, "SDF_GenerateKeyWithECCEx");
-        sdfm.GenerateAgreementDataAndKeyWithECCEx = DSO_bind_func(sdf_dso, "SDF_GenerateAgreementDataAndKeyWithECCEx");
+        sdfm.GenerateKey = (SDF_GenerateKey_fn)DSO_bind_func(sdf_dso, "SDFE_GenerateKey");
+        sdfm.GenerateAgreementDataWithECCEx = (SDF_GenerateAgreementDataWithECCEx_fn)DSO_bind_func(sdf_dso, "SDF_GenerateAgreementDataWithECCEx");
+        sdfm.GenerateKeyWithECCEx = (SDF_GenerateKeyWithECCEx_fn)DSO_bind_func(sdf_dso, "SDF_GenerateKeyWithECCEx");
+        sdfm.GenerateAgreementDataAndKeyWithECCEx = (SDF_GenerateAgreementDataAndKeyWithECCEx_fn)DSO_bind_func(sdf_dso, "SDF_GenerateAgreementDataAndKeyWithECCEx");
         /* BYCSM_LoadModule 是厂商特定接口，部分厂商 DLL 不提供，绑定失败不影响基本功能 */
-        sdfm.LoadModule = DSO_bind_func(sdf_dso, "BYCSM_LoadModule");
+        sdfm.LoadModule = (SDFE_LoadModule_fn)DSO_bind_func(sdf_dso, "BYCSM_LoadModule");
         ERR_pop_to_mark();
+
+        if (sdf_preload_use_load_module && sdfm.LoadModule != NULL
+                && sdf_preload_password != NULL
+                && sdfm.LoadModule(sdf_preload_password) != 0) {
+#  ifdef _WIN32
+            ossl_sdf_pop_dll_dir(saved_cwd);
+#  endif
+            DSO_free(sdf_dso);
+            sdf_dso = NULL;
+            memset(&sdfm, 0, sizeof(sdfm));
+            return 0;
+        }
     }
+#  ifdef _WIN32
+    ossl_sdf_pop_dll_dir(saved_cwd);
+#  endif
 # else
     sdfm.OpenDevice = SDF_OpenDevice;
     sdfm.CloseDevice = SDF_CloseDevice;
@@ -235,14 +359,69 @@ DEFINE_RUN_ONCE_STATIC(ossl_sdf_lib_init)
 }
 #endif
 
+/* 释放 SDF 框架层资源（DSO 句柄、预加载参数） */
 void ossl_sdf_lib_cleanup(void)
 {
 #ifdef SDF_LIB_SHARED
     DSO_free(sdf_dso);
     sdf_dso = NULL;
 #endif
+    OPENSSL_free(sdf_preload_path);
+    sdf_preload_path = NULL;
+    OPENSSL_free(sdf_preload_password);
+    sdf_preload_password = NULL;
 }
 
+/*
+ * 预加载厂商库（由 SDF Provider 的 init_device 调用）
+ *
+ * 设置厂商库路径、密码、是否调用 BYCSM_LoadModule，
+ * 然后触发 RUN_ONCE 执行实际加载。
+ *
+ * 参数：
+ *   path            - 厂商库路径（如 "byzk0018.dll"），为 NULL 时用默认名
+ *   password        - BYCSM_LoadModule 的模块密码（如 "88888888"）
+ *   use_load_module - 是否调用 BYCSM_LoadModule（1=调用，博雅等厂商需要）
+ * 返回：1=成功，0=失败
+ */
+int ossl_sdf_lib_preload(const char *path, const char *password,
+                         int use_load_module)
+{
+#ifdef SDF_LIB
+# ifdef SDF_LIB_SHARED
+    if (sdf_dso != NULL)
+        return 1;
+
+    if (path != NULL && sdf_preload_path == NULL) {
+        sdf_preload_path = OPENSSL_strdup(path);
+        if (sdf_preload_path == NULL)
+            return 0;
+    }
+
+    if (password != NULL && sdf_preload_password == NULL) {
+        sdf_preload_password = OPENSSL_strdup(password);
+        if (sdf_preload_password == NULL)
+            return 0;
+    }
+
+    sdf_preload_use_load_module = use_load_module;
+
+    if (!RUN_ONCE(&sdf_lib_once, ossl_sdf_lib_init))
+        return 0;
+# else
+    (void)path;
+    (void)password;
+    (void)use_load_module;
+# endif
+#else
+    (void)path;
+    (void)password;
+    (void)use_load_module;
+#endif
+    return 1;
+}
+
+/* 获取 SDF_METHOD 函数指针表（所有 TSAPI_SDF_* 接口通过它转发） */
 static const SDF_METHOD *sdf_get_method(void)
 {
     const SDF_METHOD *meth = &ts_sdf_meth;
@@ -255,6 +434,12 @@ static const SDF_METHOD *sdf_get_method(void)
     return meth;
 }
 
+/*
+ * 以下 TSAPI_SDF_* 函数是标准 SDF API 的统一转发层。
+ * 每个函数通过 sdf_get_method() 获取函数指针表（ts_sdf_meth），
+ * 再通过函数指针调用厂商库中的真实实现。
+ * 如果函数指针为 NULL（厂商库不支持该接口），返回 OSSL_SDR_NOTSUPPORT。
+ */
 int TSAPI_SDF_OpenDevice(void **phDeviceHandle)
 {
     const SDF_METHOD *meth = sdf_get_method();

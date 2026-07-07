@@ -52,9 +52,10 @@
 /* Helper macro for printing hex data */
 #ifdef TLOG_ENABLE_DEBUG
 # define TLOG_HEX(level, desc, data, len) do { \
-    fprintf(stderr, "[%s] %s (%zu bytes): ", level, desc, (size_t)(len)); \
-    for (size_t _i = 0; _i < len; _i++) { \
-        fprintf(stderr, "%02X ", ((unsigned char*)(data))[_i]); \
+    size_t _i; \
+    fprintf(stderr, "[%s] %s (%lu bytes): ", level, desc, (unsigned long)(len)); \
+    for (_i = 0; _i < (size_t)(len); _i++) { \
+        fprintf(stderr, "%02X ", ((const unsigned char *)(data))[_i]); \
     } \
     fprintf(stderr, "\n"); \
 } while(0)

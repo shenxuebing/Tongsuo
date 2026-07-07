@@ -82,6 +82,14 @@ static EC_KEY *evp_pkey_to_ec_key(EVP_PKEY *pkey)
     return (EC_KEY *)EVP_PKEY_get0_EC_KEY(pkey);
 }
 
+/*
+ * SM2DH 密钥协商 derive：计算共享密钥
+ *
+ * 三条路径（按优先级）：
+ *   1. 硬件协商路径（has_agreement=1）：用 SDF_GenerateKeyWithECCEx 硬件计算
+ *   2. 完整 4 密钥协商（enc_k + enc_peerk 都有）：SM2_compute_key 软件计算
+ *   3. 简化 ECDH 模式：仅临时密钥 ECDH_compute_key
+ */
 static int sdfprov_sm2dh_derive(void *vctx, unsigned char *secret,
                                  size_t *psecretlen, size_t outlen)
 {
@@ -122,13 +130,13 @@ static int sdfprov_sm2dh_derive(void *vctx, unsigned char *secret,
                 && sdfprov_ec_key_to_eccrefpub(ctx->peerk->ec_key, &peer_tmp_pub)) {
 
             SDFPROV_CTX *sdfctx = sdfprov_get_global_ctx();
-            if (sdfctx == NULL || sdfctx->sdfList.GenerateKeyWithECCEx == NULL) {
+            if (sdfctx == NULL) {
                 ERR_raise(ERR_LIB_PROV, PROV_R_FAILED_TO_GENERATE_KEY);
                 return 0;
             }
 
             secret_len = (unsigned int)outlen;
-            ret = sdfctx->sdfList.GenerateKeyWithECCEx(
+            ret = TSAPI_SDF_GenerateKeyWithECCEx(
                 ctx->k->hSession,
                 ctx->peer_id != NULL ? ctx->peer_id : sm2_default_id,
                 (unsigned int)(ctx->peer_id != NULL ? ctx->peer_id_len
@@ -141,8 +149,8 @@ static int sdfprov_sm2dh_derive(void *vctx, unsigned char *secret,
                 &key_handle);
 
             if (ret == OSSL_SDR_OK) {
-                if (key_handle != NULL && sdfctx->sdfList.DestroyKey != NULL)
-                    sdfctx->sdfList.DestroyKey(ctx->k->hSession, key_handle);
+                if (key_handle != NULL)
+                    TSAPI_SDF_DestroyKey(ctx->k->hSession, key_handle);
                 *psecretlen = secret_len;
                 TLOG_DEBUG("sm2dh_derive: hardware agreement ok, secret_len=%u", secret_len);
                 return 1;

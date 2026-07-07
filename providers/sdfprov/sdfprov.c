@@ -159,9 +159,6 @@ static const OSSL_ALGORITHM *sdfprov_query(void *provctx, int operation_id,
 
 static void sdfprov_teardown(void *provctx)
 {
-    sdfprov_ctx_free(g_sdfctx);
-    g_sdfctx = NULL;
-
     if (provctx != NULL) {
         ossl_prov_ctx_free(provctx);
     }

@@ -11,11 +11,38 @@
 #include <openssl/err.h>
 #include <openssl/rsa.h>
 #include <openssl/proverr.h>
+#include <openssl/sdf.h>
 #include "internal/tlog.h"
 #include "prov/provider_ctx.h"
 #include "sdfprov_internal.h"
 #include "sdfprov_ctx.h"
 #include "sdfprov_utils.h"
+
+/*
+ * 获取 RSA 密钥位数（优先从 RSA 对象取，取不到用缓存值）。
+ * 缓存值 rsa_bits 在 rsa_load 时赋值，用于 key->rsa==NULL 的场景。
+ */
+static int sdfprov_rsa_bits(const SDF_SM2_KEY *key)
+{
+    if (key == NULL)
+        return 0;
+    if (key->rsa != NULL)
+        return RSA_bits(key->rsa);
+    return key->rsa_bits;
+}
+
+/*
+ * 获取 RSA 签名/密文长度（优先从 RSA 对象取，取不到用缓存值）。
+ * 缓存值 rsa_size 在 rsa_load 时赋值，用于 key->rsa==NULL 的场景。
+ */
+static int sdfprov_rsa_size(const SDF_SM2_KEY *key)
+{
+    if (key == NULL)
+        return 0;
+    if (key->rsa != NULL)
+        return RSA_size(key->rsa);
+    return key->rsa_size;
+}
 
 static void *sdfprov_rsa_newdata(void *provctx)
 {
@@ -44,13 +71,16 @@ static int sdfprov_rsa_has(const void *keydata, int selection)
     const BIGNUM *n = NULL;
     const BIGNUM *e = NULL;
 
-    if (key == NULL || key->rsa == NULL)
+    if (key == NULL)
         return 0;
 
-    RSA_get0_key(key->rsa, &n, &e, NULL);
-    if ((selection & OSSL_KEYMGMT_SELECT_PUBLIC_KEY) != 0
-        && (n == NULL || e == NULL))
-        return 0;
+    if ((selection & OSSL_KEYMGMT_SELECT_PUBLIC_KEY) != 0) {
+        if (key->rsa == NULL)
+            return 0;
+        RSA_get0_key(key->rsa, &n, &e, NULL);
+        if (n == NULL || e == NULL)
+            return 0;
+    }
 
     if ((selection & OSSL_KEYMGMT_SELECT_PRIVATE_KEY) != 0
         && !key->is_hardware_key)
@@ -66,16 +96,19 @@ static int sdfprov_rsa_get_params(void *keydata, OSSL_PARAM params[])
     int bits;
     const BIGNUM *n = NULL, *e = NULL;
 
-    if (key == NULL || key->rsa == NULL)
+    if (key == NULL)
         return 0;
 
-    bits = RSA_bits(key->rsa);
+    bits = sdfprov_rsa_bits(key);
+    if (bits <= 0)
+        bits = 2048;
 
     if ((p = OSSL_PARAM_locate(params, OSSL_PKEY_PARAM_BITS)) != NULL
         && !OSSL_PARAM_set_int(p, bits))
         return 0;
     if ((p = OSSL_PARAM_locate(params, OSSL_PKEY_PARAM_MAX_SIZE)) != NULL
-        && !OSSL_PARAM_set_int(p, RSA_size(key->rsa)))
+        && !OSSL_PARAM_set_int(p, sdfprov_rsa_size(key) > 0
+                                  ? sdfprov_rsa_size(key) : 256))
         return 0;
     if ((p = OSSL_PARAM_locate(params, OSSL_PKEY_PARAM_SECURITY_BITS)) != NULL
         && !OSSL_PARAM_set_int(p, bits >= 4096 ? 152 : (bits >= 3072 ? 128 : 112)))
@@ -95,13 +128,15 @@ static int sdfprov_rsa_get_params(void *keydata, OSSL_PARAM params[])
      * - X509_check_private_key / EVP_PKEY_eq 需要这些参数做跨 provider 比较
      * - PKCS7 数字信封解密前会用证书校验私钥匹配性
      */
-    RSA_get0_key(key->rsa, &n, &e, NULL);
-    if ((p = OSSL_PARAM_locate(params, OSSL_PKEY_PARAM_RSA_N)) != NULL
-        && !OSSL_PARAM_set_BN(p, n))
-        return 0;
-    if ((p = OSSL_PARAM_locate(params, OSSL_PKEY_PARAM_RSA_E)) != NULL
-        && !OSSL_PARAM_set_BN(p, e))
-        return 0;
+    if (key->rsa != NULL) {
+        RSA_get0_key(key->rsa, &n, &e, NULL);
+        if ((p = OSSL_PARAM_locate(params, OSSL_PKEY_PARAM_RSA_N)) != NULL
+            && !OSSL_PARAM_set_BN(p, n))
+            return 0;
+        if ((p = OSSL_PARAM_locate(params, OSSL_PKEY_PARAM_RSA_E)) != NULL
+            && !OSSL_PARAM_set_BN(p, e))
+            return 0;
+    }
 
     return 1;
 }
@@ -194,6 +229,43 @@ static const OSSL_PARAM *sdfprov_rsa_export_types(int selection)
     return params;
 }
 
+static int sdfprov_rsa_try_export_pubkey(void *hSession, unsigned int key_index,
+                                         int key_type, RSA **rsa)
+{
+    OSSL_RSArefPublicKey pub;
+    OSSL_RSArefPublicKeyEx pub_ex;
+    int ret;
+
+    memset(&pub, 0, sizeof(pub));
+    memset(&pub_ex, 0, sizeof(pub_ex));
+
+    if (key_type == 0) {
+        ret = TSAPI_SDF_ExportSignPublicKey_RSA(hSession, key_index, &pub);
+        if (ret == OSSL_SDR_OK)
+            return sdfprov_rsa_pubkey_to_rsa(&pub, rsa) ? OSSL_SDR_OK
+                                                        : OSSL_SDR_OUTARGERR;
+
+        TLOG_DEBUG("rsa_load: ExportSignPublicKey_RSA failed ret=0x%08x, trying Ex", ret);
+        ret = TSAPI_SDF_ExportSignPublicKey_RSAEx(hSession, key_index, &pub_ex);
+        if (ret == OSSL_SDR_OK)
+            return sdfprov_rsa_pubkeyex_to_rsa(&pub_ex, rsa) ? OSSL_SDR_OK
+                                                             : OSSL_SDR_OUTARGERR;
+    } else {
+        ret = TSAPI_SDF_ExportEncPublicKey_RSA(hSession, key_index, &pub);
+        if (ret == OSSL_SDR_OK)
+            return sdfprov_rsa_pubkey_to_rsa(&pub, rsa) ? OSSL_SDR_OK
+                                                        : OSSL_SDR_OUTARGERR;
+
+        TLOG_DEBUG("rsa_load: ExportEncPublicKey_RSA failed ret=0x%08x, trying Ex", ret);
+        ret = TSAPI_SDF_ExportEncPublicKey_RSAEx(hSession, key_index, &pub_ex);
+        if (ret == OSSL_SDR_OK)
+            return sdfprov_rsa_pubkeyex_to_rsa(&pub_ex, rsa) ? OSSL_SDR_OK
+                                                             : OSSL_SDR_OUTARGERR;
+    }
+
+    return ret;
+}
+
 static void *sdfprov_rsa_load(const void *reference, size_t reference_sz)
 {
     SDF_SM2_KEY *key = NULL;
@@ -201,8 +273,6 @@ static void *sdfprov_rsa_load(const void *reference, size_t reference_sz)
     SDFPROV_KEY_URI uri_info;
     char *ref = NULL;
     void *hSession;
-    OSSL_RSArefPublicKey pub;
-    OSSL_RSArefPublicKeyEx pub_ex;
     RSA *rsa = NULL;
     int ret;
 
@@ -246,48 +316,20 @@ static void *sdfprov_rsa_load(const void *reference, size_t reference_sz)
                uri_info.key_index, uri_info.key_type,
                uri_info.external_session, hSession);
 
-    memset(&pub, 0, sizeof(pub));
-    memset(&pub_ex, 0, sizeof(pub_ex));
-
     SDFPROV_CTX *sdfctx = sdfprov_get_global_ctx();
     if (sdfctx == NULL) {
         return 0;
     }
 
-    if (uri_info.key_type == 0) {
-        if (sdfctx->sdfList.ExportSignPublicKey_RSA != NULL) {
-            ret = sdfctx->sdfList.ExportSignPublicKey_RSA(hSession, uri_info.key_index, &pub);
-            if (ret == OSSL_SDR_OK)
-                ret = sdfprov_rsa_pubkey_to_rsa(&pub, &rsa) ? OSSL_SDR_OK : OSSL_SDR_OUTARGERR;
-        }
-        if (ret != OSSL_SDR_OK && sdfctx->sdfList.ExportSignPublicKey_RSAEx != NULL) {
-            TLOG_DEBUG("rsa_load: ExportSignPublicKey_RSA failed ret=0x%08x, trying Ex", ret);
-            ret = sdfctx->sdfList.ExportSignPublicKey_RSAEx(hSession, uri_info.key_index, &pub_ex);
-            if (ret == OSSL_SDR_OK && !sdfprov_rsa_pubkeyex_to_rsa(&pub_ex, &rsa))
-                ret = OSSL_SDR_OUTARGERR;
-        }
-    } else {
-        if (sdfctx->sdfList.ExportEncPublicKey_RSA != NULL) {
-            ret = sdfctx->sdfList.ExportEncPublicKey_RSA(hSession, uri_info.key_index, &pub);
-            if (ret == OSSL_SDR_OK)
-                ret = sdfprov_rsa_pubkey_to_rsa(&pub, &rsa) ? OSSL_SDR_OK : OSSL_SDR_OUTARGERR;
-        }
-        if (ret != OSSL_SDR_OK && sdfctx->sdfList.ExportEncPublicKey_RSAEx != NULL) {
-            TLOG_DEBUG("rsa_load: ExportEncPublicKey_RSA failed ret=0x%08x, trying Ex", ret);
-            ret = sdfctx->sdfList.ExportEncPublicKey_RSAEx(hSession, uri_info.key_index, &pub_ex);
-            if (ret == OSSL_SDR_OK && !sdfprov_rsa_pubkeyex_to_rsa(&pub_ex, &rsa))
-                ret = OSSL_SDR_OUTARGERR;
-        }
-    }
+    ret = sdfprov_rsa_try_export_pubkey(hSession, uri_info.key_index,
+                                        uri_info.key_type, &rsa);
+    if (ret == OSSL_SDR_KEYNOTEXIST) {
+        int alt_key_type = uri_info.key_type == 0 ? 1 : 0;
 
-    if (ret != OSSL_SDR_OK || rsa == NULL) {
-        TLOG_ERROR("rsa_load: export public key failed key_index=%u type=%d ret=0x%08x",
-                   uri_info.key_index, uri_info.key_type, ret);
-        ERR_raise_data(ERR_LIB_PROV, PROV_R_FAILED_TO_DECRYPT,
-                       "rsa public key export failed: key_index=%u type=%d ret=0x%08x",
-                       uri_info.key_index, uri_info.key_type, ret);
-        sdfprov_key_uri_cleanup(&uri_info);
-        return NULL;
+        TLOG_DEBUG("rsa_load: key_type=%d export returned KEYNOTEXIST, trying alternate key_type=%d",
+                   uri_info.key_type, alt_key_type);
+        ret = sdfprov_rsa_try_export_pubkey(hSession, uri_info.key_index,
+                                            alt_key_type, &rsa);
     }
 
     key = OPENSSL_zalloc(sizeof(*key));
@@ -300,6 +342,8 @@ static void *sdfprov_rsa_load(const void *reference, size_t reference_sz)
 
     key->libctx = gctx != NULL ? gctx->libctx : NULL;
     key->rsa = rsa;
+    key->rsa_bits = rsa != NULL ? RSA_bits(rsa) : 0;
+    key->rsa_size = rsa != NULL ? RSA_size(rsa) : 0;
     key->algo = SDF_ALGO_RSA;
     key->is_hardware_key = 1;
     key->key_index = uri_info.key_index;
@@ -308,6 +352,11 @@ static void *sdfprov_rsa_load(const void *reference, size_t reference_sz)
     key->external_session = uri_info.external_session;
     key->key_password = uri_info.key_password;
     uri_info.key_password = NULL;
+
+    if (rsa == NULL) {
+        TLOG_DEBUG("rsa_load: continue without exported public key key_index=%u type=%d ret=0x%08x",
+                   uri_info.key_index, uri_info.key_type, ret);
+    }
 
     sdfprov_key_uri_cleanup(&uri_info);
     return key;
@@ -323,8 +372,14 @@ static int sdfprov_rsa_match(const void *keydata1, const void *keydata2,
 
     (void)selection;
 
-    if (key1 == NULL || key2 == NULL || key1->rsa == NULL || key2->rsa == NULL)
+    if (key1 == NULL || key2 == NULL)
         return 0;
+
+    if (key1->rsa == NULL || key2->rsa == NULL) {
+        if (key1->is_hardware_key || key2->is_hardware_key)
+            return 1;
+        return 0;
+    }
 
     RSA_get0_key(key1->rsa, &n1, &e1, NULL);
     RSA_get0_key(key2->rsa, &n2, &e2, NULL);
@@ -338,7 +393,7 @@ static int sdfprov_rsa_validate(const void *keydata, int selection, int checktyp
     (void)selection;
     (void)checktype;
 
-    return key != NULL && key->rsa != NULL;
+    return key != NULL && (key->rsa != NULL || key->is_hardware_key);
 }
 
 static const char *sdfprov_rsa_query_operation_name(int operation_id)

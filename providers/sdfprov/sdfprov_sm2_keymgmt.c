@@ -60,9 +60,7 @@ static void sdfprov_sm2_freedata(void *keydata)
 
     /* 释放 SDF 协商句柄 */
     if (key->agreement_handle != NULL && key->hSession != NULL) {
-        SDFPROV_CTX *sdfctx = sdfprov_get_global_ctx();
-        if (sdfctx != NULL && sdfctx->sdfList.DestroyKey != NULL)
-            sdfctx->sdfList.DestroyKey(key->hSession, key->agreement_handle);
+        TSAPI_SDF_DestroyKey(key->hSession, key->agreement_handle);
         key->agreement_handle = NULL;
     }
 
@@ -248,13 +246,13 @@ static void *sdfprov_sm2_gen(void *genctx, OSSL_CALLBACK *cb, void *cbarg)
             memset(&sponsor_pub, 0, sizeof(sponsor_pub));
             memset(&sponsor_tmp_pub, 0, sizeof(sponsor_tmp_pub));
 
-            if (sdfctx == NULL || sdfctx->sdfList.GenerateAgreementDataWithECCEx == NULL) {
+            if (sdfctx == NULL) {
                 EC_KEY_free(key->ec_key);
                 OPENSSL_free(key);
                 return NULL;
             }
 
-            ret = sdfctx->sdfList.GenerateAgreementDataWithECCEx(
+            ret = TSAPI_SDF_GenerateAgreementDataWithECCEx(
                 hSession,
                 key_index,
                 384,
@@ -326,8 +324,7 @@ static void *sdfprov_sm2_gen(void *genctx, OSSL_CALLBACK *cb, void *cbarg)
 
                 /* 硬件路径全部失败，释放协商句柄 */
                 if (agreement_handle != NULL && hSession != NULL) {
-                    if (sdfctx != NULL && sdfctx->sdfList.DestroyKey != NULL)
-                        sdfctx->sdfList.DestroyKey(hSession, agreement_handle);
+                    TSAPI_SDF_DestroyKey(hSession, agreement_handle);
                 }
             }
         }
@@ -754,16 +751,16 @@ static void *sdfprov_sm2_load(const void *reference, size_t reference_sz)
         return NULL;
     }
     if (key_type == 0) {
-        if (sdfctx->sdfList.ExportSignPublicKey_ECC == NULL
-            || (ret = sdfctx->sdfList.ExportSignPublicKey_ECC(hSession, key_index, &sdf_pub)) != OSSL_SDR_OK) {
+        ret = TSAPI_SDF_ExportSignPublicKey_ECC(hSession, key_index, &sdf_pub);
+        if (ret != OSSL_SDR_OK) {
             OPENSSL_free(key->key_password);
             EC_KEY_free(key->ec_key);
             OPENSSL_free(key);
             return NULL;
         }
     } else {
-        if (sdfctx->sdfList.ExportEncPublicKey_ECC == NULL
-            || (ret = sdfctx->sdfList.ExportEncPublicKey_ECC(hSession, key_index, &sdf_pub)) != OSSL_SDR_OK) {
+        ret = TSAPI_SDF_ExportEncPublicKey_ECC(hSession, key_index, &sdf_pub);
+        if (ret != OSSL_SDR_OK) {
             OPENSSL_free(key->key_password);
             EC_KEY_free(key->ec_key);
             OPENSSL_free(key);
@@ -792,6 +789,12 @@ static void *sdfprov_sm2_load(const void *reference, size_t reference_sz)
     return key;
 }
 
+/*
+ * KEYMGMT "load" 操作（key=value URI 风格）：从 STORE 传入的 reference 加载 SM2 硬件密钥
+ * reference 格式: "sdf:key=<index>;type=<sign|enc>;algo=sm2[;pwd=<password>]"
+ * 通过 SDF_ExportSignPublicKey_ECC / SDF_ExportEncPublicKey_ECC 导出公钥，
+ * 构造 SDF_SM2_KEY 返回（私钥不出卡，通过 key_index + hSession 标识）。
+ */
 static void *sdfprov_sm2_load_ex(const void *reference, size_t reference_sz)
 {
     SDF_SM2_KEY *key = NULL;
@@ -859,15 +862,9 @@ static void *sdfprov_sm2_load_ex(const void *reference, size_t reference_sz)
         return NULL;
     }
     if (key->key_type == 0) {
-        if (sdfctx->sdfList.ExportSignPublicKey_ECC == NULL)
-            ret = OSSL_SDR_NOTSUPPORT;
-        else
-            ret = sdfctx->sdfList.ExportSignPublicKey_ECC(hSession, key->key_index, &sdf_pub);
+        ret = TSAPI_SDF_ExportSignPublicKey_ECC(hSession, key->key_index, &sdf_pub);
     } else {
-        if (sdfctx->sdfList.ExportEncPublicKey_ECC == NULL)
-            ret = OSSL_SDR_NOTSUPPORT;
-        else
-            ret = sdfctx->sdfList.ExportEncPublicKey_ECC(hSession, key->key_index, &sdf_pub);
+        ret = TSAPI_SDF_ExportEncPublicKey_ECC(hSession, key->key_index, &sdf_pub);
     }
 
     if (ret != OSSL_SDR_OK

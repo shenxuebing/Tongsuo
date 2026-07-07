@@ -11,6 +11,8 @@
 # define OSSL_INTERNAL_SDF_H
 # pragma once
 
+int ossl_sdf_lib_preload(const char *path, const char *password,
+                         int use_load_module);
 void ossl_sdf_lib_cleanup(void);
 
 #endif
