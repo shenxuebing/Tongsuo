@@ -384,6 +384,16 @@ int main(int argc, char *argv[])
     BIO_free_all(bio_out);
     apps_shutdown();
     BIO_free_all(bio_err);
+#if !defined(_WIN32)
+    {
+        const char *sdf_fast_exit = getenv("SDF_FAST_EXIT");
+
+        if (sdf_fast_exit != NULL && strcmp(sdf_fast_exit, "1") == 0) {
+            fflush(NULL);
+            _exit(ret);
+        }
+    }
+#endif
     EXIT(ret);
 }
 

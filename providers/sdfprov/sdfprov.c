@@ -43,6 +43,26 @@ static OSSL_FUNC_core_get_libctx_fn *c_internal_get_libctx = NULL;
 /* Global SDF context (single provider instance) */
 static SDFPROV_CTX *g_sdfctx = NULL;
 
+static int sdfprov_dup_env_if_unset(char **dst, const char *envname,
+                                    const char *logname)
+{
+    const char *envval;
+
+    if (dst == NULL || *dst != NULL)
+        return 1;
+
+    envval = getenv(envname);
+    if (envval == NULL || *envval == '\0')
+        return 1;
+
+    *dst = OPENSSL_strdup(envval);
+    if (*dst == NULL)
+        return 0;
+
+    TLOG_DEBUG("Read %s from %s: %s", logname, envname, envval);
+    return 1;
+}
+
 SDFPROV_CTX *sdfprov_get_global_ctx(void)
 {
     return g_sdfctx;
@@ -263,13 +283,37 @@ int OSSL_provider_init_int(const OSSL_CORE_HANDLE *handle,
         }
     }
 
+    if (!sdfprov_dup_env_if_unset(&sdfctx->password, "SDF_MODULE_PASSWORD",
+                                  "password")
+            || !sdfprov_dup_env_if_unset(&sdfctx->sdf_lib_path, "SDF_LIB_PATH",
+                                         "lib_path")) {
+        goto err;
+    }
+
+    if (use_load_module_ptr == NULL) {
+        const char *env_use_loadmodule = getenv("SDF_USE_LOADMODULE");
+
+        if (env_use_loadmodule != NULL && *env_use_loadmodule != '\0') {
+            use_load_module_val = atoi(env_use_loadmodule);
+            TLOG_DEBUG("Read use_load_module from SDF_USE_LOADMODULE: %d",
+                       use_load_module_val);
+        }
+    }
+
     /* Default module password if not configured */
     if (sdfctx->password == NULL)
         sdfctx->password = OPENSSL_strdup("88888888");
 
     /* Default lib path if not configured */
     if (sdfctx->sdf_lib_path == NULL)
-        sdfctx->sdf_lib_path = OPENSSL_strdup("byzk0018.dll");
+        sdfctx->sdf_lib_path =
+#ifdef _WIN32
+            OPENSSL_strdup("byzk0018.dll");
+#else
+            OPENSSL_strdup("./libbyzk0018.so");
+#endif
+    if (sdfctx->password == NULL || sdfctx->sdf_lib_path == NULL)
+        goto err;
 
     /* 默认启用 BYCSM_LoadModule（兼容博雅等厂商）
      * use_load_module_val 初始为 1，c_get_params 成功时会被配置值覆盖

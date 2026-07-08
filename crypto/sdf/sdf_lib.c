@@ -8,8 +8,10 @@
  */
 
 #include <openssl/crypto.h>
+#include <openssl/err.h>
 #include <openssl/types.h>
 #include <openssl/sdf.h>
+#include <string.h>
 #ifdef _WIN32
 # include <windows.h>
 #endif
@@ -267,7 +269,13 @@ DEFINE_RUN_ONCE_STATIC(ossl_sdf_lib_init)
 
     sdf_dso = DSO_load(NULL,
                        sdf_preload_path != NULL ? sdf_preload_path : LIBSDF,
-                       NULL, 0);
+                       NULL,
+                       (sdf_preload_path != NULL
+                        ? DSO_FLAG_NO_NAME_TRANSLATION : 0)
+#  ifndef _WIN32
+                       | DSO_FLAG_NO_UNLOAD_ON_FREE
+#  endif
+                       );
     if (sdf_dso != NULL) {
         sdfm.OpenDevice = (SDF_OpenDevice_fn)DSO_bind_func(sdf_dso, "SDF_OpenDevice");
         sdfm.CloseDevice = (SDF_CloseDevice_fn)DSO_bind_func(sdf_dso, "SDF_CloseDevice");

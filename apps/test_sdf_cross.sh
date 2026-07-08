@@ -13,7 +13,17 @@
 # ============================================================
 set -u
 export OPENSSL_CONF="${OPENSSL_CONF:-$(pwd)/openssl.cnf}"
-OSSL="./openssl.exe"
+export SDF_LIB_PATH="${SDF_LIB_PATH:-$(pwd)/libbyzk0018.so}"
+export SDF_MODULE_PASSWORD="${SDF_MODULE_PASSWORD:-88888888}"
+export SDF_USE_LOADMODULE="${SDF_USE_LOADMODULE:-1}"
+if [ -x ./openssl ]; then
+    OSSL=./openssl
+elif [ -x ./openssl.exe ]; then
+    OSSL=./openssl.exe
+else
+    echo "FAIL: cannot find ./openssl or ./openssl.exe"
+    exit 1
+fi
 CERTS="../test/certs"
 TMP="/tmp/sdf_cross"
 mkdir -p "$TMP"
