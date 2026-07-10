@@ -87,9 +87,25 @@ typedef int (*SDF_InternalPublicKeyOperation_RSA_fn)(void *hSessionHandle,
     unsigned int uiKeyIndex, unsigned char *pucDataInput,
     unsigned int uiInputLength, unsigned char *pucDataOutput,
     unsigned int *puiOutputLength);
+typedef int (*SDF_ExternalPublicKeyOperation_RSA_fn)(void *hSessionHandle,
+    OSSL_RSArefPublicKey *pucPublicKey, unsigned char *pucDataInput,
+    unsigned int uiInputLength, unsigned char *pucDataOutput,
+    unsigned int *puiOutputLength);
+typedef int (*SDF_ExternalPublicKeyOperation_RSAEx_fn)(void *hSessionHandle,
+    OSSL_RSArefPublicKeyEx *pucPublicKey, unsigned char *pucDataInput,
+    unsigned int uiInputLength, unsigned char *pucDataOutput,
+    unsigned int *puiOutputLength);
 
 typedef int (*SDF_InternalPrivateKeyOperation_RSA_fn)(void *hSessionHandle,
     unsigned int uiKeyIndex, unsigned char *pucDataInput,
+    unsigned int uiInputLength, unsigned char *pucDataOutput,
+    unsigned int *puiOutputLength);
+typedef int (*SDF_ExternalPrivateKeyOperation_RSA_fn)(void *hSessionHandle,
+    OSSL_RSArefPrivateKey *pucPrivateKey, unsigned char *pucDataInput,
+    unsigned int uiInputLength, unsigned char *pucDataOutput,
+    unsigned int *puiOutputLength);
+typedef int (*SDF_ExternalPrivateKeyOperation_RSAEx_fn)(void *hSessionHandle,
+    OSSL_RSArefPrivateKeyEx *pucPrivateKey, unsigned char *pucDataInput,
     unsigned int uiInputLength, unsigned char *pucDataOutput,
     unsigned int *puiOutputLength);
 
@@ -203,9 +219,25 @@ typedef int (*_CP_SDF_InternalPublicKeyOperation_RSA)(void *hSessionHandle,
     unsigned int uiKeyIndex, unsigned char *pucDataInput,
     unsigned int uiInputLength, unsigned char *pucDataOutput,
     unsigned int *puiOutputLength);
+typedef int (*_CP_SDF_ExternalPublicKeyOperation_RSA)(void *hSessionHandle,
+    OSSL_RSArefPublicKey *pucPublicKey, unsigned char *pucDataInput,
+    unsigned int uiInputLength, unsigned char *pucDataOutput,
+    unsigned int *puiOutputLength);
+typedef int (*_CP_SDF_ExternalPublicKeyOperation_RSAEx)(void *hSessionHandle,
+    OSSL_RSArefPublicKeyEx *pucPublicKey, unsigned char *pucDataInput,
+    unsigned int uiInputLength, unsigned char *pucDataOutput,
+    unsigned int *puiOutputLength);
 
 typedef int (*_CP_SDF_InternalPrivateKeyOperation_RSA)(void *hSessionHandle,
     unsigned int uiKeyIndex, unsigned char *pucDataInput,
+    unsigned int uiInputLength, unsigned char *pucDataOutput,
+    unsigned int *puiOutputLength);
+typedef int (*_CP_SDF_ExternalPrivateKeyOperation_RSA)(void *hSessionHandle,
+    OSSL_RSArefPrivateKey *pucPrivateKey, unsigned char *pucDataInput,
+    unsigned int uiInputLength, unsigned char *pucDataOutput,
+    unsigned int *puiOutputLength);
+typedef int (*_CP_SDF_ExternalPrivateKeyOperation_RSAEx)(void *hSessionHandle,
+    OSSL_RSArefPrivateKeyEx *pucPrivateKey, unsigned char *pucDataInput,
     unsigned int uiInputLength, unsigned char *pucDataOutput,
     unsigned int *puiOutputLength);
 
@@ -264,7 +296,11 @@ typedef struct _SD_FUNCTION_LIST {
     _CP_SDF_ExportEncPublicKey_RSA ExportEncPublicKey_RSA;
     _CP_SDF_ExportEncPublicKey_RSAEx ExportEncPublicKey_RSAEx;
     _CP_SDF_DestroyKey DestroyKey;
+    _CP_SDF_ExternalPublicKeyOperation_RSA ExternalPublicKeyOperation_RSA;
+    _CP_SDF_ExternalPublicKeyOperation_RSAEx ExternalPublicKeyOperation_RSAEx;
     _CP_SDF_InternalPublicKeyOperation_RSA InternalPublicKeyOperation_RSA;
+    _CP_SDF_ExternalPrivateKeyOperation_RSA ExternalPrivateKeyOperation_RSA;
+    _CP_SDF_ExternalPrivateKeyOperation_RSAEx ExternalPrivateKeyOperation_RSAEx;
     _CP_SDF_InternalPrivateKeyOperation_RSA InternalPrivateKeyOperation_RSA;
     _CP_SDF_InternalPublicKeyOperation_RSA_Ex InternalPublicKeyOperation_RSA_Ex;
     _CP_SDF_InternalPrivateKeyOperation_RSA_Ex InternalPrivateKeyOperation_RSA_Ex;
@@ -297,7 +333,11 @@ struct sdf_method_st {
     SDF_ExportEncPublicKey_RSA_fn ExportEncPublicKey_RSA;
     SDF_ExportEncPublicKey_RSAEx_fn ExportEncPublicKey_RSAEx;
     SDF_DestroyKey_fn DestroyKey;
+    SDF_ExternalPublicKeyOperation_RSA_fn ExternalPublicKeyOperation_RSA;
+    SDF_ExternalPublicKeyOperation_RSAEx_fn ExternalPublicKeyOperation_RSAEx;
     SDF_InternalPublicKeyOperation_RSA_fn InternalPublicKeyOperation_RSA;
+    SDF_ExternalPrivateKeyOperation_RSA_fn ExternalPrivateKeyOperation_RSA;
+    SDF_ExternalPrivateKeyOperation_RSAEx_fn ExternalPrivateKeyOperation_RSAEx;
     SDF_InternalPrivateKeyOperation_RSA_fn InternalPrivateKeyOperation_RSA;
     SDF_InternalPublicKeyOperation_RSA_Ex_fn InternalPublicKeyOperation_RSA_Ex;
     SDF_InternalPrivateKeyOperation_RSA_Ex_fn InternalPrivateKeyOperation_RSA_Ex;

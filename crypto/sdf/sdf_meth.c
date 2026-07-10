@@ -150,8 +150,28 @@ static int x_InternalPublicKeyOperation_RSA(void *hSessionHandle,
     return OSSL_SDR_NOTSUPPORT;
 }
 
+static int x_ExternalPublicKeyOperation_RSA(void *hSessionHandle,
+                                            OSSL_RSArefPublicKey *pucPublicKey,
+                                            unsigned char *pucDataInput,
+                                            unsigned int uiInputLength,
+                                            unsigned char *pucDataOutput,
+                                            unsigned int *puiOutputLength)
+{
+    return OSSL_SDR_NOTSUPPORT;
+}
+
 static int x_InternalPrivateKeyOperation_RSA(void *hSessionHandle,
                                              unsigned int uiKeyIndex,
+                                             unsigned char *pucDataInput,
+                                             unsigned int uiInputLength,
+                                             unsigned char *pucDataOutput,
+                                             unsigned int *puiOutputLength)
+{
+    return OSSL_SDR_NOTSUPPORT;
+}
+
+static int x_ExternalPrivateKeyOperation_RSA(void *hSessionHandle,
+                                             OSSL_RSArefPrivateKey *pucPrivateKey,
                                              unsigned char *pucDataInput,
                                              unsigned int uiInputLength,
                                              unsigned char *pucDataOutput,
@@ -171,6 +191,16 @@ static int x_InternalPublicKeyOperation_RSA_Ex(void *hSessionHandle,
     return OSSL_SDR_NOTSUPPORT;
 }
 
+static int x_ExternalPublicKeyOperation_RSAEx(void *hSessionHandle,
+                                              OSSL_RSArefPublicKeyEx *pucPublicKey,
+                                              unsigned char *pucDataInput,
+                                              unsigned int uiInputLength,
+                                              unsigned char *pucDataOutput,
+                                              unsigned int *puiOutputLength)
+{
+    return OSSL_SDR_NOTSUPPORT;
+}
+
 static int x_InternalPrivateKeyOperation_RSA_Ex(void *hSessionHandle,
                                                 unsigned int uiKeyIndex,
                                                 unsigned int uiKeyUsage,
@@ -178,6 +208,16 @@ static int x_InternalPrivateKeyOperation_RSA_Ex(void *hSessionHandle,
                                                 unsigned int uiInputLength,
                                                 unsigned char *pucDataOutput,
                                                 unsigned int *puiOutputLength)
+{
+    return OSSL_SDR_NOTSUPPORT;
+}
+
+static int x_ExternalPrivateKeyOperation_RSAEx(void *hSessionHandle,
+                                               OSSL_RSArefPrivateKeyEx *pucPrivateKey,
+                                               unsigned char *pucDataInput,
+                                               unsigned int uiInputLength,
+                                               unsigned char *pucDataOutput,
+                                               unsigned int *puiOutputLength)
 {
     return OSSL_SDR_NOTSUPPORT;
 }
@@ -267,7 +307,11 @@ SDF_METHOD ts_sdf_meth = {
     x_ExportEncPublicKey_RSA,
     x_ExportEncPublicKey_RSAEx,
     x_DestroyKey,
+    x_ExternalPublicKeyOperation_RSA,
+    x_ExternalPublicKeyOperation_RSAEx,
     x_InternalPublicKeyOperation_RSA,
+    x_ExternalPrivateKeyOperation_RSA,
+    x_ExternalPrivateKeyOperation_RSAEx,
     x_InternalPrivateKeyOperation_RSA,
     x_InternalPublicKeyOperation_RSA_Ex,
     x_InternalPrivateKeyOperation_RSA_Ex,

@@ -3,13 +3,49 @@ chcp 65001 >nul 2>&1
 call "D:\Visual Studio 2022\VC\Auxiliary\Build\vcvarsall.bat" amd64 >nul 2>&1
 cd /d E:\vs2022workspace\Tongsuo\apps
 
+setlocal EnableDelayedExpansion
+set "RAW_ARGS=%*"
+:parse_args
+if "!RAW_ARGS!"=="" goto args_done
+for /f "tokens=1,* delims= " %%A in ("!RAW_ARGS!") do (
+    set "ONE_ARG=%%~A"
+    set "RAW_ARGS=%%~B"
+)
+for /f "tokens=1,* delims==" %%K in ("!ONE_ARG!") do (
+    if not "%%~L"=="" set "%%~K=%%~L"
+)
+goto parse_args
+:args_done
+
 set "OPENSSL_CONF=%CD%\openssl.cnf"
 set PASS=0
 set FAIL=0
 set NUM=0
 if not exist ..\ntls_out mkdir ..\ntls_out
-set "CERTS=..\test\certs\sm2"
-set "CAFILE=%CERTS%\chain-ca.crt"
+if "%CERTS%"=="" set "CERTS=..\test\certs\sm2"
+if "%CAFILE%"=="" set "CAFILE=%CERTS%\chain-ca.crt"
+if "%SERVER_CERT_PROFILE%"=="" set "SERVER_CERT_PROFILE=sm2"
+if "%CLIENT_CERT_PROFILE%"=="" set "CLIENT_CERT_PROFILE=sm2"
+
+if "%SERVER_SIGN_CERT%"=="" set "SERVER_SIGN_CERT=%CERTS%\server_sign.crt"
+if "%SERVER_ENC_CERT%"=="" set "SERVER_ENC_CERT=%CERTS%\server_enc.crt"
+if "%SERVER_SIGN_KEY%"=="" set "SERVER_SIGN_KEY=%CERTS%\server_sign.key"
+if "%SERVER_ENC_KEY%"=="" set "SERVER_ENC_KEY=%CERTS%\server_enc.key"
+
+if "%CLIENT_SIGN_CERT%"=="" set "CLIENT_SIGN_CERT=%CERTS%\client_sign.crt"
+if "%CLIENT_ENC_CERT%"=="" set "CLIENT_ENC_CERT=%CERTS%\client_enc.crt"
+if "%CLIENT_SIGN_KEY%"=="" set "CLIENT_SIGN_KEY=%CERTS%\client_sign.key"
+if "%CLIENT_ENC_KEY%"=="" set "CLIENT_ENC_KEY=%CERTS%\client_enc.key"
+
+if "%SERVER_HW_SIGN_IDX%"=="" set "SERVER_HW_SIGN_IDX=0"
+if "%SERVER_HW_ENC_IDX%"=="" set "SERVER_HW_ENC_IDX=0"
+if "%CLIENT_HW_SIGN_IDX%"=="" set "CLIENT_HW_SIGN_IDX=1"
+if "%CLIENT_HW_ENC_IDX%"=="" set "CLIENT_HW_ENC_IDX=1"
+
+call :apply_cert_profile server "%SERVER_CERT_PROFILE%"
+if errorlevel 1 exit /b 1
+call :apply_cert_profile client "%CLIENT_CERT_PROFILE%"
+if errorlevel 1 exit /b 1
 
 echo.
 echo ================================================================
@@ -124,18 +160,18 @@ set "CF=..\ntls_out\cli_%HP%.txt"
 :: 构建服务端命令
 set "SCMD=.\openssl.exe s_server -ntls -enable_ntls -accept %HP%"
 if "%SKT%"=="sw" (
-    set "SCMD=%SCMD% -sign_cert %CERTS%\server_sign.crt -enc_cert %CERTS%\server_enc.crt -sign_key %CERTS%\server_sign.key -enc_key %CERTS%\server_enc.key"
+    set "SCMD=%SCMD% -sign_cert %SERVER_SIGN_CERT% -enc_cert %SERVER_ENC_CERT% -sign_key %SERVER_SIGN_KEY% -enc_key %SERVER_ENC_KEY%"
 ) else (
-    set "SCMD=%SCMD% -sign_cert %CERTS%\server_sign.crt -enc_cert %CERTS%\server_enc.crt -sign_key sdf:key=0;type=sign -enc_key sdf:key=0;type=enc -provider sdfprov -provider default"
+    set "SCMD=%SCMD% -sign_cert %SERVER_SIGN_CERT% -enc_cert %SERVER_ENC_CERT% -sign_key sdf:key=%SERVER_HW_SIGN_IDX%;type=sign -enc_key sdf:key=%SERVER_HW_ENC_IDX%;type=enc -provider sdfprov -provider default"
 )
 set "SCMD=%SCMD% -www -CAfile %CAFILE% -cipher %HC%"
 
 :: 构建客户端命令
 set "CCMD=.\openssl.exe s_client -ntls -enable_ntls -connect 127.0.0.1:%HP%"
 if "%CKT%"=="sw" (
-    set "CCMD=%CCMD% -sign_cert %CERTS%\client_sign.crt -enc_cert %CERTS%\client_enc.crt -sign_key %CERTS%\client_sign.key -enc_key %CERTS%\client_enc.key"
+    set "CCMD=%CCMD% -sign_cert %CLIENT_SIGN_CERT% -enc_cert %CLIENT_ENC_CERT% -sign_key %CLIENT_SIGN_KEY% -enc_key %CLIENT_ENC_KEY%"
 ) else (
-    set "CCMD=%CCMD% -sign_cert %CERTS%\client_sign.crt -enc_cert %CERTS%\client_enc.crt -sign_key sdf:key=1;type=sign -enc_key sdf:key=1;type=enc -provider sdfprov -provider default"
+    set "CCMD=%CCMD% -sign_cert %CLIENT_SIGN_CERT% -enc_cert %CLIENT_ENC_CERT% -sign_key sdf:key=%CLIENT_HW_SIGN_IDX%;type=sign -enc_key sdf:key=%CLIENT_HW_ENC_IDX%;type=enc -provider sdfprov -provider default"
 )
 set "CCMD=%CCMD% -CAfile %CAFILE% -cipher %HC%"
 
@@ -191,3 +227,18 @@ if "%SKT%"=="hw" (
     ping -n 2 127.0.0.1 >nul 2>&1
 )
 goto :eof
+
+:apply_cert_profile
+set "APSIDE=%~1"
+set "APPROFILE=%~2"
+if "%APPROFILE%"=="" set "APPROFILE=sm2"
+if /I "%APPROFILE%"=="sm2" exit /b 0
+if /I "%APPROFILE%"=="rsa2048" goto :apply_cert_profile_unsupported
+if /I "%APPROFILE%"=="rsa3072" goto :apply_cert_profile_unsupported
+if /I "%APPROFILE%"=="rsa4096" goto :apply_cert_profile_unsupported
+echo FAIL: unknown %APSIDE% certificate profile "%APPROFILE%"
+exit /b 1
+
+:apply_cert_profile_unsupported
+echo FAIL: test_ntls_full only supports SM2 certificate profiles for NTLS; got %APSIDE% profile "%APPROFILE%"
+exit /b 1

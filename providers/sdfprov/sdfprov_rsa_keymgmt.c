@@ -240,27 +240,27 @@ static int sdfprov_rsa_try_export_pubkey(void *hSession, unsigned int key_index,
     memset(&pub_ex, 0, sizeof(pub_ex));
 
     if (key_type == 0) {
-        ret = TSAPI_SDF_ExportSignPublicKey_RSA(hSession, key_index, &pub);
-        if (ret == OSSL_SDR_OK)
-            return sdfprov_rsa_pubkey_to_rsa(&pub, rsa) ? OSSL_SDR_OK
-                                                        : OSSL_SDR_OUTARGERR;
-
-        TLOG_DEBUG("rsa_load: ExportSignPublicKey_RSA failed ret=0x%08x, trying Ex", ret);
         ret = TSAPI_SDF_ExportSignPublicKey_RSAEx(hSession, key_index, &pub_ex);
         if (ret == OSSL_SDR_OK)
             return sdfprov_rsa_pubkeyex_to_rsa(&pub_ex, rsa) ? OSSL_SDR_OK
                                                              : OSSL_SDR_OUTARGERR;
-    } else {
-        ret = TSAPI_SDF_ExportEncPublicKey_RSA(hSession, key_index, &pub);
+
+        TLOG_DEBUG("rsa_load: ExportSignPublicKey_RSAEx failed ret=0x%08x, trying legacy", ret);
+        ret = TSAPI_SDF_ExportSignPublicKey_RSA(hSession, key_index, &pub);
         if (ret == OSSL_SDR_OK)
             return sdfprov_rsa_pubkey_to_rsa(&pub, rsa) ? OSSL_SDR_OK
                                                         : OSSL_SDR_OUTARGERR;
-
-        TLOG_DEBUG("rsa_load: ExportEncPublicKey_RSA failed ret=0x%08x, trying Ex", ret);
+    } else {
         ret = TSAPI_SDF_ExportEncPublicKey_RSAEx(hSession, key_index, &pub_ex);
         if (ret == OSSL_SDR_OK)
             return sdfprov_rsa_pubkeyex_to_rsa(&pub_ex, rsa) ? OSSL_SDR_OK
                                                              : OSSL_SDR_OUTARGERR;
+
+        TLOG_DEBUG("rsa_load: ExportEncPublicKey_RSAEx failed ret=0x%08x, trying legacy", ret);
+        ret = TSAPI_SDF_ExportEncPublicKey_RSA(hSession, key_index, &pub);
+        if (ret == OSSL_SDR_OK)
+            return sdfprov_rsa_pubkey_to_rsa(&pub, rsa) ? OSSL_SDR_OK
+                                                        : OSSL_SDR_OUTARGERR;
     }
 
     return ret;

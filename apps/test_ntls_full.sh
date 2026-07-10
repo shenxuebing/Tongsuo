@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -u
 
+for arg in "$@"; do
+    case "$arg" in
+        *=*)
+            export "$arg"
+            ;;
+    esac
+done
+
 export OPENSSL_CONF="${OPENSSL_CONF:-$(pwd)/openssl.cnf}"
 export SDF_LIB_PATH="${SDF_LIB_PATH:-$(pwd)/libbyzk0018.so}"
 export SDF_MODULE_PASSWORD="${SDF_MODULE_PASSWORD:-88888888}"
@@ -19,8 +27,46 @@ PASS=0
 FAIL=0
 NUM=0
 OUTDIR="../ntls_out"
-CERTS="../test/certs/sm2"
-CAFILE="$CERTS/chain-ca.crt"
+CERTS="${CERTS:-../test/certs/sm2}"
+CAFILE="${CAFILE:-$CERTS/chain-ca.crt}"
+SERVER_CERT_PROFILE="${SERVER_CERT_PROFILE:-sm2}"
+CLIENT_CERT_PROFILE="${CLIENT_CERT_PROFILE:-sm2}"
+
+SERVER_SIGN_CERT="${SERVER_SIGN_CERT:-$CERTS/server_sign.crt}"
+SERVER_ENC_CERT="${SERVER_ENC_CERT:-$CERTS/server_enc.crt}"
+SERVER_SIGN_KEY="${SERVER_SIGN_KEY:-$CERTS/server_sign.key}"
+SERVER_ENC_KEY="${SERVER_ENC_KEY:-$CERTS/server_enc.key}"
+
+CLIENT_SIGN_CERT="${CLIENT_SIGN_CERT:-$CERTS/client_sign.crt}"
+CLIENT_ENC_CERT="${CLIENT_ENC_CERT:-$CERTS/client_enc.crt}"
+CLIENT_SIGN_KEY="${CLIENT_SIGN_KEY:-$CERTS/client_sign.key}"
+CLIENT_ENC_KEY="${CLIENT_ENC_KEY:-$CERTS/client_enc.key}"
+
+SERVER_HW_SIGN_IDX="${SERVER_HW_SIGN_IDX:-0}"
+SERVER_HW_ENC_IDX="${SERVER_HW_ENC_IDX:-0}"
+CLIENT_HW_SIGN_IDX="${CLIENT_HW_SIGN_IDX:-1}"
+CLIENT_HW_ENC_IDX="${CLIENT_HW_ENC_IDX:-1}"
+
+apply_cert_profile() {
+    side="$1"
+    profile="$2"
+
+    case "$profile" in
+        sm2|"")
+            ;;
+        rsa2048|rsa3072|rsa4096)
+            echo "FAIL: test_ntls_full only supports SM2 certificate profiles for NTLS; got ${side} profile '$profile'"
+            exit 1
+            ;;
+        *)
+            echo "FAIL: unknown ${side} certificate profile '$profile'"
+            exit 1
+            ;;
+    esac
+}
+
+apply_cert_profile server "$SERVER_CERT_PROFILE"
+apply_cert_profile client "$CLIENT_CERT_PROFILE"
 
 mkdir -p "$OUTDIR"
 
@@ -54,17 +100,17 @@ run_handshake() {
 
     server_cmd="$OSSL s_server -ntls -enable_ntls -accept $port"
     if [ "$server_key_type" = "sw" ]; then
-        server_cmd="$server_cmd -sign_cert $CERTS/server_sign.crt -enc_cert $CERTS/server_enc.crt -sign_key $CERTS/server_sign.key -enc_key $CERTS/server_enc.key"
+        server_cmd="$server_cmd -sign_cert $SERVER_SIGN_CERT -enc_cert $SERVER_ENC_CERT -sign_key $SERVER_SIGN_KEY -enc_key $SERVER_ENC_KEY"
     else
-        server_cmd="$server_cmd -sign_cert $CERTS/server_sign.crt -enc_cert $CERTS/server_enc.crt -sign_key 'sdf:key=0;type=sign' -enc_key 'sdf:key=0;type=enc' -provider sdfprov -provider default"
+        server_cmd="$server_cmd -sign_cert $SERVER_SIGN_CERT -enc_cert $SERVER_ENC_CERT -sign_key 'sdf:key=${SERVER_HW_SIGN_IDX};type=sign' -enc_key 'sdf:key=${SERVER_HW_ENC_IDX};type=enc' -provider sdfprov -provider default"
     fi
     server_cmd="$server_cmd -www -CAfile $CAFILE -cipher $cipher"
 
     client_cmd="$OSSL s_client -ntls -enable_ntls -connect 127.0.0.1:$port"
     if [ "$client_key_type" = "sw" ]; then
-        client_cmd="$client_cmd -sign_cert $CERTS/client_sign.crt -enc_cert $CERTS/client_enc.crt -sign_key $CERTS/client_sign.key -enc_key $CERTS/client_enc.key"
+        client_cmd="$client_cmd -sign_cert $CLIENT_SIGN_CERT -enc_cert $CLIENT_ENC_CERT -sign_key $CLIENT_SIGN_KEY -enc_key $CLIENT_ENC_KEY"
     else
-        client_cmd="$client_cmd -sign_cert $CERTS/client_sign.crt -enc_cert $CERTS/client_enc.crt -sign_key 'sdf:key=1;type=sign' -enc_key 'sdf:key=1;type=enc' -provider sdfprov -provider default"
+        client_cmd="$client_cmd -sign_cert $CLIENT_SIGN_CERT -enc_cert $CLIENT_ENC_CERT -sign_key 'sdf:key=${CLIENT_HW_SIGN_IDX};type=sign' -enc_key 'sdf:key=${CLIENT_HW_ENC_IDX};type=enc' -provider sdfprov -provider default"
     fi
     client_cmd="$client_cmd -CAfile $CAFILE -cipher $cipher"
 

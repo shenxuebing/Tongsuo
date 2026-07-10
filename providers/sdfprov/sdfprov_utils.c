@@ -17,6 +17,11 @@
 #include "sdfprov_utils.h"
 #include "crypto/sm2.h"
 
+static const unsigned char *sdfprov_rsa_select_modulus_window(const unsigned char *buf,
+                                                              size_t field_len,
+                                                              size_t nbytes);
+static BIGNUM *sdfprov_rsa_make_bn_trimmed(const unsigned char *buf, size_t len);
+
 static char *sdfprov_next_token(char **cursor, const char *delim)
 {
     char *start;
@@ -552,6 +557,7 @@ int sdfprov_rsa_pubkey_to_rsa(const OSSL_RSArefPublicKey *pub, RSA **rsa)
     RSA *tmp = NULL;
     int nbytes;
     int ret = 0;
+    const unsigned char *m_ptr;
 
     if (pub == NULL || rsa == NULL || pub->bits == 0)
         return 0;
@@ -560,8 +566,10 @@ int sdfprov_rsa_pubkey_to_rsa(const OSSL_RSArefPublicKey *pub, RSA **rsa)
     if (nbytes <= 0 || nbytes > OSSL_RSAref_MAX_LEN)
         return 0;
 
-    n = BN_bin2bn(pub->m + (OSSL_RSAref_MAX_LEN - nbytes), nbytes, NULL);
-    e = BN_bin2bn(pub->e, OSSL_RSAref_MAX_LEN, NULL);
+    m_ptr = sdfprov_rsa_select_modulus_window(pub->m, OSSL_RSAref_MAX_LEN,
+                                              (size_t)nbytes);
+    n = BN_bin2bn(m_ptr, nbytes, NULL);
+    e = sdfprov_rsa_make_bn_trimmed(pub->e, OSSL_RSAref_MAX_LEN);
     tmp = RSA_new();
     if (n == NULL || e == NULL || tmp == NULL)
         goto end;
@@ -588,6 +596,7 @@ int sdfprov_rsa_pubkeyex_to_rsa(const OSSL_RSArefPublicKeyEx *pub, RSA **rsa)
     RSA *tmp = NULL;
     int nbytes;
     int ret = 0;
+    const unsigned char *m_ptr;
 
     if (pub == NULL || rsa == NULL || pub->bits == 0)
         return 0;
@@ -596,8 +605,10 @@ int sdfprov_rsa_pubkeyex_to_rsa(const OSSL_RSArefPublicKeyEx *pub, RSA **rsa)
     if (nbytes <= 0 || nbytes > OSSL_RSAref_MAX_LEN_EX)
         return 0;
 
-    n = BN_bin2bn(pub->m + (OSSL_RSAref_MAX_LEN_EX - nbytes), nbytes, NULL);
-    e = BN_bin2bn(pub->e, OSSL_RSAref_MAX_LEN_EX, NULL);
+    m_ptr = sdfprov_rsa_select_modulus_window(pub->m, OSSL_RSAref_MAX_LEN_EX,
+                                              (size_t)nbytes);
+    n = BN_bin2bn(m_ptr, nbytes, NULL);
+    e = sdfprov_rsa_make_bn_trimmed(pub->e, OSSL_RSAref_MAX_LEN_EX);
     tmp = RSA_new();
     if (n == NULL || e == NULL || tmp == NULL)
         goto end;
@@ -614,4 +625,79 @@ end:
     BN_free(e);
     RSA_free(tmp);
     return ret;
+}
+
+int sdfprov_rsa_to_pubkey(const RSA *rsa, OSSL_RSArefPublicKey *pub)
+{
+    const BIGNUM *n = NULL, *e = NULL;
+    int nbytes;
+
+    if (rsa == NULL || pub == NULL)
+        return 0;
+
+    RSA_get0_key(rsa, &n, &e, NULL);
+    if (n == NULL || e == NULL)
+        return 0;
+
+    nbytes = BN_num_bytes(n);
+    if (nbytes <= 0 || nbytes > OSSL_RSAref_MAX_LEN)
+        return 0;
+
+    memset(pub, 0, sizeof(*pub));
+    pub->bits = (unsigned int)RSA_bits(rsa);
+    if (BN_bn2binpad(n, pub->m + (OSSL_RSAref_MAX_LEN - nbytes), nbytes) != nbytes)
+        return 0;
+    if (BN_bn2binpad(e, pub->e, OSSL_RSAref_MAX_LEN) < 0)
+        return 0;
+    return 1;
+}
+
+static const unsigned char *sdfprov_rsa_select_modulus_window(const unsigned char *buf,
+                                                              size_t field_len,
+                                                              size_t nbytes)
+{
+    const unsigned char *tail = buf + (field_len - nbytes);
+    size_t i;
+
+    for (i = 0; i < nbytes; i++) {
+        if (tail[i] != 0)
+            return tail;
+    }
+    return buf;
+}
+
+static BIGNUM *sdfprov_rsa_make_bn_trimmed(const unsigned char *buf, size_t len)
+{
+    size_t off = 0;
+
+    while (off < len && buf[off] == 0)
+        off++;
+    if (off == len)
+        return NULL;
+    return BN_bin2bn(buf + off, (int)(len - off), NULL);
+}
+
+int sdfprov_rsa_to_pubkeyex(const RSA *rsa, OSSL_RSArefPublicKeyEx *pub)
+{
+    const BIGNUM *n = NULL, *e = NULL;
+    int nbytes;
+
+    if (rsa == NULL || pub == NULL)
+        return 0;
+
+    RSA_get0_key(rsa, &n, &e, NULL);
+    if (n == NULL || e == NULL)
+        return 0;
+
+    nbytes = BN_num_bytes(n);
+    if (nbytes <= 0 || nbytes > OSSL_RSAref_MAX_LEN_EX)
+        return 0;
+
+    memset(pub, 0, sizeof(*pub));
+    pub->bits = (unsigned int)RSA_bits(rsa);
+    if (BN_bn2binpad(n, pub->m + (OSSL_RSAref_MAX_LEN_EX - nbytes), nbytes) != nbytes)
+        return 0;
+    if (BN_bn2binpad(e, pub->e, OSSL_RSAref_MAX_LEN_EX) < 0)
+        return 0;
+    return 1;
 }

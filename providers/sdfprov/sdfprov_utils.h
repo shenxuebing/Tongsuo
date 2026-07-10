@@ -61,5 +61,7 @@ int sdfprov_format_key_reference(char *buf, size_t buf_size,
                                  const SDFPROV_KEY_URI *info);
 int sdfprov_rsa_pubkey_to_rsa(const OSSL_RSArefPublicKey *pub, RSA **rsa);
 int sdfprov_rsa_pubkeyex_to_rsa(const OSSL_RSArefPublicKeyEx *pub, RSA **rsa);
+int sdfprov_rsa_to_pubkey(const RSA *rsa, OSSL_RSArefPublicKey *pub);
+int sdfprov_rsa_to_pubkeyex(const RSA *rsa, OSSL_RSArefPublicKeyEx *pub);
 
 #endif
