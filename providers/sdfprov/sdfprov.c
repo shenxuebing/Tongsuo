@@ -179,6 +179,11 @@ static const OSSL_ALGORITHM *sdfprov_query(void *provctx, int operation_id,
 
 static void sdfprov_teardown(void *provctx)
 {
+    if (g_sdfctx != NULL) {
+        sdfprov_ctx_free(g_sdfctx);
+        g_sdfctx = NULL;
+    }
+
     if (provctx != NULL) {
         ossl_prov_ctx_free(provctx);
     }
@@ -330,6 +335,11 @@ int OSSL_provider_init_int(const OSSL_CORE_HANDLE *handle,
     return 1;
 
 err:
+    if (sdfctx != NULL) {
+        sdfprov_ctx_free(sdfctx);
+        if (g_sdfctx == sdfctx)
+            g_sdfctx = NULL;
+    }
     ossl_prov_ctx_free(*provctx);
     *provctx = NULL;
     return 0;

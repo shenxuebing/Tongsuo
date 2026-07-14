@@ -11,6 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 OSSL="$SCRIPT_DIR/openssl"
 CERTS="../test/certs"
 OPENSSL_CONF="${OPENSSL_CONF:-$SCRIPT_DIR/openssl.cnf}"
+export BYZK0018_SKIP_OPENSSL_PROVIDER_INIT="${BYZK0018_SKIP_OPENSSL_PROVIDER_INIT:-1}"
 TMP="${TMP:-/tmp/tls_rsa_accel}"
 mkdir -p "$TMP"
 
