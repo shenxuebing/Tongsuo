@@ -75,6 +75,10 @@ static const EVP_PBE_CTL builtin_pbe[] = {
     {EVP_PBE_TYPE_PRF, NID_hmacWithSHA512_256, -1, NID_sha512_256, 0},
 #ifndef OPENSSL_NO_SM3
     {EVP_PBE_TYPE_PRF, NID_hmacWithSM3, -1, NID_sm3, 0},
+    /* GmSSL 3.x 使用的 SM3 HMAC PRF (GM/T 0006)，OID 1.2.156.10197.1.401.2，
+     * 与上方的 hmacWithSM3 (OID ...401.3.1) 是两个不同 OID，均映射到 SM3 摘要。
+     * 不注册此项会导致解密 GmSSL 生成的 PBES2 私钥时报 EVP_R_UNSUPPORTED_PRF。 */
+    {EVP_PBE_TYPE_PRF, NID_hmac_sm3_gmt0006, -1, NID_sm3, 0},
 #endif
     {EVP_PBE_TYPE_KDF, NID_id_pbkdf2, -1, -1, PKCS5_v2_PBKDF2_keyivgen, &PKCS5_v2_PBKDF2_keyivgen_ex},
 #ifndef OPENSSL_NO_SCRYPT

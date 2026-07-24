@@ -146,6 +146,7 @@ typedef int (*SDF_GenerateAgreementDataAndKeyWithECCEx_fn)(
     void **phKeyHandle);
 
 typedef int (*SDFE_LoadModule_fn)(const char *password);
+typedef int (*SDFE_UninstallModule_fn)(const char *password);
 
 typedef int (*_CP_SDF_OpenDevice)(void **phDeviceHandle);
 typedef int (*_CP_SDF_CloseDevice)(void *hDeviceHandle);
@@ -358,6 +359,7 @@ struct sdf_method_st {
 
     /* Vendor-specific API */
     SDFE_LoadModule_fn LoadModule;
+    SDFE_UninstallModule_fn UninstallModule;
 };
 
 extern SDF_METHOD ts_sdf_meth;

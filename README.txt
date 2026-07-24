@@ -13,33 +13,52 @@
 
 ## 一、编译
 
+SDF Provider 支持两种编译模式，按是否需要硬件密码卡（厂家驱动库）选择：
+
+| 模式 | 适用场景 | 关键选项 | 能力 |
+|------|---------|---------|------|
+| **硬件加速模式** | 有 SDF 密码卡，需要硬件 SM2/RSA 签名/加密/NTLS 加速 | `enable-sdfprov enable-sdf-lib-dynamic` | 软件算法 + 硬件加速（DSO 动态加载厂商库） |
+| **纯软件模式** | 无密码卡，仅用软件国密算法（SM2/SM3/SM4/NTLS 软实现） | `enable-sdfprov`（不带 sdf-lib-dynamic） | 仅软件算法，SDF Provider 仍编译但运行时不加载厂商库 |
+
+> ⚠️ **重要**：SDF Provider 的 `ossl_sdf_lib_cleanup` 依赖 `sdf_preload_path` 等变量，
+> 这些变量仅在启用 `sdf-lib`（由 `enable-sdf-lib-dynamic` 自动带入）时定义。
+> 若编译时**既不带 `enable-sdf-lib-dynamic` 也不带 `enable-sdf-lib`**，
+> 必须确保代码中对这些变量的引用已用 `#ifdef SDF_LIB` 保护（当前版本已修复）。
+
 ### Windows (Visual Studio 2022)
 
 ```bash
 # 推荐 Strawberry Perl (C:\Perl64\bin\perl.exe)，MSYS2 Perl 可能缺模块
 
-# 最优编译命令
+# 模式一：硬件加速（需要厂商库 byzk0018.dll）
 perl Configure VC-WIN64A no-shared no-module enable-ntls enable-sdfprov enable-sdf-lib-dynamic enable-legacy
+# 调试版
 perl Configure VC-WIN64A no-shared no-module enable-ntls enable-sdfprov enable-sdf-lib-dynamic enable-legacy -DTLOG_ENABLE_DEBUG -DSDF_DEBUG no-tests --debug
+
+# 模式二：纯软件（不加载厂商库，去掉 enable-sdf-lib-dynamic）
+perl Configure VC-WIN64A no-shared no-module enable-ntls enable-sdfprov enable-legacy
+
 nmake
 ```
 
 ### Linux
 
 ```bash
-# 最优编译命令
-
-./Configure --prefix=/usr/local/tongsuo  -Wl,-rpath,/usr/local/tongsuo/lib64 no-shared no-module enable-ntls enable-sdfprov enable-sdf-lib-dynamic enable-legacy -DTLOG_ENABLE_DEBUG -DSDF_DEBUG no-tests --debug
-
-
-./Configure linux-x86_64 \
-    --prefix=/usr/local/tongsuo \
-    -Wl,-rpath,/usr/local/tongsuo/lib64 \
+# 模式一：硬件加速（需要厂商库 libbyzk0018.so）
+./Configure --prefix=/usr/local/tongsuo -Wl,-rpath,/usr/local/tongsuo/lib64 \
     no-shared no-module \
-    enable-ntls enable-sdfprov enable-sdf-lib-dynamic \
-    enable-legacy \
-    enable-ec_sm2p_64_gcc_128 \
-    -march=native
+    enable-ntls enable-sdfprov enable-sdf-lib-dynamic enable-legacy \
+    enable-ec_sm2p_64_gcc_128 -march=native \
+    -DTLOG_ENABLE_DEBUG -DSDF_DEBUG no-tests --debug
+make -j$(nproc)
+
+# 模式二：纯软件（不加载厂商库，去掉 enable-sdf-lib-dynamic）
+./Configure linux-x86_64 \
+    --prefix=/usr/local/tongsuo -Wl,-rpath,/usr/local/tongsuo/lib64 \
+    no-shared no-module \
+    enable-ntls enable-sdfprov enable-legacy \
+    enable-ec_sm2p_64_gcc_128 -march=native \
+    no-tests --debug
 make -j$(nproc)
 ```
 
@@ -52,8 +71,8 @@ make -j$(nproc)
 | `no-shared` | 静态编译，生成 .lib/.a 而非 .dll/.so |
 | `no-module` | 禁止动态加载 Provider 模块，所有 Provider 编译进 libcrypto（自动定义 STATIC_LEGACY 等宏） |
 | `enable-ntls` | 启用 NTLS/TLCP 协议（非默认） |
-| `enable-sdfprov` | 编译 SDF Provider（providers/sdfprov/），静态链接到 libcrypto |
-| `enable-sdf-lib-dynamic` | 编译 SDF API 桩函数（sdfe_api_stub.c），运行时 DSO 动态加载厂商库 |
+| `enable-sdfprov` | 编译 SDF Provider（providers/sdfprov/），静态链接到 libcrypto。纯软件模式也需此项 |
+| `enable-sdf-lib-dynamic` | **可选**。编译 SDF API 桩函数 + DSO 动态加载框架（定义 `SDF_LIB` + `SDF_LIB_SHARED`）。需要硬件加速时加此项；纯软件模式不要加（否则编译会引入对厂商库变量的依赖） |
 | `enable-legacy` | 启用 Legacy Provider（MD5、CAST、Blowfish 等旧算法），PKCS#12 兼容可能需要 |
 
 #### 性能优化选项
@@ -74,7 +93,7 @@ make -j$(nproc)
 |------|------|
 | `enable-rc2` | RC2 默认已编译，无需主动开启 |
 | `-DSTATIC_LEGACY` | 使用 `no-module` 时构建系统自动定义，无需手动传 |
-| `enable-sdf-lib` | 由 `enable-sdf-lib-dynamic` 自动启用 |
+| `enable-sdf-lib` | 由 `enable-sdf-lib-dynamic` 自动启用（定义 `SDF_LIB` 宏）。纯软件模式两者都不加 |
 | `--with-sdf-include` | SDF 头文件已在 `./include` 下，不需要 |
 
 > **注意**：`enable-ec_sm2p_64_gcc_128` 和 `enable-ec_nistp_64_gcc_128` 仅在 Linux x86_64 + GCC/Clang 下有效，

@@ -344,6 +344,10 @@ DEFINE_RUN_ONCE_STATIC(ossl_sdf_lib_init)
         sdfm.GenerateAgreementDataAndKeyWithECCEx = (SDF_GenerateAgreementDataAndKeyWithECCEx_fn)DSO_bind_func(sdf_dso, "SDF_GenerateAgreementDataAndKeyWithECCEx");
         /* BYCSM_LoadModule 是厂商特定接口，部分厂商 DLL 不提供，绑定失败不影响基本功能 */
         sdfm.LoadModule = (SDFE_LoadModule_fn)DSO_bind_func(sdf_dso, "BYCSM_LoadModule");
+        /* BYCSM_UninstallModule 与 LoadModule 配对，用于卸载模块并释放厂商库内加载的 OpenSSL Provider，
+         * 避免进程退出阶段 destructor 里 OSSL_PROVIDER_unload 因状态不可靠而泄漏。
+         * 同样为厂商特定接口，绑定失败不影响基本功能。 */
+        sdfm.UninstallModule = (SDFE_UninstallModule_fn)DSO_bind_func(sdf_dso, "BYCSM_UninstallModule");
         ERR_pop_to_mark();
 
         if (sdf_preload_use_load_module && sdfm.LoadModule != NULL
@@ -400,8 +404,9 @@ DEFINE_RUN_ONCE_STATIC(ossl_sdf_lib_init)
     sdfm.GenerateAgreementDataWithECCEx = SDF_GenerateAgreementDataWithECCEx;
     sdfm.GenerateKeyWithECCEx = SDF_GenerateKeyWithECCEx;
     sdfm.GenerateAgreementDataAndKeyWithECCEx = SDF_GenerateAgreementDataAndKeyWithECCEx;
-    /* 静态链接时，BYCSM_LoadModule 可能为 NULL，由调用方检查 */
+    /* 静态链接时，BYCSM_LoadModule/BYCSM_UninstallModule 可能为 NULL，由调用方检查 */
     sdfm.LoadModule = NULL;
+    sdfm.UninstallModule = NULL;
 # endif
     return 1;
 }
@@ -411,13 +416,34 @@ DEFINE_RUN_ONCE_STATIC(ossl_sdf_lib_init)
 void ossl_sdf_lib_cleanup(void)
 {
 #ifdef SDF_LIB_SHARED
+    /* 先卸载厂商模块（释放厂商库内部加载的 OpenSSL Provider），
+     * 必须在 DSO_free(dlclose) 之前调用：
+     * dlclose 后厂商库代码段被卸载，sdfm.UninstallModule 指针变悬挂。
+     * 此处在 OPENSSL_cleanup(atexit) 中调用，OpenSSL 状态仍完整，
+     * 可靠释放 provider，避免 destructor 阶段状态不可靠导致泄漏。
+     * 调用条件与 BYCSM_LoadModule 对称：仅在 use_load_module=1 时调用，
+     * 因为只有 LoadModule 被调用过才需要配对卸载。
+     * 用 mark/pop 吞掉厂商接口可能压入的 ERR，保持 ERR 栈干净。 */
+    if (sdf_dso != NULL && sdf_preload_use_load_module
+            && sdfm.UninstallModule != NULL) {
+        ERR_set_mark();
+        sdfm.UninstallModule(sdf_preload_password);
+        ERR_pop_to_mark();
+    }
     DSO_free(sdf_dso);
     sdf_dso = NULL;
 #endif
+#ifdef SDF_LIB
+    /*
+     * sdf_preload_path / sdf_preload_password 仅在 SDF_LIB 启用时定义（见上方
+     * #ifdef SDF_LIB 块）。未启用 sdf-lib 时这些变量不存在，必须用 SDF_LIB 包裹，
+     * 否则在不带 enable-sdf-lib(-dynamic) 的配置下编译会报 undeclared。
+     */
     OPENSSL_free(sdf_preload_path);
     sdf_preload_path = NULL;
     OPENSSL_free(sdf_preload_password);
     sdf_preload_password = NULL;
+#endif
 }
 
 /*
