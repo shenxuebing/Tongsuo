@@ -20,6 +20,8 @@
 #include "sdfprov_utils.h"
 #include "internal/tlog.h"
 
+#define SDFPROV_SM2DH_SECRET_LEN 48
+
 typedef struct {
     OSSL_LIB_CTX *libctx;
     SDF_SM2_KEY *k;             /* 自身临时密钥 */
@@ -109,7 +111,7 @@ static int sdfprov_sm2dh_derive(void *vctx, unsigned char *secret,
     }
 
     if (secret == NULL) {
-        *psecretlen = 32;
+        *psecretlen = SDFPROV_SM2DH_SECRET_LEN;
         return 1;
     }
 
@@ -132,6 +134,11 @@ static int sdfprov_sm2dh_derive(void *vctx, unsigned char *secret,
             SDFPROV_CTX *sdfctx = sdfprov_get_global_ctx();
             if (sdfctx == NULL) {
                 ERR_raise(ERR_LIB_PROV, PROV_R_FAILED_TO_GENERATE_KEY);
+                return 0;
+            }
+
+            if (outlen < SDFPROV_SM2DH_SECRET_LEN) {
+                *psecretlen = SDFPROV_SM2DH_SECRET_LEN;
                 return 0;
             }
 

@@ -19,6 +19,8 @@
 #include <openssl/err.h>
 #include <openssl/rand.h>
 #include <openssl/engine.h>
+#include <openssl/rsa.h>
+#include <openssl/bn.h>
 #include "internal/e_os.h"
 #include "crypto/rand.h"
 #include "crypto/sm2.h"
@@ -393,10 +395,8 @@ int TSAPI_ImportSM2Key(int index, int sign, const char *user,
 
     if (TSAPI_SDF_OpenDevice(&hDeviceHandle) != OSSL_SDR_OK)
         goto end;
-
     if (TSAPI_SDF_OpenSession(hDeviceHandle, &hSessionHandle) != OSSL_SDR_OK)
         goto end;
-
     if (SDFE_LoginUsr(hSessionHandle, &login_arg) != OSSL_SDR_OK)
         goto end;
 
@@ -408,7 +408,6 @@ int TSAPI_ImportSM2Key(int index, int sign, const char *user,
     privkey = TSAPI_EVP_PKEY_get_ECCrefPrivateKey(sm2_pkey);
     if (privkey == NULL)
         goto end;
-
     pubkey = TSAPI_EVP_PKEY_get_ECCrefPublicKey(sm2_pkey);
     if (pubkey == NULL)
         goto end;
@@ -437,6 +436,164 @@ end:
 #endif
     return ok;
 }
+
+# ifndef OPENSSL_NO_RSA
+/*
+ * RSA 私钥转换辅助函数（参考厂商库 csm_manager.cpp 的 convertEVPToRSA）。
+ * 零外部依赖，只使用铜锁 libcrypto 的 RSA/BIGNUM API。
+ */
+
+/* BIGNUM 大端定长填充（左侧补零），带长度校验。成功返回 1。 */
+static int rsa_bn_to_fixed(const BIGNUM *bn, unsigned char *dest, size_t dest_len)
+{
+    if (bn == NULL || BN_num_bytes(bn) > (int)dest_len)
+        return 0;
+    return BN_bn2binpad(bn, dest, (int)dest_len) >= 0;
+}
+
+/*
+ * 将 EVP_PKEY(RSA) 转换为 OSSL_RSArefPublicKey/PrivateKey（≤2048）或 Ex 版（3072/4096）。
+ * @param pkey       RSA 私钥（含 CRT 分量）
+ * @param use_ex     [out] 0=普通版, 1=Ex版
+ * @param pub        [out] 普通版公钥（use_ex=0 时填充）
+ * @param pri        [out] 普通版私钥（use_ex=0 时填充）
+ * @param pub_ex     [out] Ex版公钥（use_ex=1 时填充）
+ * @param pri_ex     [out] Ex版私钥（use_ex=1 时填充）
+ * @return 1=成功 0=失败
+ */
+static int rsa_pkey_to_ref(const EVP_PKEY *pkey, int *use_ex,
+                           OSSL_RSArefPublicKey *pub,
+                           OSSL_RSArefPrivateKey *pri,
+                           OSSL_RSArefPublicKeyEx *pub_ex,
+                           OSSL_RSArefPrivateKeyEx *pri_ex)
+{
+    const RSA *rsa;
+    const BIGNUM *n = NULL, *e = NULL, *d = NULL;
+    const BIGNUM *p = NULL, *q = NULL, *dmp1 = NULL, *dmq1 = NULL, *iqmp = NULL;
+    int bits;
+
+    if (pkey == NULL || EVP_PKEY_get_base_id(pkey) != EVP_PKEY_RSA)
+        return 0;
+
+    rsa = EVP_PKEY_get0_RSA((EVP_PKEY *)pkey);
+    if (rsa == NULL)
+        return 0;
+
+    bits = RSA_bits(rsa);
+    if (bits <= 0)
+        return 0;
+
+    *use_ex = bits > (int)OSSL_RSAref_MAX_BITS;  /* >2048 用 Ex 版 */
+    if (*use_ex && bits > (int)OSSL_RSAref_MAX_BITS_EX)
+        return 0;  /* 超过 4096 不支持 */
+
+    RSA_get0_key(rsa, &n, &e, &d);
+    RSA_get0_factors(rsa, &p, &q);
+    RSA_get0_crt_params(rsa, &dmp1, &dmq1, &iqmp);
+
+    if (*use_ex) {
+        memset(pub_ex, 0, sizeof(*pub_ex));
+        memset(pri_ex, 0, sizeof(*pri_ex));
+        pub_ex->bits = bits;
+        pri_ex->bits = bits;
+        if (!rsa_bn_to_fixed(n, pub_ex->m, sizeof(pub_ex->m)) ||
+            !rsa_bn_to_fixed(e, pub_ex->e, sizeof(pub_ex->e)) ||
+            !rsa_bn_to_fixed(n, pri_ex->m, sizeof(pri_ex->m)) ||
+            !rsa_bn_to_fixed(e, pri_ex->e, sizeof(pri_ex->e)) ||
+            !rsa_bn_to_fixed(d, pri_ex->d, sizeof(pri_ex->d)) ||
+            !rsa_bn_to_fixed(p, pri_ex->prime[0], sizeof(pri_ex->prime[0])) ||
+            !rsa_bn_to_fixed(q, pri_ex->prime[1], sizeof(pri_ex->prime[1])) ||
+            !rsa_bn_to_fixed(dmp1, pri_ex->pexp[0], sizeof(pri_ex->pexp[0])) ||
+            !rsa_bn_to_fixed(dmq1, pri_ex->pexp[1], sizeof(pri_ex->pexp[1])) ||
+            !rsa_bn_to_fixed(iqmp, pri_ex->coef, sizeof(pri_ex->coef)))
+            return 0;
+    } else {
+        memset(pub, 0, sizeof(*pub));
+        memset(pri, 0, sizeof(*pri));
+        pub->bits = bits;
+        pri->bits = bits;
+        if (!rsa_bn_to_fixed(n, pub->m, sizeof(pub->m)) ||
+            !rsa_bn_to_fixed(e, pub->e, sizeof(pub->e)) ||
+            !rsa_bn_to_fixed(n, pri->m, sizeof(pri->m)) ||
+            !rsa_bn_to_fixed(e, pri->e, sizeof(pri->e)) ||
+            !rsa_bn_to_fixed(d, pri->d, sizeof(pri->d)) ||
+            !rsa_bn_to_fixed(p, pri->prime[0], sizeof(pri->prime[0])) ||
+            !rsa_bn_to_fixed(q, pri->prime[1], sizeof(pri->prime[1])) ||
+            !rsa_bn_to_fixed(dmp1, pri->pexp[0], sizeof(pri->pexp[0])) ||
+            !rsa_bn_to_fixed(dmq1, pri->pexp[1], sizeof(pri->pexp[1])) ||
+            !rsa_bn_to_fixed(iqmp, pri->coef, sizeof(pri->coef)))
+            return 0;
+    }
+    return 1;
+}
+
+int TSAPI_ImportRSAKey(int index, int sign, const char *user,
+                       const char *password, const EVP_PKEY *rsa_pkey)
+{
+    int ok = 0;
+#ifdef SDF_LIB
+    int area, use_ex = 0;
+    void *hDeviceHandle = NULL;
+    void *hSessionHandle = NULL;
+    sdfe_asym_key_rsa_t rsa_key;
+    sdfe_login_arg_t login_arg;
+    OSSL_RSArefPublicKey pub;
+    OSSL_RSArefPrivateKey pri;
+    OSSL_RSArefPublicKeyEx pub_ex;
+    OSSL_RSArefPrivateKeyEx pri_ex;
+
+    memset(&login_arg, 0, sizeof(login_arg));
+    memset(&rsa_key, 0, sizeof(rsa_key));
+    memset(&pub, 0, sizeof(pub));
+    memset(&pri, 0, sizeof(pri));
+    memset(&pub_ex, 0, sizeof(pub_ex));
+    memset(&pri_ex, 0, sizeof(pri_ex));
+
+    login_arg.passwd = (uint8_t *)password;
+    if (password)
+        login_arg.passwd_len = strlen(password);
+    if (user) {
+        if (strlen(user) >= sizeof(login_arg.name))
+            return 0;
+        strcpy((char *)login_arg.name, user);
+    }
+
+    if (!rsa_pkey_to_ref(rsa_pkey, &use_ex, &pub, &pri, &pub_ex, &pri_ex))
+        goto end;
+
+    if (TSAPI_SDF_OpenDevice(&hDeviceHandle) != OSSL_SDR_OK)
+        goto end;
+    if (TSAPI_SDF_OpenSession(hDeviceHandle, &hSessionHandle) != OSSL_SDR_OK)
+        goto end;
+    if (SDFE_LoginUsr(hSessionHandle, &login_arg) != OSSL_SDR_OK)
+        goto end;
+
+    area = sign ? SDFE_ASYM_KEY_AREA_SIGN : SDFE_ASYM_KEY_AREA_ENC;
+    rsa_key.area = area;
+    rsa_key.index = index;
+    rsa_key.type = SDFE_ASYM_KEY_TYPE_RSA;
+    rsa_key.use_ex = use_ex;
+    rsa_key.bits = use_ex ? pub_ex.bits : pub.bits;
+
+    if (use_ex) {
+        memcpy(rsa_key.pub_ex, &pub_ex, sizeof(pub_ex));
+        memcpy(rsa_key.pri_ex, &pri_ex, sizeof(pri_ex));
+    } else {
+        memcpy(rsa_key.pub, &pub, sizeof(pub));
+        memcpy(rsa_key.pri, &pri, sizeof(pri));
+    }
+
+    if (SDFE_ImportRSAKey(hSessionHandle, &rsa_key, NULL) != OSSL_SDR_OK)
+        goto end;
+
+    ok = 1;
+end:
+    TSAPI_SDF_CloseSession(hSessionHandle);
+    TSAPI_SDF_CloseDevice(hDeviceHandle);
+#endif
+    return ok;
+}
+# endif /* OPENSSL_NO_RSA */
 
 int TSAPI_ImportSM2KeyWithEvlp(int index, int sign, const char *user,
                                const char *password, unsigned char *key,

@@ -5932,6 +5932,7 @@ TSAPI_EVP_PKEY_get_ECCrefPrivateKey     6203	3_0_3	EXIST::FUNCTION:SM2
 TSAPI_ExportSM2KeyWithIndex             6204	3_0_3	EXIST::FUNCTION:SM2
 TSAPI_SDF_ExportEncPublicKey_ECC        6205	3_0_3	EXIST::FUNCTION:
 TSAPI_ImportSM2Key                      6206	3_0_3	EXIST::FUNCTION:SM2
+TSAPI_ImportRSAKey                      9030	3_5_4	EXIST::FUNCTION:RSA
 TSAPI_SM3                               6207	3_0_3	EXIST::FUNCTION:SM3
 TSAPI_SM2Ciphertext_to_ECCCipher        6208	3_0_3	EXIST::FUNCTION:SM2
 TSAPI_SM4Encrypt                        6209	3_0_3	EXIST::FUNCTION:SM4

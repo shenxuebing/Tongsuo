@@ -75,6 +75,22 @@ int TSAPI_UpdateSm2KeyWithIndex(int index, int sign, const char *user,
 EVP_PKEY *TSAPI_ExportSM2PubKeyWithIndex(int index, int sign);
 # endif
 
+# ifndef OPENSSL_NO_RSA
+/*
+ * 导入 RSA 密钥对到密码机指定索引。
+ * 自动按 RSA 位数选择接口：≤2048 走 SWCSM_InputRSAKeyPair，
+ * 3072/4096 走 SWCSM_InputRSAKeyPair_Ex。
+ * @param index  密钥索引（奇数=签名，偶数=加密，由厂商库解释）
+ * @param sign   1=签名密钥，0=加密密钥
+ * @param user   用户名（可为 NULL）
+ * @param password 用户口令（可为 NULL）
+ * @param rsa_pkey PEM/DER 解析后的 RSA 私钥 EVP_PKEY
+ * @return 1=成功 0=失败
+ */
+int TSAPI_ImportRSAKey(int index, int sign, const char *user,
+                       const char *password, const EVP_PKEY *rsa_pkey);
+# endif
+
 # ifndef OPENSSL_NO_SM4
 unsigned char *TSAPI_SM4Encrypt(int mode, const unsigned char *key,
                                 size_t keylen, int isk,

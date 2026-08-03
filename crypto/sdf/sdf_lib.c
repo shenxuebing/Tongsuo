@@ -11,6 +11,7 @@
 #include <openssl/err.h>
 #include <openssl/types.h>
 #include <openssl/sdf.h>
+#include <stdlib.h>
 #include <string.h>
 #ifdef _WIN32
 # include <windows.h>
@@ -19,6 +20,8 @@
 #include "internal/dso.h"
 #include "internal/sdf.h"
 #include "sdf_local.h"
+
+#define SDF_SM2DH_EX_SECRET_LEN 48
 
 #ifdef SDF_LIB
 # ifdef SDF_LIB_SHARED
@@ -191,6 +194,24 @@ static char *sdf_preload_path = NULL;
 static char *sdf_preload_password = NULL;
 static int sdf_preload_use_load_module = 0;
 
+#if defined(SDF_LIB) && defined(SDF_LIB_SHARED)
+static DSO_FUNC_TYPE bind_first_available(DSO *dso, const char *name1,
+                                          const char *name2,
+                                          const char *name3)
+{
+    DSO_FUNC_TYPE f = NULL;
+
+    if (name1 != NULL)
+        f = DSO_bind_func(dso, name1);
+    if (f == NULL && name2 != NULL)
+        f = DSO_bind_func(dso, name2);
+    if (f == NULL && name3 != NULL)
+        f = DSO_bind_func(dso, name3);
+
+    return f;
+}
+#endif
+
 #ifdef _WIN32
 /*
  * 切换当前工作目录到厂商 DLL 所在目录（Windows 专用）
@@ -286,6 +307,31 @@ DEFINE_RUN_ONCE_STATIC(ossl_sdf_lib_init)
     char *saved_cwd = NULL;
 #  endif
 
+    /*
+     * 若 ossl_sdf_lib_preload 未设置路径（TSAPI/sdf 命令等非 provider 路径），
+     * 从环境变量 SDF_LIB_PATH / SDF_MODULE_PASSWORD / SDF_USE_LOADMODULE 回退，
+     * 保持与 sdfprov provider（sdfprov_ctx_init_device）一致的配置来源。
+     * 这样 openssl sdf 等命令无需手动 preload 即可自动加载厂商库。
+     */
+    if (sdf_preload_path == NULL) {
+        const char *env_path = getenv("SDF_LIB_PATH");
+        if (env_path != NULL && env_path[0] != '\0') {
+            sdf_preload_path = OPENSSL_strdup(env_path);
+            if (sdf_preload_path == NULL)
+                return 0;
+        }
+    }
+    if (sdf_preload_password == NULL) {
+        const char *env_pwd = getenv("SDF_MODULE_PASSWORD");
+        if (env_pwd != NULL)
+            sdf_preload_password = OPENSSL_strdup(env_pwd);
+    }
+    if (!sdf_preload_use_load_module) {
+        const char *env_ulm = getenv("SDF_USE_LOADMODULE");
+        sdf_preload_use_load_module =
+            (env_ulm == NULL || env_ulm[0] != '0') ? 1 : 0;
+    }
+
 #  ifdef _WIN32
     if (sdf_preload_path != NULL)
         (void)ossl_sdf_push_dll_dir(sdf_preload_path, &saved_cwd);
@@ -342,12 +388,38 @@ DEFINE_RUN_ONCE_STATIC(ossl_sdf_lib_init)
         sdfm.GenerateAgreementDataWithECCEx = (SDF_GenerateAgreementDataWithECCEx_fn)DSO_bind_func(sdf_dso, "SDF_GenerateAgreementDataWithECCEx");
         sdfm.GenerateKeyWithECCEx = (SDF_GenerateKeyWithECCEx_fn)DSO_bind_func(sdf_dso, "SDF_GenerateKeyWithECCEx");
         sdfm.GenerateAgreementDataAndKeyWithECCEx = (SDF_GenerateAgreementDataAndKeyWithECCEx_fn)DSO_bind_func(sdf_dso, "SDF_GenerateAgreementDataAndKeyWithECCEx");
+        sdfm.GenerateAgreementDataWithECC_Ex_SW =
+            (SDF_GenerateAgreementDataWithECC_Ex_SW_fn)DSO_bind_func(
+                sdf_dso, "SDF_GenerateAgreementDataWithECC_Ex");
+        sdfm.GenerateKeyWithECC_Ex_SW =
+            (SDF_GenerateKeyWithECC_Ex_SW_fn)DSO_bind_func(
+                sdf_dso, "SDF_GenerateKeyWithECC_Ex");
+        sdfm.GenerateAgreementDataAndKeyWithECC_Ex_SW =
+            (SDF_GenerateAgreementDataAndKeyWithECC_Ex_SW_fn)DSO_bind_func(
+                sdf_dso, "SDF_GenerateAgreementDataAndKeyWithECC_Ex");
         /* BYCSM_LoadModule 是厂商特定接口，部分厂商 DLL 不提供，绑定失败不影响基本功能 */
         sdfm.LoadModule = (SDFE_LoadModule_fn)DSO_bind_func(sdf_dso, "BYCSM_LoadModule");
         /* BYCSM_UninstallModule 与 LoadModule 配对，用于卸载模块并释放厂商库内加载的 OpenSSL Provider，
          * 避免进程退出阶段 destructor 里 OSSL_PROVIDER_unload 因状态不可靠而泄漏。
          * 同样为厂商特定接口，绑定失败不影响基本功能。 */
         sdfm.UninstallModule = (SDFE_UninstallModule_fn)DSO_bind_func(sdf_dso, "BYCSM_UninstallModule");
+        /*
+         * SWCSM_* 密钥管理接口（三未 swsds 与 byzk0018 均导出此前缀）。
+         * 绑定失败（部分厂商库不提供）保持 NULL，SDFE_* stub 会返回 NOTSUPPORT。
+         */
+        sdfm.GenECCKey = (SDFE_GenECCKey_fn)bind_first_available(sdf_dso,
+            "SWCSM_GenerateECCKeyPair", "BYCSM_GenerateECCKeyPair", NULL);
+        sdfm.DelECCKey = (SDFE_DelECCKey_fn)bind_first_available(sdf_dso,
+            "SWCSM_DestroyECCKeyPair", "BYCSM_DestroyECCKeyPair", NULL);
+        sdfm.ImportECCKey = (SDFE_ImportECCKey_fn)bind_first_available(sdf_dso,
+            "SWCSM_ImportECCKeyPair", "BYCSM_ImportECCKeyPair",
+            "SDF_ImportKeyPair_ECC");
+        sdfm.InputRSAKey = (SDFE_InputRSAKey_fn)bind_first_available(sdf_dso,
+            "SWCSM_InputRSAKeyPair", "BYCSM_InputRSAKeyPair",
+            "SDF_InputRSAKeyPair");
+        sdfm.InputRSAKeyEx = (SDFE_InputRSAKeyEx_fn)bind_first_available(sdf_dso,
+            "SWCSM_InputRSAKeyPair_Ex", "BYCSM_InputRSAKeyPairEx",
+            "SDF_InputRSAKeyPairEx");
         ERR_pop_to_mark();
 
         if (sdf_preload_use_load_module && sdfm.LoadModule != NULL
@@ -407,6 +479,15 @@ DEFINE_RUN_ONCE_STATIC(ossl_sdf_lib_init)
     /* 静态链接时，BYCSM_LoadModule/BYCSM_UninstallModule 可能为 NULL，由调用方检查 */
     sdfm.LoadModule = NULL;
     sdfm.UninstallModule = NULL;
+    /* SWCSM_* 密钥管理接口静态链接时不绑定，由调用方检查 NULL */
+    sdfm.GenECCKey = NULL;
+    sdfm.DelECCKey = NULL;
+    sdfm.ImportECCKey = NULL;
+    sdfm.InputRSAKey = NULL;
+    sdfm.InputRSAKeyEx = NULL;
+    sdfm.GenerateAgreementDataWithECC_Ex_SW = NULL;
+    sdfm.GenerateKeyWithECC_Ex_SW = NULL;
+    sdfm.GenerateAgreementDataAndKeyWithECC_Ex_SW = NULL;
 # endif
     return 1;
 }
@@ -506,6 +587,20 @@ static const SDF_METHOD *sdf_get_method(void)
 #endif
 
     return meth;
+}
+
+/*
+ * 导出版本：供 SDFE_* stub（crypto/tsapi/）跨翻译单元获取 DSO 绑定的函数指针表。
+ * 仅在厂商库已成功加载（RUN_ONCE 成功）时返回 &sdfm，否则返回 NULL。
+ * 注意：返回值可能为 NULL（厂商库未加载或静态链接），调用方必须判空。
+ */
+const SDF_METHOD *ossl_sdf_get_method(void)
+{
+#ifdef SDF_LIB
+    if (sdf_dso != NULL && RUN_ONCE(&sdf_lib_once, ossl_sdf_lib_init))
+        return &sdfm;
+#endif
+    return NULL;
 }
 
 /*
@@ -990,13 +1085,22 @@ int TSAPI_SDF_GenerateAgreementDataWithECCEx(void *hSessionHandle,
 {
     const SDF_METHOD *meth = sdf_get_method();
 
-    if (meth == NULL || meth->GenerateAgreementDataWithECCEx == NULL)
+    if (meth == NULL)
         return OSSL_SDR_NOTSUPPORT;
 
-    return meth->GenerateAgreementDataWithECCEx(hSessionHandle, uiISKIndex,
-            uiKeyBits, pucSponsorID, uiSponsorIDLength,
-            pucSponsorPublicKey, pucSponsorTmpPublicKey,
+    if (meth->GenerateAgreementDataWithECCEx != NULL)
+        return meth->GenerateAgreementDataWithECCEx(
+            hSessionHandle, uiISKIndex, uiKeyBits, pucSponsorID,
+            uiSponsorIDLength, pucSponsorPublicKey, pucSponsorTmpPublicKey,
             phAgreementHandle);
+
+    if (meth->GenerateAgreementDataWithECC_Ex_SW != NULL)
+        return meth->GenerateAgreementDataWithECC_Ex_SW(
+            hSessionHandle, uiISKIndex, uiKeyBits, pucSponsorID,
+            uiSponsorIDLength, pucSponsorPublicKey, pucSponsorTmpPublicKey,
+            phAgreementHandle);
+
+    return OSSL_SDR_NOTSUPPORT;
 }
 
 int TSAPI_SDF_GenerateKeyWithECCEx(void *hSessionHandle,
@@ -1009,13 +1113,35 @@ int TSAPI_SDF_GenerateKeyWithECCEx(void *hSessionHandle,
 {
     const SDF_METHOD *meth = sdf_get_method();
 
-    if (meth == NULL || meth->GenerateKeyWithECCEx == NULL)
+    if (meth == NULL)
         return OSSL_SDR_NOTSUPPORT;
 
-    return meth->GenerateKeyWithECCEx(hSessionHandle, pucResponseID,
-            uiResponseIDLength, pucResponsePublicKey, pucResponseTmpPublicKey,
-            hAgreementHandle, pucSharedSecret, puiSecretLength,
-            phKeyHandle);
+    if (meth->GenerateKeyWithECCEx != NULL)
+        return meth->GenerateKeyWithECCEx(
+            hSessionHandle, pucResponseID, uiResponseIDLength,
+            pucResponsePublicKey, pucResponseTmpPublicKey, hAgreementHandle,
+            pucSharedSecret, puiSecretLength, phKeyHandle);
+
+    if (meth->GenerateKeyWithECC_Ex_SW != NULL) {
+        if (puiSecretLength != NULL
+                && *puiSecretLength < SDF_SM2DH_EX_SECRET_LEN)
+            return OSSL_SDR_INARGERR;
+
+        if (phKeyHandle != NULL)
+            *phKeyHandle = NULL;
+
+        {
+            int ret = meth->GenerateKeyWithECC_Ex_SW(
+                hSessionHandle, pucResponseID, uiResponseIDLength,
+                pucResponsePublicKey, pucResponseTmpPublicKey, hAgreementHandle,
+                pucSharedSecret);
+            if (ret == OSSL_SDR_OK && puiSecretLength != NULL)
+                *puiSecretLength = SDF_SM2DH_EX_SECRET_LEN;
+            return ret;
+        }
+    }
+
+    return OSSL_SDR_NOTSUPPORT;
 }
 
 int TSAPI_SDF_GenerateAgreementDataAndKeyWithECCEx(
@@ -1031,13 +1157,36 @@ int TSAPI_SDF_GenerateAgreementDataAndKeyWithECCEx(
 {
     const SDF_METHOD *meth = sdf_get_method();
 
-    if (meth == NULL || meth->GenerateAgreementDataAndKeyWithECCEx == NULL)
+    if (meth == NULL)
         return OSSL_SDR_NOTSUPPORT;
 
-    return meth->GenerateAgreementDataAndKeyWithECCEx(hSessionHandle,
-            uiISKIndex, uiKeyBits, pucResponseID, uiResponseIDLength,
-            pucSponsorID, uiSponsorIDLength,
+    if (meth->GenerateAgreementDataAndKeyWithECCEx != NULL)
+        return meth->GenerateAgreementDataAndKeyWithECCEx(
+            hSessionHandle, uiISKIndex, uiKeyBits, pucResponseID,
+            uiResponseIDLength, pucSponsorID, uiSponsorIDLength,
             pucSponsorPublicKey, pucSponsorTmpPublicKey,
             pucResponsePublicKey, pucResponseTmpPublicKey,
             pucSharedSecret, puiSecretLength, phKeyHandle);
+
+    if (meth->GenerateAgreementDataAndKeyWithECC_Ex_SW != NULL) {
+        if (uiKeyBits / 8 < SDF_SM2DH_EX_SECRET_LEN)
+            return OSSL_SDR_INARGERR;
+
+        if (phKeyHandle != NULL)
+            *phKeyHandle = NULL;
+
+        {
+            int ret = meth->GenerateAgreementDataAndKeyWithECC_Ex_SW(
+                hSessionHandle, uiISKIndex, uiKeyBits, pucResponseID,
+                uiResponseIDLength, pucSponsorID, uiSponsorIDLength,
+                pucSponsorPublicKey, pucSponsorTmpPublicKey,
+                pucResponsePublicKey, pucResponseTmpPublicKey,
+                pucSharedSecret);
+            if (ret == OSSL_SDR_OK && puiSecretLength != NULL)
+                *puiSecretLength = SDF_SM2DH_EX_SECRET_LEN;
+            return ret;
+        }
+    }
+
+    return OSSL_SDR_NOTSUPPORT;
 }

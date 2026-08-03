@@ -145,8 +145,56 @@ typedef int (*SDF_GenerateAgreementDataAndKeyWithECCEx_fn)(
     unsigned char *pucSharedSecret, unsigned int *puiSecretLength,
     void **phKeyHandle);
 
+typedef int (*SDF_GenerateAgreementDataWithECC_Ex_SW_fn)(
+    void *hSessionHandle, unsigned int uiISKIndex, unsigned int uiKeyBits,
+    unsigned char *pucSponsorID, unsigned int uiSponsorIDLength,
+    OSSL_ECCrefPublicKey *pucSponsorPublicKey,
+    OSSL_ECCrefPublicKey *pucSponsorTmpPublicKey,
+    void **phAgreementHandle);
+
+typedef int (*SDF_GenerateKeyWithECC_Ex_SW_fn)(
+    void *hSessionHandle, unsigned char *pucResponseID,
+    unsigned int uiResponseIDLength,
+    OSSL_ECCrefPublicKey *pucResponsePublicKey,
+    OSSL_ECCrefPublicKey *pucResponseTmpPublicKey,
+    void *hAgreementHandle, unsigned char *pucKey);
+
+typedef int (*SDF_GenerateAgreementDataAndKeyWithECC_Ex_SW_fn)(
+    void *hSessionHandle, unsigned int uiISKIndex, unsigned int uiKeyBits,
+    unsigned char *pucResponseID, unsigned int uiResponseIDLength,
+    unsigned char *pucSponsorID, unsigned int uiSponsorIDLength,
+    OSSL_ECCrefPublicKey *pucSponsorPublicKey,
+    OSSL_ECCrefPublicKey *pucSponsorTmpPublicKey,
+    OSSL_ECCrefPublicKey *pucResponsePublicKey,
+    OSSL_ECCrefPublicKey *pucResponseTmpPublicKey,
+    unsigned char *pucKey);
+
 typedef int (*SDFE_LoadModule_fn)(const char *password);
 typedef int (*SDFE_UninstallModule_fn)(const char *password);
+
+/*
+ * SDFE 厂商扩展密钥管理接口（SWCSM_ 系列）
+ * 三未 swsds 与 byzk0018 均导出 SWCSM_ 前缀符号，用此前缀兼容两家厂商。
+ * 参数类型使用铜锁的 OSSL_ 前缀别名，与厂商库 ECCref/RSAref 结构二进制兼容。
+ */
+/* SWCSM_GenerateECCKeyPair / BYCSM_GenerateECCKeyPair：在指定索引生成 ECC(SM2) 密钥对 */
+typedef int (*SDFE_GenECCKey_fn)(void *hSessionHandle, unsigned int uiKeyIndex,
+                                 OSSL_ECCrefPublicKey *pucPublicKey,
+                                 OSSL_ECCrefPrivateKey *pucPrivateKey);
+/* SWCSM_DestroyECCKeyPair / BYCSM_DestroyECCKeyPair：按索引销毁 ECC(SM2) 密钥对 */
+typedef int (*SDFE_DelECCKey_fn)(void *hSessionHandle, unsigned int uiKeyIndex);
+/* SWCSM_ImportECCKeyPair / BYCSM_ImportECCKeyPair：导入 ECC(SM2) 密钥对 */
+typedef int (*SDFE_ImportECCKey_fn)(void *hSessionHandle, unsigned int uiKeyIndex,
+                                    OSSL_ECCrefPublicKey *pucPublicKey,
+                                    OSSL_ECCrefPrivateKey *pucPrivateKey);
+/* SWCSM_InputRSAKeyPair / BYCSM_InputRSAKeyPair：导入 RSA 密钥对（≤2048） */
+typedef int (*SDFE_InputRSAKey_fn)(void *hSessionHandle, unsigned int uiKeyIndex,
+                                   OSSL_RSArefPublicKey *pucPublicKey,
+                                   OSSL_RSArefPrivateKey *pucPrivateKey);
+/* SWCSM_InputRSAKeyPair_Ex / BYCSM_InputRSAKeyPairEx：导入 RSA 密钥对（支持 3072/4096） */
+typedef int (*SDFE_InputRSAKeyEx_fn)(void *hSessionHandle, unsigned int uiKeyIndex,
+                                     OSSL_RSArefPublicKeyEx *pucPublicKey,
+                                     OSSL_RSArefPrivateKeyEx *pucPrivateKey);
 
 typedef int (*_CP_SDF_OpenDevice)(void **phDeviceHandle);
 typedef int (*_CP_SDF_CloseDevice)(void *hDeviceHandle);
@@ -360,6 +408,23 @@ struct sdf_method_st {
     /* Vendor-specific API */
     SDFE_LoadModule_fn LoadModule;
     SDFE_UninstallModule_fn UninstallModule;
+
+    /*
+     * SDFE 厂商扩展密钥管理接口（SWCSM_* 系列）
+     * 通过 DSO 从厂商库绑定，未绑定时为 NULL（对应 SDFE_* stub 返回 NOTSUPPORT）。
+     * 索引语义：由厂商库解释（部分厂商奇数=签名、偶数=加密）。
+     */
+    SDFE_GenECCKey_fn   GenECCKey;     /* SWCSM_GenerateECCKeyPair */
+    SDFE_DelECCKey_fn   DelECCKey;     /* SWCSM_DestroyECCKeyPair */
+    SDFE_ImportECCKey_fn ImportECCKey; /* SWCSM_ImportECCKeyPair (SM2) */
+    SDFE_InputRSAKey_fn  InputRSAKey;  /* SWCSM_InputRSAKeyPair (RSA≤2048) */
+    SDFE_InputRSAKeyEx_fn InputRSAKeyEx; /* SWCSM_InputRSAKeyPair_Ex (RSA 3072/4096) */
+
+    SDF_GenerateAgreementDataWithECC_Ex_SW_fn
+        GenerateAgreementDataWithECC_Ex_SW;
+    SDF_GenerateKeyWithECC_Ex_SW_fn GenerateKeyWithECC_Ex_SW;
+    SDF_GenerateAgreementDataAndKeyWithECC_Ex_SW_fn
+        GenerateAgreementDataAndKeyWithECC_Ex_SW;
 };
 
 extern SDF_METHOD ts_sdf_meth;

@@ -328,6 +328,24 @@ int OSSL_provider_init_int(const OSSL_CORE_HANDLE *handle,
     sdfctx->sign_key_index = 0;
     sdfctx->enc_key_index = 0;
 
+    /*
+     * 在 provider 初始化阶段立即预加载厂商库（dlopen + BYCSM_LoadModule）。
+     *
+     * 为什么不等 init_device 懒加载：openssl sdf 等命令通过 TSAPI 层
+     * （TSAPI_SDF_OpenDevice 等）直接操作密码机，不走 provider 的密钥操作，
+     * 因此不会触发 init_device。但 TSAPI 层和 provider 共享同一份 sdfm
+     * 函数指针表（由 ossl_sdf_lib_preload 填充），若不在此预加载，
+     * TSAPI 路径会因为 sdf_preload_path 为 NULL 而用默认库名 "sdf" 加载失败。
+     *
+     * 此处用 cnf/环境变量读到的 sdf_lib_path/password 预加载，使 TSAPI 和
+     * provider 两条路径共享同一份已初始化的函数指针表。
+     */
+    if (!ossl_sdf_lib_preload(sdfctx->sdf_lib_path, sdfctx->password,
+                              sdfctx->use_load_module)) {
+        TLOG_DEBUG("SDF library preload failed (device not available yet)");
+        /* 预加载失败不阻断 provider 加载，init_device 时会再试 */
+    }
+
     /* Note: device will be opened on first use, not during provider init,
      * so the provider can load even without SDF hardware present */
 

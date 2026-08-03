@@ -23,6 +23,7 @@ extern "C" {
 
 /* 非对称密钥算法类型 */
 #define SDFE_ASYM_KEY_TYPE_SM2     0x0001
+#define SDFE_ASYM_KEY_TYPE_RSA     0x0002
 
 /* 对称密钥算法类型 */
 #define SDFE_SYM_KEY_TYPE_SM4      0x0001
@@ -64,6 +65,24 @@ typedef struct sdfe_asym_key_ecc_st {
     OSSL_ECCrefPrivateKey privkey[1];
 } sdfe_asym_key_ecc_t;
 
+/*
+ * 非对称 RSA 密钥结构
+ * use_ex=0: 密钥位数 ≤2048，使用 pub/pri（RSArefPublicKey/PrivateKey）
+ * use_ex=1: 密钥位数 3072/4096，使用 pub_ex/pri_ex（RSArefPublicKeyEx/PrivateKeyEx）
+ * 由 TSAPI 层根据 EVP_PKEY 的 RSA 位数自动设置。
+ */
+typedef struct sdfe_asym_key_rsa_st {
+    int area;
+    int index;
+    int type;          /* SDFE_ASYM_KEY_TYPE_RSA */
+    int use_ex;        /* 0=普通版(≤2048), 1=Ex版(3072/4096) */
+    unsigned int bits;
+    OSSL_RSArefPublicKey pub[1];
+    OSSL_RSArefPrivateKey pri[1];
+    OSSL_RSArefPublicKeyEx pub_ex[1];
+    OSSL_RSArefPrivateKeyEx pri_ex[1];
+} sdfe_asym_key_rsa_t;
+
 /* 对称密钥信封结构 */
 typedef struct sdfe_sym_key_evlp_st {
     uint32_t flags;
@@ -81,6 +100,8 @@ int SDFE_DelECCKey(void *hSessionHandle, int area, int index);
 int SDFE_GenECCKey(void *hSessionHandle, int area, int index,
                    unsigned int flags, void *cb);
 int SDFE_ImportECCKey(void *hSessionHandle, sdfe_asym_key_ecc_t *key,
+                      void *cb);
+int SDFE_ImportRSAKey(void *hSessionHandle, sdfe_asym_key_rsa_t *key,
                       void *cb);
 int SDFE_ImportECCKeyWithEvlp(void *hSessionHandle,
                               sdfe_asym_key_ecc_t *key,

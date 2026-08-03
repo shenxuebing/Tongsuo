@@ -10,6 +10,8 @@
 #include <openssl/bn.h>
 #include <openssl/err.h>
 #include <openssl/rsa.h>
+#include <openssl/evp.h>
+#include <openssl/tsapi.h>
 #include <openssl/proverr.h>
 #include <openssl/sdf.h>
 #include "internal/tlog.h"
@@ -42,6 +44,16 @@ static int sdfprov_rsa_size(const SDF_SM2_KEY *key)
     if (key->rsa != NULL)
         return RSA_size(key->rsa);
     return key->rsa_size;
+}
+
+static void *sdfprov_rsa_get_session(void)
+{
+    SDFPROV_CTX *sdfctx = sdfprov_get_global_ctx();
+
+    if (sdfctx == NULL)
+        return NULL;
+
+    return sdfprov_ctx_get_session(sdfctx);
 }
 
 static void *sdfprov_rsa_newdata(void *provctx)
@@ -224,6 +236,161 @@ static const OSSL_PARAM *sdfprov_rsa_export_types(int selection)
     static const OSSL_PARAM params[] = {
         OSSL_PARAM_BN(OSSL_PKEY_PARAM_RSA_N, NULL, 0),
         OSSL_PARAM_BN(OSSL_PKEY_PARAM_RSA_E, NULL, 0),
+        OSSL_PARAM_END
+    };
+    return params;
+}
+
+static int sdfprov_rsa_get_bn_param(const OSSL_PARAM params[],
+                                    const char *name, BIGNUM **bn)
+{
+    const OSSL_PARAM *p = OSSL_PARAM_locate_const(params, name);
+
+    if (p == NULL)
+        return 1;
+    return OSSL_PARAM_get_BN(p, bn);
+}
+
+static int sdfprov_rsa_import(void *keydata, int selection,
+                              const OSSL_PARAM params[])
+{
+    SDF_SM2_KEY *key = keydata;
+    const OSSL_PARAM *p;
+    RSA *rsa = NULL, *duprsa = NULL;
+    EVP_PKEY *pkey = NULL;
+    BIGNUM *n = NULL, *e = NULL, *d = NULL;
+    BIGNUM *factor1 = NULL, *factor2 = NULL;
+    BIGNUM *exponent1 = NULL, *exponent2 = NULL;
+    BIGNUM *coefficient1 = NULL;
+    unsigned int key_index = 0;
+    int key_type = 0;
+    int import_to_device = 0;
+    const char *user = NULL;
+    const char *password = NULL;
+    int ret = 0;
+
+    if (key == NULL || params == NULL)
+        return 0;
+
+    if ((selection & OSSL_KEYMGMT_SELECT_KEYPAIR) == 0)
+        return 0;
+
+    if (!sdfprov_rsa_get_bn_param(params, OSSL_PKEY_PARAM_RSA_N, &n)
+        || !sdfprov_rsa_get_bn_param(params, OSSL_PKEY_PARAM_RSA_E, &e)
+        || !sdfprov_rsa_get_bn_param(params, OSSL_PKEY_PARAM_RSA_D, &d)
+        || !sdfprov_rsa_get_bn_param(params, OSSL_PKEY_PARAM_RSA_FACTOR1,
+                                     &factor1)
+        || !sdfprov_rsa_get_bn_param(params, OSSL_PKEY_PARAM_RSA_FACTOR2,
+                                     &factor2)
+        || !sdfprov_rsa_get_bn_param(params, OSSL_PKEY_PARAM_RSA_EXPONENT1,
+                                     &exponent1)
+        || !sdfprov_rsa_get_bn_param(params, OSSL_PKEY_PARAM_RSA_EXPONENT2,
+                                     &exponent2)
+        || !sdfprov_rsa_get_bn_param(params, OSSL_PKEY_PARAM_RSA_COEFFICIENT1,
+                                     &coefficient1))
+        goto end;
+
+    if (n == NULL || e == NULL)
+        goto end;
+
+    rsa = RSA_new();
+    if (rsa == NULL)
+        goto end;
+
+    if (!RSA_set0_key(rsa, n, e, d))
+        goto end;
+    n = e = d = NULL;
+
+    if ((factor1 != NULL || factor2 != NULL)
+        && !RSA_set0_factors(rsa, factor1, factor2))
+        goto end;
+    factor1 = factor2 = NULL;
+
+    if ((exponent1 != NULL || exponent2 != NULL || coefficient1 != NULL)
+        && !RSA_set0_crt_params(rsa, exponent1, exponent2, coefficient1))
+        goto end;
+    exponent1 = exponent2 = coefficient1 = NULL;
+
+    RSA_free(key->rsa);
+    key->rsa = rsa;
+    rsa = NULL;
+    key->rsa_bits = RSA_bits(key->rsa);
+    key->rsa_size = RSA_size(key->rsa);
+    key->algo = SDF_ALGO_RSA;
+    key->is_hardware_key = 0;
+
+    p = OSSL_PARAM_locate_const(params, "sdf-import-to-device");
+    if (p != NULL && !OSSL_PARAM_get_int(p, &import_to_device))
+        goto end;
+
+    if (import_to_device) {
+        p = OSSL_PARAM_locate_const(params, "sdf-key-index");
+        if (p == NULL || !OSSL_PARAM_get_uint(p, &key_index))
+            goto end;
+        p = OSSL_PARAM_locate_const(params, "sdf-key-type");
+        if (p != NULL && !OSSL_PARAM_get_int(p, &key_type))
+            goto end;
+        p = OSSL_PARAM_locate_const(params, "sdf-key-user");
+        if (p != NULL && p->data != NULL)
+            user = p->data;
+        p = OSSL_PARAM_locate_const(params, "sdf-key-password");
+        if (p != NULL && p->data != NULL)
+            password = p->data;
+
+        pkey = EVP_PKEY_new();
+        duprsa = RSAPrivateKey_dup(key->rsa);
+        if (pkey == NULL || duprsa == NULL
+            || !EVP_PKEY_assign_RSA(pkey, duprsa))
+            goto end;
+        duprsa = NULL;
+
+        if (!TSAPI_ImportRSAKey((int)key_index, key_type == 0,
+                                user, password, pkey))
+            goto end;
+
+        key->is_hardware_key = 1;
+        key->key_index = key_index;
+        key->key_type = key_type;
+        key->hSession = sdfprov_rsa_get_session();
+        OPENSSL_free(key->key_password);
+        key->key_password = password != NULL ? OPENSSL_strdup(password) : NULL;
+        if (password != NULL && key->key_password == NULL)
+            goto end;
+    }
+
+    ret = 1;
+
+end:
+    BN_free(n);
+    BN_free(e);
+    BN_free(d);
+    BN_free(factor1);
+    BN_free(factor2);
+    BN_free(exponent1);
+    BN_free(exponent2);
+    BN_free(coefficient1);
+    RSA_free(rsa);
+    RSA_free(duprsa);
+    EVP_PKEY_free(pkey);
+    return ret;
+}
+
+static const OSSL_PARAM *sdfprov_rsa_import_types(int selection)
+{
+    static const OSSL_PARAM params[] = {
+        OSSL_PARAM_BN(OSSL_PKEY_PARAM_RSA_N, NULL, 0),
+        OSSL_PARAM_BN(OSSL_PKEY_PARAM_RSA_E, NULL, 0),
+        OSSL_PARAM_BN(OSSL_PKEY_PARAM_RSA_D, NULL, 0),
+        OSSL_PARAM_BN(OSSL_PKEY_PARAM_RSA_FACTOR1, NULL, 0),
+        OSSL_PARAM_BN(OSSL_PKEY_PARAM_RSA_FACTOR2, NULL, 0),
+        OSSL_PARAM_BN(OSSL_PKEY_PARAM_RSA_EXPONENT1, NULL, 0),
+        OSSL_PARAM_BN(OSSL_PKEY_PARAM_RSA_EXPONENT2, NULL, 0),
+        OSSL_PARAM_BN(OSSL_PKEY_PARAM_RSA_COEFFICIENT1, NULL, 0),
+        OSSL_PARAM_int("sdf-import-to-device", NULL),
+        OSSL_PARAM_uint("sdf-key-index", NULL),
+        OSSL_PARAM_int("sdf-key-type", NULL),
+        OSSL_PARAM_utf8_string("sdf-key-user", NULL, 0),
+        OSSL_PARAM_utf8_string("sdf-key-password", NULL, 0),
         OSSL_PARAM_END
     };
     return params;
@@ -416,6 +583,9 @@ const OSSL_DISPATCH sdfprov_rsa_keymgmt_functions[] = {
       (void (*)(void))sdfprov_rsa_gettable_params },
     { OSSL_FUNC_KEYMGMT_LOAD, (void (*)(void))sdfprov_rsa_load },
     { OSSL_FUNC_KEYMGMT_MATCH, (void (*)(void))sdfprov_rsa_match },
+    { OSSL_FUNC_KEYMGMT_IMPORT, (void (*)(void))sdfprov_rsa_import },
+    { OSSL_FUNC_KEYMGMT_IMPORT_TYPES,
+      (void (*)(void))sdfprov_rsa_import_types },
     { OSSL_FUNC_KEYMGMT_EXPORT, (void (*)(void))sdfprov_rsa_export },
     { OSSL_FUNC_KEYMGMT_EXPORT_TYPES,
       (void (*)(void))sdfprov_rsa_export_types },

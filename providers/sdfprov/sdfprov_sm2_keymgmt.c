@@ -11,6 +11,8 @@
 #include <openssl/bn.h>
 #include <openssl/err.h>
 #include <openssl/sdf.h>
+#include <openssl/tsapi.h>
+#include <openssl/evp.h>
 #include <openssl/proverr.h>
 #include "prov/provider_ctx.h"
 #include "crypto/sm2.h"
@@ -451,6 +453,11 @@ static int sdfprov_sm2_import(void *keydata, int selection,
     const OSSL_PARAM *p;
     unsigned char *pub = NULL;
     size_t pub_len;
+    unsigned int key_index = 0;
+    int key_type = 0;
+    int import_to_device = 0;
+    const char *user = NULL;
+    const char *password = NULL;
 
     if (key == NULL)
         return 0;
@@ -485,6 +492,57 @@ static int sdfprov_sm2_import(void *keydata, int selection,
             BN_free(priv);
             key->is_hardware_key = 0;
         }
+    }
+
+    p = OSSL_PARAM_locate_const(params, "sdf-import-to-device");
+    if (p != NULL && !OSSL_PARAM_get_int(p, &import_to_device))
+        return 0;
+
+    if (import_to_device) {
+        EVP_PKEY *pkey = NULL;
+        EC_KEY *dupkey = NULL;
+        int ok = 0;
+
+        p = OSSL_PARAM_locate_const(params, "sdf-key-index");
+        if (p == NULL || !OSSL_PARAM_get_uint(p, &key_index))
+            return 0;
+        p = OSSL_PARAM_locate_const(params, "sdf-key-type");
+        if (p != NULL && !OSSL_PARAM_get_int(p, &key_type))
+            return 0;
+        p = OSSL_PARAM_locate_const(params, "sdf-key-user");
+        if (p != NULL && p->data != NULL)
+            user = p->data;
+        p = OSSL_PARAM_locate_const(params, "sdf-key-password");
+        if (p != NULL && p->data != NULL)
+            password = p->data;
+
+        pkey = EVP_PKEY_new();
+        dupkey = EC_KEY_dup(key->ec_key);
+        if (pkey == NULL || dupkey == NULL
+            || !EVP_PKEY_assign_EC_KEY(pkey, dupkey))
+            goto import_end;
+        dupkey = NULL;
+
+        if (!TSAPI_ImportSM2Key((int)key_index, key_type == 0,
+                                user, password, pkey))
+            goto import_end;
+
+        key->is_hardware_key = 1;
+        key->key_index = key_index;
+        key->key_type = key_type;
+        key->hSession = sdfprov_get_session();
+        OPENSSL_free(key->key_password);
+        key->key_password = password != NULL ? OPENSSL_strdup(password) : NULL;
+        if (password != NULL && key->key_password == NULL)
+            goto import_end;
+
+        ok = 1;
+
+import_end:
+        EC_KEY_free(dupkey);
+        EVP_PKEY_free(pkey);
+        if (!ok)
+            return 0;
     }
 
     return 1;
@@ -604,6 +662,11 @@ static const OSSL_PARAM *sdfprov_sm2_import_types(int selection)
         OSSL_PARAM_octet_string(OSSL_PKEY_PARAM_ENCODED_PUBLIC_KEY, NULL, 0),
         OSSL_PARAM_octet_string(OSSL_PKEY_PARAM_PUB_KEY, NULL, 0),
         OSSL_PARAM_BN(OSSL_PKEY_PARAM_PRIV_KEY, NULL, 0),
+        OSSL_PARAM_int("sdf-import-to-device", NULL),
+        OSSL_PARAM_uint("sdf-key-index", NULL),
+        OSSL_PARAM_int("sdf-key-type", NULL),
+        OSSL_PARAM_utf8_string("sdf-key-user", NULL, 0),
+        OSSL_PARAM_utf8_string("sdf-key-password", NULL, 0),
         OSSL_PARAM_END
     };
     return params;
