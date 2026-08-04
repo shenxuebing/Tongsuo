@@ -25,8 +25,11 @@ int SDFE_LoginUsr(void *hSessionHandle, sdfe_login_arg_t *login_arg)
      * 即视为登录，该接口在 ossl_sdf_lib_init(RUN_ONCE) 阶段已调用一次。
      * 此处做幂等检查：LoadModule 未绑定说明厂商库未加载，返回 NOTSUPPORT；
      * 否则视为已登录返回成功，不重复调用 LoadModule（避免重复初始化）。
-     */
+    */
     const SDF_METHOD *meth = SDFE_GET_METH();
+
+    if (!ossl_sdf_lib_uses_load_module())
+        return OSSL_SDR_OK;
 
     if (meth == NULL || meth->LoadModule == NULL)
         return OSSL_SDR_NOTSUPPORT;

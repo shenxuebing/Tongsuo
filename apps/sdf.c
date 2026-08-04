@@ -14,6 +14,7 @@
 #include <openssl/tsapi.h>
 #include <openssl/ec.h>
 #include <openssl/sgd.h>
+#include "internal/sdf.h"
 #include "apps.h"
 #include "progs.h"
 
@@ -59,9 +60,9 @@ typedef enum OPTION_choice {
  *   or set OPENSSL_CONF to the config file before running openssl.
  *
  * The sdfprov section in openssl.cnf provides sdf_lib_path,
- * sdf_module_password and sdf_use_loadmodule.  Environment variables
- * SDF_LIB_PATH, SDF_MODULE_PASSWORD and SDF_USE_LOADMODULE are fallback
- * values only.
+ * sdf_module_password, sdf_use_loadmodule and indexstart.
+ * Environment variables SDF_LIB_PATH, SDF_MODULE_PASSWORD,
+ * SDF_USE_LOADMODULE and SDF_INDEX_START are fallback values only.
  *
  * SM2 key management:
  *   openssl sdf -gensm2key -index N [-type sign|enc] [-login user:pass]
@@ -89,6 +90,11 @@ typedef enum OPTION_choice {
  *       -isktype sm2 -iv HEX -in data.txt -out data.enc
  *   openssl sdf -decrypt -algorithm sm4-cbc -inkey sm4key.enc -isk N \
  *       -isktype sm2 -iv HEX -in data.enc -out data.txt
+ *
+ * Asymmetric import/delete index mapping:
+ *   indexstart=1: -index N maps to sign=2*N-1, enc=2*N.
+ *   indexstart=0: -index N maps to sign=2*N+1, enc=2*N+2.
+ *   The mapping is applied only to asymmetric import/delete commands.
  *
  * byzk0018/BYCSM SM2 import index note:
  *   BYCSM_ImportECCKeyPair receives the command index, but the vendor library
@@ -146,7 +152,8 @@ static void sdf_print_usage(void)
     BIO_printf(bio_err, "  Load provider config:\n");
     BIO_printf(bio_err, "    set OPENSSL_CONF=C:\\path\\to\\openssl.cnf\n");
     BIO_printf(bio_err, "    openssl sdf [command options]\n");
-    BIO_printf(bio_err, "    # Or pass -config openssl.cnf on the command line.\n");
+    BIO_printf(bio_err, "    # Prefer OPENSSL_CONF for provider options such as sdf_use_loadmodule.\n");
+    BIO_printf(bio_err, "    # -config can load app config, but may be too late for auto-loaded providers.\n");
     BIO_printf(bio_err, "\n");
     BIO_printf(bio_err, "  Generate SM2 key on device:\n");
     BIO_printf(bio_err, "    openssl sdf -gensm2key -index N [-type sign|enc] [-login user:pass]\n");
@@ -191,8 +198,13 @@ static void sdf_print_usage(void)
     BIO_printf(bio_err, "  -type defaults to sign. Use -type enc for encryption-key slots.\n");
     BIO_printf(bio_err, "  -login defaults to admin:123123 if omitted.\n");
     BIO_printf(bio_err, "  Supported -algorithm values are sm2, sm4-ecb, sm4-cbc, sm4-cfb, sm4-ofb.\n");
-    BIO_printf(bio_err, "  sdf_lib_path, sdf_module_password and sdf_use_loadmodule are read from openssl.cnf.\n");
-    BIO_printf(bio_err, "  SDF_LIB_PATH, SDF_MODULE_PASSWORD and SDF_USE_LOADMODULE are only fallbacks.\n");
+    BIO_printf(bio_err, "  sdf_lib_path, sdf_module_password, sdf_use_loadmodule and indexstart are read from openssl.cnf.\n");
+    BIO_printf(bio_err, "  indexstart controls logical asymmetric import/delete index mapping.\n");
+    BIO_printf(bio_err, "  indexstart=1: logical N maps to sign=2*N-1 and enc=2*N.\n");
+    BIO_printf(bio_err, "  indexstart=0: logical N maps to sign=2*N+1 and enc=2*N+2.\n");
+    BIO_printf(bio_err, "  Use OPENSSL_CONF when changing provider options; -config is best for app-time config.\n");
+    BIO_printf(bio_err, "  SDF_LIB_PATH, SDF_MODULE_PASSWORD, SDF_USE_LOADMODULE and SDF_INDEX_START are only fallbacks.\n");
+    BIO_printf(bio_err, "  Set sdf_use_loadmodule=0 for vendors that do not provide BYCSM_LoadModule.\n");
     BIO_printf(bio_err, "  Some BYCSM libraries store SM2 sign/enc pairs under a container index.\n");
     BIO_printf(bio_err, "  For byzk0018 tests, import indexes 81/82 export as container index 40.\n");
     BIO_printf(bio_err, "\n");
@@ -211,6 +223,28 @@ static int sdf_require_index(const char *cmd, int index)
 
     BIO_printf(bio_err, "%s requires -index N\n", cmd);
     return 0;
+}
+
+static const char *sdf_key_type_name(int sign)
+{
+    return sign ? "sign" : "enc";
+}
+
+static int sdf_pkey_bits(EVP_PKEY *pkey)
+{
+    int bits = EVP_PKEY_get_bits(pkey);
+
+    return bits > 0 ? bits : 0;
+}
+
+static int sdf_map_asym_index(int relative_index, int sign)
+{
+    int index_start = ossl_sdf_lib_get_index_start();
+
+    if (index_start == 0)
+        return relative_index * 2 + (sign ? 1 : 2);
+
+    return relative_index * 2 - (sign ? 1 : 0);
 }
 
 int sdf_main(int argc, char **argv)
@@ -242,6 +276,7 @@ int sdf_main(int argc, char **argv)
     int inbuflen = -1;
     size_t outbuflen = 0;
     CONF *conf = NULL;
+    int logical_index = -1, map_asym_index = 0;
 
     prog = opt_init(argc, argv, sdf_options);
     while ((o = opt_next()) != OPT_EOF) {
@@ -445,6 +480,16 @@ opthelp:
         *p = '\0';
     }
 
+    map_asym_index = delsm2 || importsm2key || importsm2keywithevlp
+                     || importrsakey;
+    if (map_asym_index) {
+        logical_index = index;
+        index = sdf_map_asym_index(logical_index, sign);
+        BIO_printf(bio_err, "Using %s key index: logical=%d, device=%d, indexstart=%d\n",
+                   sdf_key_type_name(sign), logical_index, index,
+                   ossl_sdf_lib_get_index_start());
+    }
+
     /*
      * 厂商库通常由 sdfprov 从 openssl.cnf 读取配置后预加载。
      * 如果 provider/config 没有先完成预加载，TSAPI 层仍会在首次调用时尝试
@@ -457,6 +502,8 @@ opthelp:
             goto end;
         }
 
+        BIO_printf(bio_err, "Generated SM2 %s key at index %d\n",
+                   sdf_key_type_name(sign), index);
         ret = 0;
         goto end;
     }
@@ -467,6 +514,8 @@ opthelp:
             goto end;
         }
 
+        BIO_printf(bio_err, "Deleted SM2 %s key at logical index %d (device index %d)\n",
+                   sdf_key_type_name(sign), logical_index, index);
         ret = 0;
         goto end;
     }
@@ -477,6 +526,8 @@ opthelp:
             goto end;
         }
 
+        BIO_printf(bio_err, "Updated SM2 %s key at index %d\n",
+                   sdf_key_type_name(sign), index);
         ret = 0;
         goto end;
     }
@@ -514,6 +565,10 @@ opthelp:
             goto end;
         }
 
+        BIO_printf(bio_err, "Exported %s %s public key at index %d%s%s\n",
+                   exportsm2pubkey ? "SM2" : "RSA", sdf_key_type_name(sign),
+                   index, outkeyfile != NULL ? " to " : "",
+                   outkeyfile != NULL ? outkeyfile : "");
         ret = 0;
         goto end;
     }
@@ -538,6 +593,8 @@ opthelp:
             goto end;
         }
 
+        BIO_printf(bio_err, "Exported SM2 %s private key at index %d to %s\n",
+                   sdf_key_type_name(sign), index, outkeyfile);
         ret = 0;
         goto end;
     }
@@ -571,6 +628,9 @@ opthelp:
             goto end;
         }
 
+        BIO_printf(bio_err,
+                   "Exported SM2 %s key with envelope at index %d: public=%zu bytes, private=%zu bytes, envelope=%zu bytes\n",
+                   sdf_key_type_name(sign), index, publen, privlen, outevlplen);
         ret = 0;
         goto end;
     }
@@ -588,6 +648,8 @@ opthelp:
             goto end;
         }
 
+        BIO_printf(bio_err, "Imported SM2 %s key to logical index %d (device index %d), bits=%d\n",
+                   sdf_key_type_name(sign), logical_index, index, sdf_pkey_bits(pkey));
         ret = 0;
         goto end;
     }
@@ -605,6 +667,8 @@ opthelp:
             goto end;
         }
 
+        BIO_printf(bio_err, "Imported RSA %s key to logical index %d (device index %d), bits=%d\n",
+                   sdf_key_type_name(sign), logical_index, index, sdf_pkey_bits(pkey));
         ret = 0;
         goto end;
     }
@@ -665,6 +729,9 @@ opthelp:
             goto end;
         }
 
+        BIO_printf(bio_err,
+                   "Imported SM2 %s key with envelope to logical index %d (device index %d): key=%d bytes, envelope=%d bytes\n",
+                   sdf_key_type_name(sign), logical_index, index, keylen, deklen);
         ret = 0;
         goto end;
     }
@@ -759,6 +826,9 @@ opthelp:
             goto end;
         }
 
+        BIO_printf(bio_err, "%s %zu bytes with %s, wrote %zu bytes to %s\n",
+                   encrypt ? "Encrypted" : "Decrypted", (size_t)inbuflen,
+                   algo, outbuflen, outfile);
         ret = 0;
         goto end;
     }

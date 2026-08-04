@@ -256,13 +256,18 @@ int OSSL_provider_init_int(const OSSL_CORE_HANDLE *handle,
     const char *password_ptr = NULL;
     const char *lib_path_ptr = NULL;
     const char *use_load_module_ptr = NULL;
+    const char *index_start_ptr = NULL;
+    const char *indexstart_ptr = NULL;
     int use_load_module_val = 1;  /* 默认启用 BYCSM_LoadModule（byzk0018 需要） */
+    int index_start_val = 1;
     TLOG_DEBUG("Reading config parameters, c_get_params=%p", (void *)c_get_params);
     if (c_get_params != NULL) {
         OSSL_PARAM config_params[] = {
             OSSL_PARAM_construct_utf8_ptr("sdf_module_password", (char **)&password_ptr, 0),
             OSSL_PARAM_construct_utf8_ptr("sdf_lib_path", (char **)&lib_path_ptr, 0),
             OSSL_PARAM_construct_utf8_ptr("sdf_use_loadmodule", (char **)&use_load_module_ptr, 0),
+            OSSL_PARAM_construct_utf8_ptr("sdf_indexstart", (char **)&index_start_ptr, 0),
+            OSSL_PARAM_construct_utf8_ptr("indexstart", (char **)&indexstart_ptr, 0),
             OSSL_PARAM_END
         };
 
@@ -282,6 +287,13 @@ int OSSL_provider_init_int(const OSSL_CORE_HANDLE *handle,
                 use_load_module_val = atoi(use_load_module_ptr);
                 sdfctx->use_load_module = use_load_module_val;
                 TLOG_DEBUG("Read use_load_module: %d", use_load_module_val);
+            }
+            if (index_start_ptr == NULL)
+                index_start_ptr = indexstart_ptr;
+            if (index_start_ptr != NULL) {
+                index_start_val = atoi(index_start_ptr) == 0 ? 0 : 1;
+                sdfctx->index_start = index_start_val;
+                TLOG_DEBUG("Read index_start: %d", index_start_val);
             }
         } else {
             TLOG_DEBUG("c_get_params failed, using defaults");
@@ -304,6 +316,15 @@ int OSSL_provider_init_int(const OSSL_CORE_HANDLE *handle,
                        use_load_module_val);
         }
     }
+    if (index_start_ptr == NULL) {
+        const char *env_index_start = getenv("SDF_INDEX_START");
+
+        if (env_index_start != NULL && *env_index_start != '\0') {
+            index_start_val = atoi(env_index_start) == 0 ? 0 : 1;
+            TLOG_DEBUG("Read index_start from SDF_INDEX_START: %d",
+                       index_start_val);
+        }
+    }
 
     /* Default module password if not configured */
     if (sdfctx->password == NULL)
@@ -324,6 +345,8 @@ int OSSL_provider_init_int(const OSSL_CORE_HANDLE *handle,
      * use_load_module_val 初始为 1，c_get_params 成功时会被配置值覆盖
      * 因此直接使用 use_load_module_val 即可覆盖所有场景 */
     sdfctx->use_load_module = use_load_module_val;
+    sdfctx->index_start = index_start_val;
+    ossl_sdf_lib_set_index_start(sdfctx->index_start);
 
     sdfctx->sign_key_index = 0;
     sdfctx->enc_key_index = 0;

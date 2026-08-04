@@ -193,6 +193,9 @@ static SDF_METHOD sdfm;
 static char *sdf_preload_path = NULL;
 static char *sdf_preload_password = NULL;
 static int sdf_preload_use_load_module = 0;
+static int sdf_preload_use_load_module_set = 0;
+static int sdf_preload_index_start = 1;
+static int sdf_preload_index_start_set = 0;
 
 #if defined(SDF_LIB) && defined(SDF_LIB_SHARED)
 static DSO_FUNC_TYPE bind_first_available(DSO *dso, const char *name1,
@@ -326,10 +329,18 @@ DEFINE_RUN_ONCE_STATIC(ossl_sdf_lib_init)
         if (env_pwd != NULL)
             sdf_preload_password = OPENSSL_strdup(env_pwd);
     }
-    if (!sdf_preload_use_load_module) {
+    if (!sdf_preload_use_load_module_set) {
         const char *env_ulm = getenv("SDF_USE_LOADMODULE");
         sdf_preload_use_load_module =
             (env_ulm == NULL || env_ulm[0] != '0') ? 1 : 0;
+        sdf_preload_use_load_module_set = 1;
+    }
+    if (!sdf_preload_index_start_set) {
+        const char *env_idxstart = getenv("SDF_INDEX_START");
+
+        if (env_idxstart != NULL && env_idxstart[0] != '\0')
+            sdf_preload_index_start = atoi(env_idxstart) == 0 ? 0 : 1;
+        sdf_preload_index_start_set = 1;
     }
 
 #  ifdef _WIN32
@@ -560,6 +571,7 @@ int ossl_sdf_lib_preload(const char *path, const char *password,
     }
 
     sdf_preload_use_load_module = use_load_module;
+    sdf_preload_use_load_module_set = 1;
 
     if (!RUN_ONCE(&sdf_lib_once, ossl_sdf_lib_init))
         return 0;
@@ -577,6 +589,41 @@ int ossl_sdf_lib_preload(const char *path, const char *password,
 }
 
 /* 获取 SDF_METHOD 函数指针表（所有 TSAPI_SDF_* 接口通过它转发） */
+int ossl_sdf_lib_uses_load_module(void)
+{
+#ifdef SDF_LIB
+    return sdf_preload_use_load_module;
+#else
+    return 0;
+#endif
+}
+
+void ossl_sdf_lib_set_index_start(int index_start)
+{
+#ifdef SDF_LIB
+    sdf_preload_index_start = index_start == 0 ? 0 : 1;
+    sdf_preload_index_start_set = 1;
+#else
+    (void)index_start;
+#endif
+}
+
+int ossl_sdf_lib_get_index_start(void)
+{
+#ifdef SDF_LIB
+    if (!sdf_preload_index_start_set) {
+        const char *env_idxstart = getenv("SDF_INDEX_START");
+
+        if (env_idxstart != NULL && env_idxstart[0] != '\0')
+            sdf_preload_index_start = atoi(env_idxstart) == 0 ? 0 : 1;
+        sdf_preload_index_start_set = 1;
+    }
+    return sdf_preload_index_start;
+#else
+    return 1;
+#endif
+}
+
 static const SDF_METHOD *sdf_get_method(void)
 {
     const SDF_METHOD *meth = &ts_sdf_meth;

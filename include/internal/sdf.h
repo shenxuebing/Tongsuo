@@ -13,6 +13,9 @@
 
 int ossl_sdf_lib_preload(const char *path, const char *password,
                          int use_load_module);
+int ossl_sdf_lib_uses_load_module(void);
+void ossl_sdf_lib_set_index_start(int index_start);
+int ossl_sdf_lib_get_index_start(void);
 void ossl_sdf_lib_cleanup(void);
 
 /*

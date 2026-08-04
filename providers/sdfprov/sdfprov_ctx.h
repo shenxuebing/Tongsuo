@@ -41,6 +41,7 @@ typedef struct sdfprov_ctx_st {
     char *device_name;                /* 设备名称（可选） */
     char *password;                   /* 模块加载口令 (BYCSM_LoadModule 的密码参数) */
     int use_load_module;              /* 是否调用 BYCSM_LoadModule (0=不调用, 1=调用，博雅等厂商需要) */
+    int index_start;                  /* Logical key index base: 0 or 1 */
     unsigned int sign_key_index;      /* 默认签名密钥索引 */
     unsigned int enc_key_index;       /* 默认加密密钥索引 */
 
