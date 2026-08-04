@@ -124,7 +124,7 @@ const OPTIONS sdf_options[] = {
     {"inkey", OPT_INKEY, 's', "Input key file"},
     {"index", OPT_INDEX, 's', "Specify the index of key"},
     {"peerkey", OPT_PEERKEY, 's', "Peer public key file used in exporting SM2 key with digital envelope"},
-    {"type", OPT_TYPE, 's', "sign: signature key, enc: encryption key"},
+    {"type", OPT_TYPE, 's', "sign: signature key (default), enc: encryption key"},
     {"indek", OPT_INDEK, '>', "Input digital envelope key"},
     {"isk", OPT_ISK, 's', "Index of ISK key"},
     {"isktype", OPT_ISKTYPE, 's', "ISK type, sm2: SM2 key, rsa: RSA key"},
