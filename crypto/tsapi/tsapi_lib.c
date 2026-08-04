@@ -846,6 +846,84 @@ end:
     return pkey;
 }
 
+EVP_PKEY *TSAPI_ExportRSAPubKeyWithIndex(int index, int sign)
+{
+    EVP_PKEY *pkey = NULL;
+#ifdef SDF_LIB
+    void *hDeviceHandle = NULL;
+    void *hSessionHandle = NULL;
+    OSSL_RSArefPublicKeyEx pub_ex;   /* Ex 版可容纳 ≤4096，统一用 Ex 接收 */
+    BIGNUM *n = NULL, *e = NULL;
+    RSA *rsa = NULL;
+    int nbytes, ret;
+
+    memset(&pub_ex, 0, sizeof(pub_ex));
+
+    if (TSAPI_SDF_OpenDevice(&hDeviceHandle) != OSSL_SDR_OK)
+        goto end;
+    if (TSAPI_SDF_OpenSession(hDeviceHandle, &hSessionHandle) != OSSL_SDR_OK)
+        goto end;
+
+    /*
+     * 直接使用 Ex 版接口（RSArefPublicKeyEx 可容纳 ≤4096，兼容所有位长）。
+     * 部分厂商库的普通版 ExportSignPublicKey_RSA 只支持 ≤2048，
+     * 对 3072/4096 会截断或报错；Ex 版统一处理所有位长。
+     * 若 Ex 版未绑定（厂商库不提供），回退到普通版（仅 ≤2048）。
+     */
+    /*
+     * 使用 Ex 版结构体（RSArefPublicKeyEx，可容纳 ≤4096）接收数据。
+     * 先试 Ex 版接口（厂商库若有则覆盖所有位长），失败回退普通版（≤2048）。
+     * 注意：部分厂商库 Ex 版与普通版索引语义不同，普通版更可靠。
+     */
+    if (sign)
+        ret = TSAPI_SDF_ExportSignPublicKey_RSA(hSessionHandle, index,
+                                                (OSSL_RSArefPublicKey *)&pub_ex);
+    else
+        ret = TSAPI_SDF_ExportEncPublicKey_RSA(hSessionHandle, index,
+                                               (OSSL_RSArefPublicKey *)&pub_ex);
+    if (ret != OSSL_SDR_OK) {
+        memset(&pub_ex, 0, sizeof(pub_ex));
+        if (sign)
+            ret = TSAPI_SDF_ExportSignPublicKey_RSAEx(hSessionHandle, index, &pub_ex);
+        else
+            ret = TSAPI_SDF_ExportEncPublicKey_RSAEx(hSessionHandle, index, &pub_ex);
+        if (ret != OSSL_SDR_OK)
+            goto end;
+    }
+
+    nbytes = (pub_ex.bits + 7) / 8;
+    if (nbytes <= 0 || nbytes > (int)sizeof(pub_ex.m))
+        goto end;
+
+    n = BN_bin2bn(pub_ex.m, nbytes, NULL);
+    e = BN_bin2bn(pub_ex.e, nbytes, NULL);
+    if (n == NULL || e == NULL)
+        goto end;
+
+    rsa = RSA_new();
+    if (rsa == NULL)
+        goto end;
+    if (!RSA_set0_key(rsa, n, e, NULL))
+        goto end;
+    n = e = NULL;  /* 所有权转移 */
+
+    pkey = EVP_PKEY_new();
+    if (pkey == NULL)
+        goto end;
+    if (!EVP_PKEY_assign_RSA(pkey, rsa))
+        goto end;
+    rsa = NULL;  /* 所有权转移 */
+
+end:
+    BN_free(n);
+    BN_free(e);
+    RSA_free(rsa);
+    TSAPI_SDF_CloseSession(hSessionHandle);
+    TSAPI_SDF_CloseDevice(hDeviceHandle);
+#endif
+    return pkey;
+}
+
 EVP_PKEY *TSAPI_ExportSM2PubKeyWithIndex(int index, int sign)
 {
     EVP_PKEY *pkey = NULL;

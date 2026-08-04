@@ -28,6 +28,7 @@ typedef enum OPTION_choice {
     OPT_DELSM2KEY,
     OPT_UPDATESM2KEY,
     OPT_EXPORTSM2PUBKEY,
+    OPT_EXPORTRSAPUBKEY,
     OPT_EXPORTSM2KEY,
     OPT_EXPORTSM2KEYWITHEVLP,
     OPT_IMPORTSM2KEY,
@@ -113,6 +114,7 @@ const OPTIONS sdf_options[] = {
     {"updatesm2key", OPT_UPDATESM2KEY, '-', "Update SM2 key pair with the index"},
     {"exportsm2key", OPT_EXPORTSM2KEY, '-', "Export SM2 key with the index"},
     {"exportsm2pubkey", OPT_EXPORTSM2PUBKEY, '-', "Export SM2 public key with the index"},
+    {"exportrsapubkey", OPT_EXPORTRSAPUBKEY, '-', "Export RSA public key with the index"},
     {"exportsm2keywithevlp", OPT_EXPORTSM2KEYWITHEVLP, '-', "Export SM2 key with digital envelope"},
     {"login", OPT_LOGIN, 's', "Login with username:password"},
     OPT_CONFIG_OPTION,
@@ -221,6 +223,7 @@ int sdf_main(int argc, char **argv)
     int isk = -1;
     int gensm2 = 0, delsm2 = 0, updatesm2 = 0;
     int exportsm2pubkey = 0, exportsm2keywithevlp = 0, importsm2keywithevlp = 0;
+    int exportrsapubkey = 0;
     int exportsm2key = 0, importsm2key = 0, encrypt = 0, decrypt = 0;
     int importrsakey = 0;
     unsigned char *inkey = NULL, *indek = NULL, *inbuf = NULL, *outbuf = NULL;
@@ -283,6 +286,9 @@ opthelp:
             break;
         case OPT_EXPORTSM2PUBKEY:
             exportsm2pubkey = 1;
+            break;
+        case OPT_EXPORTRSAPUBKEY:
+            exportrsapubkey = 1;
             break;
         case OPT_EXPORTSM2KEYWITHEVLP:
             exportsm2keywithevlp = 1;
@@ -351,9 +357,9 @@ opthelp:
     if (argc != 0)
         goto opthelp;
 
-    argc = gensm2 + delsm2 + updatesm2 + exportsm2pubkey + exportsm2key
-           + exportsm2keywithevlp + importsm2key + importsm2keywithevlp
-           + importrsakey + encrypt + decrypt;
+    argc = gensm2 + delsm2 + updatesm2 + exportsm2pubkey + exportrsapubkey
+           + exportsm2key + exportsm2keywithevlp + importsm2key
+           + importsm2keywithevlp + importrsakey + encrypt + decrypt;
     if (argc == 0) {
         BIO_printf(bio_err, "No sdf command specified\n");
         goto opthelp;
@@ -369,9 +375,8 @@ opthelp:
         || (exportsm2key && (!sdf_require_index("-exportsm2key", index)
                              || (outkeyfile == NULL
                                  && !sdf_missing_arg("-exportsm2key", "-keyout file"))))
-        || (exportsm2pubkey && (!sdf_require_index("-exportsm2pubkey", index)
-                                || (outkeyfile == NULL
-                                    && !sdf_missing_arg("-exportsm2pubkey", "-keyout file"))))
+        || (exportsm2pubkey && !sdf_require_index("-exportsm2pubkey", index))
+        || (exportrsapubkey && !sdf_require_index("-exportrsapubkey", index))
         || (exportsm2keywithevlp
             && (!sdf_require_index("-exportsm2keywithevlp", index)
                 || (peerkey_file == NULL
@@ -476,6 +481,44 @@ opthelp:
         goto end;
     }
 
+    /*
+     * 公钥导出（SM2/RSA）：
+     * - 指定 -keyout 时输出 PEM 到文件
+     * - 未指定 -keyout 时打印 PEM 到 stdout
+     */
+    if (exportsm2pubkey || exportrsapubkey) {
+        if (outkeyfile != NULL) {
+            outkey = bio_open_default(outkeyfile, 'w', FORMAT_PEM);
+            if (outkey == NULL)
+                goto end;
+        } else {
+            outkey = BIO_new_fp(stdout, BIO_NOCLOSE);
+            if (outkey == NULL)
+                goto end;
+        }
+
+        if (exportsm2pubkey)
+            pkey = TSAPI_ExportSM2PubKeyWithIndex(index, sign);
+        else
+            pkey = TSAPI_ExportRSAPubKeyWithIndex(index, sign);
+
+        if (pkey == NULL) {
+            BIO_printf(bio_err, "Failed to export %s public key with index %d\n",
+                       exportsm2pubkey ? "SM2" : "RSA", index);
+            goto end;
+        }
+
+        if (!PEM_write_bio_PUBKEY(outkey, pkey)) {
+            BIO_printf(bio_err, "Failed to write public key\n");
+            ERR_print_errors(bio_err);
+            goto end;
+        }
+
+        ret = 0;
+        goto end;
+    }
+
+    /* exportsm2key (export private key, requires -keyout) */
     if (outkeyfile) {
         outkey = bio_open_default(outkeyfile, 'w', FORMAT_BINARY);
         if (outkey == NULL)
@@ -492,22 +535,6 @@ opthelp:
         if (!PEM_write_bio_PrivateKey(outkey, pkey, NULL, NULL, 0, NULL, NULL)) {
             BIO_printf(bio_err, "Failed to write SM2 key\n");
             ERR_print_errors(bio_err);
-            goto end;
-        }
-
-        ret = 0;
-        goto end;
-    }
-
-    if (exportsm2pubkey) {
-        pkey = TSAPI_ExportSM2PubKeyWithIndex(index, sign);
-        if (pkey == NULL) {
-            BIO_printf(bio_err, "Failed to export SM2 pubkey with index %d\n", index);
-            goto end;
-        }
-
-        if (!PEM_write_bio_PUBKEY(outkey, pkey)) {
-            BIO_printf(bio_err, "Failed to write SM2 pubkey");
             goto end;
         }
 

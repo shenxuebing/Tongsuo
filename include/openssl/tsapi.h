@@ -73,6 +73,16 @@ int TSAPI_DelSm2KeyWithIndex(int index, int sign, const char *user,
 int TSAPI_UpdateSm2KeyWithIndex(int index, int sign, const char *user,
                                 const char *password);
 EVP_PKEY *TSAPI_ExportSM2PubKeyWithIndex(int index, int sign);
+
+# ifndef OPENSSL_NO_RSA
+/*
+ * 从密码机指定索引导出 RSA 公钥（自动选择 ≤2048 或 3072/4096 接口）。
+ * @param index  密钥索引
+ * @param sign   1=签名公钥，0=加密公钥
+ * @return EVP_PKEY*（需调用方 EVP_PKEY_free），失败返回 NULL
+ */
+EVP_PKEY *TSAPI_ExportRSAPubKeyWithIndex(int index, int sign);
+# endif
 # endif
 
 # ifndef OPENSSL_NO_RSA
