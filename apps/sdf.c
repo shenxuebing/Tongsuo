@@ -247,10 +247,11 @@ static int sdf_pkey_bits(EVP_PKEY *pkey)
  * TSAPI/SDFE 层通过 ERR_raise 设置的错误会在此一并输出，
  * 帮助使用者定位底层原因（如设备未连接、密钥已存在、索引超限等）。
  */
-static void sdf_fail(const char *fmt, ...)
+static void sdf_fail_at(const char *file, int line, const char *fmt, ...)
 {
     va_list args;
 
+    BIO_printf(bio_err, "sdf: %s:%d: ", file, line);
     va_start(args, fmt);
     BIO_vprintf(bio_err, fmt, args);
     va_end(args);
@@ -258,6 +259,9 @@ static void sdf_fail(const char *fmt, ...)
     ERR_print_errors(bio_err);
     ERR_clear_error();
 }
+
+#define sdf_fail(...) sdf_fail_at(__FILE__, __LINE__, __VA_ARGS__)
+#define sdf_msg(...) sdf_fail_at(__FILE__, __LINE__, __VA_ARGS__)
 
 static int sdf_map_asym_index(int relative_index, int sign)
 {
@@ -524,7 +528,8 @@ opthelp:
 
     if (gensm2) {
         if (!TSAPI_GenerateSM2KeyWithIndex(index, sign, user, password)) {
-            sdf_fail("Failed to generate SM2 key pair with index %d", index);
+            sdf_fail("Failed to generate SM2 %s key: logical_index=%d device_index=%d user=%s",
+                     sdf_key_type_name(sign), logical_index, index, user);
             goto end;
         }
 
@@ -536,7 +541,8 @@ opthelp:
 
     if (delsm2) {
         if (!TSAPI_DelSm2KeyWithIndex(index, sign, user, password)) {
-            sdf_fail("Failed to delete SM2 key pair with index %d", index);
+            sdf_fail("Failed to delete SM2 %s key: logical_index=%d device_index=%d user=%s",
+                     sdf_key_type_name(sign), logical_index, index, user);
             goto end;
         }
 
@@ -548,7 +554,8 @@ opthelp:
 
     if (delrsakey) {
         if (!TSAPI_DelRSAKeyWithIndex(index, sign, user, password)) {
-            sdf_fail("Failed to delete RSA key pair with index %d", index);
+            sdf_fail("Failed to delete RSA %s key: logical_index=%d device_index=%d user=%s",
+                     sdf_key_type_name(sign), logical_index, index, user);
             goto end;
         }
 
@@ -560,7 +567,8 @@ opthelp:
 
     if (updatesm2) {
         if (!TSAPI_UpdateSm2KeyWithIndex(index, sign, user, password)) {
-            sdf_fail("Failed to update SM2 key pair with index %d", index);
+            sdf_fail("Failed to update SM2 %s key: logical_index=%d device_index=%d user=%s",
+                     sdf_key_type_name(sign), logical_index, index, user);
             goto end;
         }
 
@@ -578,12 +586,16 @@ opthelp:
     if (exportsm2pubkey || exportrsapubkey) {
         if (outkeyfile != NULL) {
             outkey = bio_open_default(outkeyfile, 'w', FORMAT_PEM);
-            if (outkey == NULL)
+            if (outkey == NULL) {
+                sdf_msg("Failed to open public key output: keyout=%s", outkeyfile);
                 goto end;
+            }
         } else {
             outkey = BIO_new_fp(stdout, BIO_NOCLOSE);
-            if (outkey == NULL)
+            if (outkey == NULL) {
+                sdf_msg("Failed to create stdout BIO for public key output");
                 goto end;
+            }
         }
 
         if (exportsm2pubkey)
@@ -592,14 +604,16 @@ opthelp:
             pkey = TSAPI_ExportRSAPubKeyWithIndex(index, sign);
 
         if (pkey == NULL) {
-            sdf_fail("Failed to export %s public key with index %d",
-                     exportsm2pubkey ? "SM2" : "RSA", index);
+            sdf_fail("Failed to export %s %s public key: index=%d keyout=%s",
+                     exportsm2pubkey ? "SM2" : "RSA", sdf_key_type_name(sign),
+                     index, outkeyfile != NULL ? outkeyfile : "stdout");
             goto end;
         }
 
         if (!PEM_write_bio_PUBKEY(outkey, pkey)) {
-            BIO_printf(bio_err, "Failed to write public key\n");
-            ERR_print_errors(bio_err);
+            sdf_msg("Failed to write %s %s public key: index=%d keyout=%s",
+                    exportsm2pubkey ? "SM2" : "RSA", sdf_key_type_name(sign),
+                    index, outkeyfile != NULL ? outkeyfile : "stdout");
             goto end;
         }
 
@@ -614,20 +628,24 @@ opthelp:
     /* exportsm2key (export private key, requires -keyout) */
     if (outkeyfile) {
         outkey = bio_open_default(outkeyfile, 'w', FORMAT_BINARY);
-        if (outkey == NULL)
+        if (outkey == NULL) {
+            sdf_msg("Failed to open key output file: keyout=%s", outkeyfile);
             goto end;
+        }
     }
 
     if (exportsm2key) {
         pkey = TSAPI_ExportSM2KeyWithIndex(index, sign, user, password);
         if (pkey == NULL) {
-            sdf_fail("Failed to export SM2 pubkey with index %d", index);
+            sdf_fail("Failed to export SM2 %s private key: index=%d keyout=%s",
+                     sdf_key_type_name(sign), index,
+                     outkeyfile != NULL ? outkeyfile : "(null)");
             goto end;
         }
 
         if (!PEM_write_bio_PrivateKey(outkey, pkey, NULL, NULL, 0, NULL, NULL)) {
-            BIO_printf(bio_err, "Failed to write SM2 key\n");
-            ERR_print_errors(bio_err);
+            sdf_msg("Failed to write SM2 %s private key: index=%d keyout=%s",
+                    sdf_key_type_name(sign), index, outkeyfile);
             goto end;
         }
 
@@ -640,29 +658,35 @@ opthelp:
     if (exportsm2keywithevlp) {
         peer = load_pubkey(peerkey_file, FORMAT_PEM, 0, NULL, NULL, "peer key");
         if (peer == NULL) {
-            BIO_printf(bio_err, "Error reading peer key %s\n", peerkey_file);
+            sdf_msg("Failed to read peer public key: peerkey=%s", peerkey_file);
             goto end;
         }
 
         if (!TSAPI_ExportSM2KeyWithEvlp(index, sign, user, password, peer, &priv,
                                         &privlen, &pub, &publen, &outevlp,
                                         &outevlplen)) {
-            sdf_fail("Failed to export SM2 key with digital envelope");
+            sdf_fail("Failed to export SM2 %s key with digital envelope: index=%d peerkey=%s keyout=%s dekout=%s",
+                     sdf_key_type_name(sign), index, peerkey_file,
+                     outkeyfile, outdekfile);
             goto end;
         }
 
         if (BIO_write(outkey, pub, publen) != (int)publen
             || BIO_write(outkey, priv, privlen) != (int)privlen) {
-            BIO_printf(bio_err, "Failed to write public or private key\n");
+            sdf_msg("Failed to write SM2 envelope key data: keyout=%s public=%zu private=%zu",
+                    outkeyfile, publen, privlen);
             goto end;
         }
 
         outdek = bio_open_default(outdekfile, 'w', FORMAT_BINARY);
-        if (outdek == NULL)
+        if (outdek == NULL) {
+            sdf_msg("Failed to open digital envelope output: dekout=%s", outdekfile);
             goto end;
+        }
 
         if (BIO_write(outdek, outevlp, outevlplen) != (int)outevlplen) {
-            BIO_printf(bio_err, "Failed to write digital envelope\n");
+            sdf_msg("Failed to write digital envelope: dekout=%s bytes=%zu",
+                    outdekfile, outevlplen);
             goto end;
         }
 
@@ -677,12 +701,13 @@ opthelp:
         pkey = load_key(inkeyfile, FORMAT_PEM, 0, NULL, NULL, "key");
 
         if (pkey == NULL) {
-            BIO_printf(bio_err, "Error reading key %s\n", inkeyfile);
+            sdf_msg("Failed to read SM2 private key: inkey=%s", inkeyfile);
             goto end;
         }
 
         if (!TSAPI_ImportSM2Key(index, sign, user, password, pkey)) {
-            sdf_fail("Failed to import SM2 key");
+            sdf_fail("Failed to import SM2 %s key: inkey=%s logical_index=%d device_index=%d user=%s",
+                     sdf_key_type_name(sign), inkeyfile, logical_index, index, user);
             goto end;
         }
 
@@ -696,12 +721,14 @@ opthelp:
         pkey = load_key(inkeyfile, FORMAT_PEM, 0, NULL, NULL, "key");
 
         if (pkey == NULL) {
-            BIO_printf(bio_err, "Error reading key %s\n", inkeyfile);
+            sdf_msg("Failed to read RSA private key: inkey=%s", inkeyfile);
             goto end;
         }
 
         if (!TSAPI_ImportRSAKey(index, sign, user, password, pkey)) {
-            sdf_fail("Failed to import RSA key");
+            sdf_fail("Failed to import RSA %s key: inkey=%s logical_index=%d device_index=%d bits=%d user=%s",
+                     sdf_key_type_name(sign), inkeyfile, logical_index, index,
+                     sdf_pkey_bits(pkey), user);
             goto end;
         }
 
@@ -714,12 +741,12 @@ opthelp:
     if (inkeyfile) {
         key_bio = BIO_new(BIO_s_file());
         if (key_bio == NULL) {
-            BIO_printf(bio_err, "Error creating key BIO\n");
+            sdf_msg("Failed to create key input BIO: inkey=%s", inkeyfile);
             goto end;
         }
 
         if (BIO_read_filename(key_bio, inkeyfile) <= 0) {
-            BIO_printf(bio_err, "Error reading key file %s\n", inkeyfile);
+            sdf_msg("Failed to open key input file: inkey=%s", inkeyfile);
             goto end;
         }
 
@@ -728,7 +755,7 @@ opthelp:
         key_bio = NULL;
 
         if (keylen < 0) {
-            BIO_printf(bio_err, "Error reading key\n");
+            sdf_msg("Failed to read key input into memory: inkey=%s", inkeyfile);
             goto end;
         }
     }
@@ -736,12 +763,12 @@ opthelp:
     if (indekfile) {
         key_bio = BIO_new(BIO_s_file());
         if (key_bio == NULL) {
-            BIO_printf(bio_err, "Error creating key BIO\n");
+            sdf_msg("Failed to create envelope input BIO: indek=%s", indekfile);
             goto end;
         }
 
         if (BIO_read_filename(key_bio, indekfile) <= 0) {
-            BIO_printf(bio_err, "Error reading key file %s\n", indekfile);
+            sdf_msg("Failed to open envelope input file: indek=%s", indekfile);
             goto end;
         }
 
@@ -750,20 +777,24 @@ opthelp:
         key_bio = NULL;
 
         if (deklen < 0) {
-            BIO_printf(bio_err, "Error reading key\n");
+            sdf_msg("Failed to read envelope input into memory: indek=%s", indekfile);
             goto end;
         }
     }
 
     if (importsm2keywithevlp) {
         if (inkey == NULL || indek == NULL) {
-            BIO_printf(bio_err, "No key or digital envelope specified\n");
+            sdf_msg("Missing key or digital envelope for import: inkey=%s indek=%s",
+                    inkeyfile != NULL ? inkeyfile : "(null)",
+                    indekfile != NULL ? indekfile : "(null)");
             goto end;
         }
 
         if (!TSAPI_ImportSM2KeyWithEvlp(index, sign, user, password, inkey,
                                         keylen, indek, deklen)) {
-            sdf_fail("Failed to import SM2 key with digital envelope");
+            sdf_fail("Failed to import SM2 %s key with digital envelope: key=%s(%d bytes) envelope=%s(%d bytes) logical_index=%d device_index=%d",
+                     sdf_key_type_name(sign), inkeyfile, keylen, indekfile,
+                     deklen, logical_index, index);
             goto end;
         }
 
@@ -776,32 +807,40 @@ opthelp:
 
     if (infile) {
         in = bio_open_default(infile, 'r', FORMAT_BINARY);
-        if (in == NULL)
+        if (in == NULL) {
+            sdf_msg("Failed to open input file: in=%s", infile);
             goto end;
+        }
 
         /* Note: Only supports files less than 1GB */
         inbuflen = bio_to_mem(&inbuf, 1024 * 1024 * 1024, in);
         if (inbuflen < 0) {
-            BIO_printf(bio_err, "Error reading input\n");
+            sdf_msg("Failed to read input file: in=%s", infile);
             goto end;
         }
     }
 
     if (outfile) {
         out = bio_open_default(outfile, 'w', FORMAT_BINARY);
-        if (out == NULL)
+        if (out == NULL) {
+            sdf_msg("Failed to open output file: out=%s", outfile);
             goto end;
+        }
     }
 
     if (encrypt || decrypt) {
         if (inbuf == NULL || inbuflen < 0 || out == NULL || algo == NULL) {
-            BIO_printf(bio_err, "No input, output or algorithm specified\n");
+            sdf_msg("Missing encrypt/decrypt parameter: in=%s out=%s algorithm=%s",
+                    infile != NULL ? infile : "(null)",
+                    outfile != NULL ? outfile : "(null)",
+                    algo != NULL ? algo : "(null)");
             goto end;
         }
 
         if (OPENSSL_strcasecmp(algo, "sm2") == 0) {
             if (index < 0) {
-                BIO_printf(bio_err, "No SM2 key index specified\n");
+                sdf_msg("Missing SM2 key index for %s: algorithm=%s",
+                        encrypt ? "encrypt" : "decrypt", algo);
                 goto end;
             }
 
@@ -821,18 +860,21 @@ opthelp:
             else if (OPENSSL_strcasecmp(algo, "sm4-ofb") == 0)
                 mode = OSSL_SGD_SM4_OFB;
             else {
-                BIO_printf(bio_err, "Unknown algorithm %s\n", algo);
+                sdf_msg("Unknown algorithm for %s: algorithm=%s",
+                        encrypt ? "encrypt" : "decrypt", algo);
                 goto end;
             }
 
             if (hexiv) {
                 iv = OPENSSL_hexstr2buf(hexiv, &ivlen);
                 if (iv == NULL) {
-                    BIO_printf(bio_err, "Error reading IV\n");
+                    sdf_msg("Failed to parse IV hex string: algorithm=%s iv=%s",
+                            algo, hexiv);
                     goto end;
                 }
                 if (ivlen != 16) {
-                    BIO_printf(bio_err, "SM4 IV must be 16 bytes\n");
+                    sdf_msg("Invalid SM4 IV length: algorithm=%s ivlen=%ld expected=16",
+                            algo, ivlen);
                     goto end;
                 }
             }
@@ -842,25 +884,30 @@ opthelp:
                     if ((outbuf = TSAPI_SM4Encrypt(mode, inkey, keylen, isk, iv,
                                                    inbuf, inbuflen, &outbuflen))
                                         == NULL) {
-                        BIO_printf(bio_err, "Failed to encrypt data\n");
+                        sdf_msg("Failed to encrypt data: algorithm=%s in=%s bytes=%d key=%s keylen=%d isk=%d isktype=%s",
+                                algo, infile, inbuflen, inkeyfile, keylen, isk,
+                                isktype);
                         goto end;
                     }
                 } else {
                     if ((outbuf = TSAPI_SM4Decrypt(mode, inkey, keylen, isk, iv,
                                                    inbuf, inbuflen, &outbuflen))
                                         == NULL) {
-                        BIO_printf(bio_err, "Failed to decrypt data\n");
+                        sdf_msg("Failed to decrypt data: algorithm=%s in=%s bytes=%d key=%s keylen=%d isk=%d isktype=%s",
+                                algo, infile, inbuflen, inkeyfile, keylen, isk,
+                                isktype);
                         goto end;
                     }
                 }
             } else {
-                BIO_printf(bio_err, "Unknown ISK type %s\n", isktype);
+                sdf_msg("Unknown ISK type: algorithm=%s isktype=%s", algo, isktype);
                 goto end;
             }
         }
 
         if (BIO_write(out, outbuf, outbuflen) != (int)outbuflen) {
-            BIO_printf(bio_err, "Failed to write output\n");
+            sdf_msg("Failed to write %s output: out=%s bytes=%zu algorithm=%s",
+                    encrypt ? "encrypt" : "decrypt", outfile, outbuflen, algo);
             goto end;
         }
 

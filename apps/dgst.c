@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdarg.h>
 #include "apps.h"
 #include "progs.h"
 #include <openssl/bio.h>
@@ -32,6 +33,19 @@ int do_fp(BIO *out, unsigned char *buf, BIO *bp, int sep, int binout, int xoflen
           const char *sig_name, const char *md_name,
           const char *file);
 static void show_digests(const OBJ_NAME *name, void *bio_);
+
+static void dgst_err_at(const char *source, int line, const char *fmt, ...)
+{
+    va_list args;
+
+    BIO_printf(bio_err, "dgst: %s:%d: ", source, line);
+    va_start(args, fmt);
+    BIO_vprintf(bio_err, fmt, args);
+    va_end(args);
+    BIO_printf(bio_err, "\n");
+}
+
+#define dgst_err(...) dgst_err_at(__FILE__, __LINE__, __VA_ARGS__)
 
 struct doall_dgst_digests {
     BIO *bio;
@@ -288,9 +302,9 @@ int dgst_main(int argc, char **argv)
         else
             sigkey = load_key(keyfile, keyform, 0, passin, e, "private key");
         if (sigkey == NULL) {
-            /*
-             * load_[pub]key() has already printed an appropriate message
-             */
+            dgst_err("Error loading %s key: key=%s keyform=%d digest=%s",
+                     want_pub ? "public" : "private", keyfile, keyform,
+                     digestname != NULL ? digestname : "(default)");
             goto end;
         }
         {
@@ -301,8 +315,10 @@ int dgst_main(int argc, char **argv)
                     && strcmp(def_md, "UNDEF") == 0)
                 oneshot_sign = 1;
             signctx = EVP_MD_CTX_new();
-            if (signctx == NULL)
+            if (signctx == NULL) {
+                dgst_err("Error allocating signing context: key=%s", keyfile);
                 goto end;
+            }
         }
     }
 
@@ -350,7 +366,9 @@ int dgst_main(int argc, char **argv)
         if (oneshot_sign) {
             mctx = signctx;
         } else if (BIO_get_md_ctx(bmd, &mctx) <= 0) {
-            BIO_printf(bio_err, "Error getting context\n");
+            dgst_err("Error getting digest context: key=%s digest=%s",
+                     keyfile != NULL ? keyfile : "(null)",
+                     digestname != NULL ? digestname : "(default)");
             goto end;
         }
         if (do_verify)
@@ -368,7 +386,11 @@ int dgst_main(int argc, char **argv)
             else
                 res = EVP_DigestSignInit(mctx, &pctx, md, impl, sigkey);
         if (res == 0) {
-            BIO_printf(bio_err, "Error setting context\n");
+            dgst_err("Error setting %s context: key=%s digest=%s oneshot=%d",
+                     do_verify ? "verify" : "sign",
+                     keyfile != NULL ? keyfile : "(null)",
+                     digestname != NULL ? digestname : "(default)",
+                     oneshot_sign);
             goto end;
         }
         if (sigopts != NULL) {
@@ -376,8 +398,9 @@ int dgst_main(int argc, char **argv)
                 char *sigopt = sk_OPENSSL_STRING_value(sigopts, i);
 
                 if (pkey_ctrl_string(pctx, sigopt) <= 0) {
-                    BIO_printf(bio_err, "Signature parameter error \"%s\"\n",
-                               sigopt);
+                    dgst_err("Signature parameter error: option=%s key=%s digest=%s",
+                             sigopt, keyfile != NULL ? keyfile : "(null)",
+                             digestname != NULL ? digestname : "(default)");
                     goto end;
                 }
             }
@@ -392,13 +415,15 @@ int dgst_main(int argc, char **argv)
             goto end;
         }
         if (BIO_get_md_ctx(bmd, &mctx) <= 0) {
-            BIO_printf(bio_err, "Error getting context\n");
+            dgst_err("Error getting digest context: digest=%s",
+                     digestname != NULL ? digestname : "(default)");
             goto end;
         }
         if (md == NULL)
             md = (EVP_MD *)EVP_sha256();
         if (!EVP_DigestInit_ex(mctx, md, impl)) {
-            BIO_printf(bio_err, "Error setting digest\n");
+            dgst_err("Error setting digest: digest=%s",
+                     digestname != NULL ? digestname : EVP_MD_get0_name(md));
             goto end;
         }
     }
@@ -407,7 +432,7 @@ int dgst_main(int argc, char **argv)
         BIO *sigbio = BIO_new_file(sigfile, "rb");
 
         if (sigbio == NULL) {
-            BIO_printf(bio_err, "Error opening signature file %s\n", sigfile);
+            dgst_err("Error opening signature file: sigfile=%s", sigfile);
             goto end;
         }
         siglen = EVP_PKEY_get_size(sigkey);
@@ -415,7 +440,8 @@ int dgst_main(int argc, char **argv)
         siglen = BIO_read(sigbio, sigbuf, siglen);
         BIO_free(sigbio);
         if (siglen <= 0) {
-            BIO_printf(bio_err, "Error reading signature file %s\n", sigfile);
+            dgst_err("Error reading signature file: sigfile=%s expected_max=%d",
+                     sigfile, EVP_PKEY_get_size(sigkey));
             goto end;
         }
     }
@@ -608,14 +634,19 @@ static void print_out(BIO *out, unsigned char *buf, size_t len,
     }
 }
 
-static void print_verify_result(BIO *out, int i)
+static void print_verify_result(BIO *out, int i, const char *sig_name,
+                                const char *md_name, const char *file,
+                                int siglen)
 {
     if (i > 0)
         BIO_printf(out, "Verified OK\n");
     else if (i == 0)
         BIO_printf(out, "Verification failure\n");
     else
-        BIO_printf(bio_err, "Error verifying data\n");
+        dgst_err("Error verifying data: file=%s signature_algorithm=%s digest=%s siglen=%d",
+                 file != NULL ? file : "stdin",
+                 sig_name != NULL ? sig_name : "(unknown)",
+                 md_name != NULL ? md_name : "(none)", siglen);
 }
 
 int do_fp(BIO *out, unsigned char *buf, BIO *bp, int sep, int binout, int xoflen,
@@ -630,7 +661,8 @@ int do_fp(BIO *out, unsigned char *buf, BIO *bp, int sep, int binout, int xoflen
     while (BIO_pending(bp) || !BIO_eof(bp)) {
         i = BIO_read(bp, (char *)buf, BUFSIZE);
         if (i < 0) {
-            BIO_printf(bio_err, "Read error in %s\n", file);
+            dgst_err("Read error: file=%s",
+                     file != NULL ? file : "stdin");
             goto end;
         }
         if (i == 0)
@@ -640,7 +672,7 @@ int do_fp(BIO *out, unsigned char *buf, BIO *bp, int sep, int binout, int xoflen
         EVP_MD_CTX *ctx;
         BIO_get_md_ctx(bp, &ctx);
         i = EVP_DigestVerifyFinal(ctx, sigin, (unsigned int)siglen);
-        print_verify_result(out, i);
+        print_verify_result(out, i, sig_name, md_name, file, siglen);
         if (i > 0)
             ret = EXIT_SUCCESS;
         goto end;
@@ -651,7 +683,10 @@ int do_fp(BIO *out, unsigned char *buf, BIO *bp, int sep, int binout, int xoflen
 
         BIO_get_md_ctx(bp, &ctx);
         if (!EVP_DigestSignFinal(ctx, NULL, &tmplen)) {
-            BIO_printf(bio_err, "Error getting maximum length of signed data\n");
+            dgst_err("Error getting maximum signature length: file=%s signature_algorithm=%s digest=%s",
+                     file != NULL ? file : "stdin",
+                     sig_name != NULL ? sig_name : "(unknown)",
+                     md_name != NULL ? md_name : "(none)");
             goto end;
         }
         if (tmplen > BUFSIZE) {
@@ -660,7 +695,10 @@ int do_fp(BIO *out, unsigned char *buf, BIO *bp, int sep, int binout, int xoflen
             buf = allocated_buf;
         }
         if (!EVP_DigestSignFinal(ctx, buf, &len)) {
-            BIO_printf(bio_err, "Error signing data\n");
+            dgst_err("Error signing data: file=%s signature_algorithm=%s digest=%s max_siglen=%zu",
+                     file != NULL ? file : "stdin",
+                     sig_name != NULL ? sig_name : "(unknown)",
+                     md_name != NULL ? md_name : "(none)", len);
             goto end;
         }
     } else if (xoflen > 0) {
@@ -675,7 +713,9 @@ int do_fp(BIO *out, unsigned char *buf, BIO *bp, int sep, int binout, int xoflen
         BIO_get_md_ctx(bp, &ctx);
 
         if (!EVP_DigestFinalXOF(ctx, buf, len)) {
-            BIO_printf(bio_err, "Error Digesting Data\n");
+            dgst_err("Error digesting XOF data: file=%s digest=%s xoflen=%zu",
+                     file != NULL ? file : "stdin",
+                     md_name != NULL ? md_name : "(unknown)", len);
             goto end;
         }
     } else {
@@ -710,24 +750,29 @@ static int do_fp_oneshot_sign(BIO *out, EVP_MD_CTX *ctx, BIO *in, int sep, int b
 
     buflen = bio_to_mem(&buf, maxlen, in);
     if (buflen <= 0) {
-        BIO_printf(bio_err, "Read error in %s\n", file);
+        dgst_err("Read error in one-shot signing input: file=%s maxlen=%d",
+                 file != NULL ? file : "stdin", maxlen);
         return ret;
     }
     if (sigin != NULL) {
         res = EVP_DigestVerify(ctx, sigin, siglen, buf, buflen);
-        print_verify_result(out, res);
+        print_verify_result(out, res, sig_name, NULL, file, siglen);
         if (res > 0)
             ret = EXIT_SUCCESS;
         goto end;
     }
     if (key != NULL) {
         if (EVP_DigestSign(ctx, NULL, &len, buf, buflen) != 1) {
-            BIO_printf(bio_err, "Error getting maximum length of signed data\n");
+            dgst_err("Error getting one-shot maximum signature length: file=%s signature_algorithm=%s input_len=%d",
+                     file != NULL ? file : "stdin",
+                     sig_name != NULL ? sig_name : "(unknown)", buflen);
             goto end;
         }
         sig = app_malloc(len, "Signature buffer");
         if (EVP_DigestSign(ctx, sig, &len, buf, buflen) != 1) {
-            BIO_printf(bio_err, "Error signing data\n");
+            dgst_err("Error one-shot signing data: file=%s signature_algorithm=%s input_len=%d max_siglen=%zu",
+                     file != NULL ? file : "stdin",
+                     sig_name != NULL ? sig_name : "(unknown)", buflen, len);
             goto end;
         }
         print_out(out, sig, len, sep, binout, sig_name, NULL, file);

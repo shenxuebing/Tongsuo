@@ -10,6 +10,7 @@
 #include "apps.h"
 #include "progs.h"
 #include <string.h>
+#include <stdarg.h>
 #include <openssl/err.h>
 #include <openssl/pem.h>
 #include <openssl/evp.h>
@@ -53,6 +54,43 @@ static int only_nomd(EVP_PKEY *pkey)
     return deftype == 2 /* Mandatory */
         && strcmp(defname, "UNDEF") == 0;
 }
+
+static const char *pkeyutl_op_name(int pkey_op)
+{
+    switch (pkey_op) {
+    case EVP_PKEY_OP_SIGN:
+        return "sign";
+    case EVP_PKEY_OP_VERIFY:
+        return "verify";
+    case EVP_PKEY_OP_VERIFYRECOVER:
+        return "verifyrecover";
+    case EVP_PKEY_OP_ENCRYPT:
+        return "encrypt";
+    case EVP_PKEY_OP_DECRYPT:
+        return "decrypt";
+    case EVP_PKEY_OP_DERIVE:
+        return "derive";
+    case EVP_PKEY_OP_ENCAPSULATE:
+        return "encapsulate";
+    case EVP_PKEY_OP_DECAPSULATE:
+        return "decapsulate";
+    default:
+        return "(unknown)";
+    }
+}
+
+static void pkeyutl_err_at(const char *source, int line, const char *fmt, ...)
+{
+    va_list args;
+
+    BIO_printf(bio_err, "pkeyutl: %s:%d: ", source, line);
+    va_start(args, fmt);
+    BIO_vprintf(bio_err, fmt, args);
+    va_end(args);
+    BIO_printf(bio_err, "\n");
+}
+
+#define pkeyutl_err(...) pkeyutl_err_at(__FILE__, __LINE__, __VA_ARGS__)
 
 typedef enum OPTION_choice {
     OPT_COMMON,
@@ -338,7 +376,9 @@ int pkeyutl_main(int argc, char **argv)
 
     pkey = get_pkey(kdfalg, inkey, keyform, key_type, passinarg, pkey_op, e);
     if (key_type != KEY_NONE && pkey == NULL) {
-        BIO_printf(bio_err, "%s: Error loading key\n", prog);
+        pkeyutl_err("Error loading key: operation=%s key=%s keyform=%d key_type=%d",
+                    pkeyutl_op_name(pkey_op),
+                    inkey != NULL ? inkey : "(null)", keyform, key_type);
         goto end;
     }
 
@@ -379,11 +419,18 @@ int pkeyutl_main(int argc, char **argv)
     ctx = init_ctx(kdfalg, &keysize, pkey_op, e, engine_impl, rawin, pkey,
                    mctx, digestname, kemop, libctx, app_get0_propq());
     if (ctx == NULL) {
-        BIO_printf(bio_err, "%s: Error initializing context\n", prog);
+        pkeyutl_err("Error initializing context: operation=%s key=%s kdf=%s rawin=%d digest=%s kemop=%s",
+                    pkeyutl_op_name(pkey_op),
+                    inkey != NULL ? inkey : "(null)",
+                    kdfalg != NULL ? kdfalg : "(none)", rawin,
+                    digestname != NULL ? digestname : "(none)",
+                    kemop != NULL ? kemop : "(none)");
         goto end;
     }
     if (peerkey != NULL && !setup_peer(ctx, peerform, peerkey, e)) {
-        BIO_printf(bio_err, "%s: Error setting up peer key\n", prog);
+        pkeyutl_err("Error setting up peer key: operation=%s peerkey=%s peerform=%d key=%s",
+                    pkeyutl_op_name(pkey_op), peerkey, peerform,
+                    inkey != NULL ? inkey : "(null)");
         goto end;
     }
     if (pkeyopts != NULL) {
@@ -507,13 +554,15 @@ int pkeyutl_main(int argc, char **argv)
         BIO *sigbio = BIO_new_file(sigfile, "rb");
 
         if (sigbio == NULL) {
-            BIO_printf(bio_err, "Can't open signature file %s\n", sigfile);
+            pkeyutl_err("Can't open signature file: sigfile=%s operation=%s",
+                        sigfile, pkeyutl_op_name(pkey_op));
             goto end;
         }
         siglen = bio_to_mem(&sig, keysize * 10, sigbio);
         BIO_free(sigbio);
         if (siglen < 0) {
-            BIO_printf(bio_err, "Error reading signature data\n");
+            pkeyutl_err("Error reading signature data: sigfile=%s keysize=%d operation=%s",
+                        sigfile, keysize, pkeyutl_op_name(pkey_op));
             goto end;
         }
     }
@@ -523,7 +572,9 @@ int pkeyutl_main(int argc, char **argv)
         /* Read the input data */
         buf_inlen = bio_to_mem(&buf_in, -1, in);
         if (buf_inlen < 0) {
-            BIO_printf(bio_err, "Error reading input Data\n");
+            pkeyutl_err("Error reading input data: in=%s operation=%s",
+                        infile != NULL ? infile : "stdin",
+                        pkeyutl_op_name(pkey_op));
             goto end;
         }
         if (rev) {
@@ -593,9 +644,21 @@ int pkeyutl_main(int argc, char **argv)
     }
     if (rv <= 0) {
         if (pkey_op != EVP_PKEY_OP_DERIVE) {
-            BIO_puts(bio_err, "Public Key operation error\n");
+            pkeyutl_err("Public key operation failed: operation=%s key=%s in=%s out=%s sigfile=%s rawin=%d digest=%s input_len=%d siglen=%d keysize=%d rv=%d",
+                        pkeyutl_op_name(pkey_op),
+                        inkey != NULL ? inkey : "(null)",
+                        infile != NULL ? infile : "stdin",
+                        outfile != NULL ? outfile : "stdout",
+                        sigfile != NULL ? sigfile : "(null)",
+                        rawin, digestname != NULL ? digestname : "(none)",
+                        buf_inlen, siglen, keysize, rv);
         } else {
-            BIO_puts(bio_err, "Key derivation failed\n");
+            pkeyutl_err("Key derivation failed: key=%s peerkey=%s out=%s secret=%s kdf=%s kdflen=%d rv=%d",
+                        inkey != NULL ? inkey : "(null)",
+                        peerkey != NULL ? peerkey : "(null)",
+                        outfile != NULL ? outfile : "stdout",
+                        secoutfile != NULL ? secoutfile : "(null)",
+                        kdfalg != NULL ? kdfalg : "(none)", kdflen, rv);
         }
         goto end;
     }
@@ -607,11 +670,24 @@ int pkeyutl_main(int argc, char **argv)
     } else if (hexdump) {
         BIO_dump(out, (char *)buf_out, buf_outlen);
     } else {
-        BIO_write(out, buf_out, buf_outlen);
+        if (BIO_write(out, buf_out, buf_outlen) != (int)buf_outlen) {
+            pkeyutl_err("Error writing output: operation=%s out=%s bytes=%zu",
+                        pkeyutl_op_name(pkey_op),
+                        outfile != NULL ? outfile : "stdout", buf_outlen);
+            ret = 1;
+            goto end;
+        }
     }
     /* Backwards compatible decap output fallback */
-    if (secretlen > 0)
-        BIO_write(secout ? secout : out, secret, secretlen);
+    if (secretlen > 0
+        && BIO_write(secout ? secout : out, secret, secretlen) != (int)secretlen) {
+        pkeyutl_err("Error writing secret output: operation=%s secret=%s bytes=%zu",
+                    pkeyutl_op_name(pkey_op),
+                    secoutfile != NULL ? secoutfile : (outfile != NULL ? outfile : "stdout"),
+                    secretlen);
+        ret = 1;
+        goto end;
+    }
 
  end:
     if (ret != 0)

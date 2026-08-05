@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdarg.h>
 #include <time.h>
 #include "apps.h"
 #include "progs.h"
@@ -296,6 +297,19 @@ static const char *operation_name(int operation)
         return "(invalid operation)";
     }
 }
+
+static void pkcs7_err_at(const char *file, int line, const char *fmt, ...)
+{
+    va_list args;
+
+    BIO_printf(bio_err, "pkcs7: %s:%d: ", file, line);
+    va_start(args, fmt);
+    BIO_vprintf(bio_err, fmt, args);
+    va_end(args);
+    BIO_printf(bio_err, "\n");
+}
+
+#define pkcs7_err(...) pkcs7_err_at(__FILE__, __LINE__, __VA_ARGS__)
 
 #define SET_OPERATION(op) \
     ((operation != 0 && (operation != (op))) \
@@ -1010,20 +1024,29 @@ int pkcs7_main(int argc, char **argv)
         } else {
             key = load_key(keyfile, keyform, 0, passin, e, "signing/decryption key");
         }
-        if (key == NULL)
+        if (key == NULL) {
+            pkcs7_err("Failed to load %s key: key=%s keyform=%d operation=%s",
+                      operation == SMIME_SIGN ? "signing" : "decryption",
+                      keyfile, keyform, operation_name(operation));
             goto end;
+        }
     }
 
     /*------- 打开输入 -------*/
     in = bio_open_default(infile, 'r', informat);
-    if (in == NULL)
+    if (in == NULL) {
+        pkcs7_err("Failed to open input: in=%s inform=%d operation=%s",
+                  infile != NULL ? infile : "stdin", informat,
+                  operation_name(operation));
         goto end;
+    }
 
     /*------- 输入类操作：读入已有 P7 结构 -------*/
     if (operation & SMIME_IP) {
         p7 = PKCS7_new_ex(libctx, app_get0_propq());
         if (p7 == NULL) {
-            BIO_printf(bio_err, "Error allocating PKCS7 object\n");
+            pkcs7_err("Failed to allocate PKCS7 object: operation=%s",
+                      operation_name(operation));
             goto end;
         }
         if (informat == FORMAT_SMIME) {
@@ -1033,26 +1056,35 @@ int pkcs7_main(int argc, char **argv)
         } else if (informat == FORMAT_ASN1) {
             p7i = d2i_PKCS7_bio(in, &p7);
         } else {
-            BIO_printf(bio_err, "Bad input format for PKCS#7 file\n");
+            pkcs7_err("Bad input format for PKCS#7 file: in=%s inform=%d operation=%s",
+                      infile != NULL ? infile : "stdin", informat,
+                      operation_name(operation));
             goto end;
         }
 
         if (p7i == NULL) {
-            BIO_printf(bio_err, "Error reading S/MIME message\n");
+            pkcs7_err("Failed to read PKCS#7/S/MIME input: in=%s inform=%d operation=%s",
+                      infile != NULL ? infile : "stdin", informat,
+                      operation_name(operation));
             goto end;
         }
         if (contfile != NULL) {
             BIO_free(indata);
             if ((indata = BIO_new_file(contfile, "rb")) == NULL) {
-                BIO_printf(bio_err, "Can't read content file %s\n", contfile);
+                pkcs7_err("Failed to read detached content file: content=%s operation=%s",
+                          contfile, operation_name(operation));
                 goto end;
             }
         }
     }
 
     out = bio_open_default(outfile, 'w', outformat);
-    if (out == NULL)
+    if (out == NULL) {
+        pkcs7_err("Failed to open output: out=%s outform=%d operation=%s",
+                  outfile != NULL ? outfile : "stdout", outformat,
+                  operation_name(operation));
         goto end;
+    }
 
     /*------- 验签：准备 CA 信任库 -------*/
     if (operation == SMIME_VERIFY) {
@@ -1094,7 +1126,12 @@ int pkcs7_main(int argc, char **argv)
         p7 = PKCS7_encrypt_ex(encerts, in, cipher, flags, libctx,
                               app_get0_propq());
         if (p7 == NULL) {
-            BIO_printf(bio_err, "Error creating PKCS#7 envelope\n");
+            pkcs7_err("Failed to create PKCS#7 envelope: in=%s out=%s recipients=%d cipher=%s flags=0x%x",
+                      infile != NULL ? infile : "stdin",
+                      outfile != NULL ? outfile : "stdout",
+                      encerts != NULL ? sk_X509_num(encerts) : 0,
+                      cipher != NULL ? EVP_CIPHER_get0_name(cipher) : "(null)",
+                      flags);
             goto end;
         }
     } else if (operation & SMIME_SIGNERS) {
@@ -1140,7 +1177,10 @@ int pkcs7_main(int argc, char **argv)
         p7 = PKCS7_sign_ex(NULL, NULL, other, in, flags, libctx,
                            app_get0_propq());
         if (p7 == NULL) {
-            BIO_printf(bio_err, "Error creating PKCS#7 signed structure\n");
+            pkcs7_err("Failed to create PKCS#7 signed structure: in=%s out=%s flags=0x%x operation=%s",
+                      infile != NULL ? infile : "stdin",
+                      outfile != NULL ? outfile : "stdout", flags,
+                      operation_name(operation));
             goto end;
         }
         if (flags & PKCS7_NOCERTS) {
@@ -1155,22 +1195,31 @@ int pkcs7_main(int argc, char **argv)
             keyfile = sk_OPENSSL_STRING_value(skkeys, i);
             signer = load_cert(signerfile, FORMAT_UNDEF,
                                "signer certificate");
-            if (signer == NULL)
+            if (signer == NULL) {
+                pkcs7_err("Failed to load signer certificate: signer=%s operation=%s",
+                          signerfile, operation_name(operation));
                 goto end;
+            }
 
             if (is_store_uri(keyfile))
                 key = load_key(keyfile, 0, 0, passin, e, "signing key");
             else
                 key = load_key(keyfile, keyform, 0, passin, e, "signing key");
-            if (key == NULL)
+            if (key == NULL) {
+                pkcs7_err("Failed to load signing key: key=%s signer=%s keyform=%d",
+                          keyfile, signerfile, keyform);
                 goto end;
+            }
 
             /*
              * sign_md 为 NULL 时，PKCS7_sign_add_signer 内部会按 pkey 类型
              * 自动选择默认摘要（SM2→SM3，RSA→sha256 等）。
              */
             if (!PKCS7_sign_add_signer(p7, signer, key, sign_md, flags)) {
-                BIO_printf(bio_err, "Error adding signer to PKCS#7\n");
+                pkcs7_err("Failed to add signer to PKCS#7: signer=%s key=%s md=%s flags=0x%x",
+                          signerfile, keyfile,
+                          sign_md != NULL ? EVP_MD_get0_name(sign_md) : "(default)",
+                          flags);
                 goto end;
             }
             X509_free(signer);
@@ -1187,39 +1236,55 @@ int pkcs7_main(int argc, char **argv)
          */
         if (operation == SMIME_SIGN && !(flags & PKCS7_STREAM)) {
             if (!PKCS7_final(p7, in, flags)) {
-                BIO_printf(bio_err, "Error finalizing PKCS#7\n");
+                pkcs7_err("Failed to finalize PKCS#7 signed data: in=%s out=%s flags=0x%x",
+                          infile != NULL ? infile : "stdin",
+                          outfile != NULL ? outfile : "stdout", flags);
                 goto end;
             }
         }
     }
 
     if (p7 == NULL) {
-        BIO_printf(bio_err, "Error creating PKCS#7 structure\n");
+        pkcs7_err("Failed to create PKCS#7 structure: operation=%s in=%s out=%s",
+                  operation_name(operation),
+                  infile != NULL ? infile : "stdin",
+                  outfile != NULL ? outfile : "stdout");
         goto end;
     }
 
     ret = 4;
     if (operation == SMIME_DECRYPT) {
         if (!PKCS7_decrypt(p7, key, recip, out, flags)) {
-            BIO_printf(bio_err, "Error decrypting PKCS#7 structure\n");
+            pkcs7_err("Failed to decrypt PKCS#7 envelope: in=%s out=%s recip=%s key=%s flags=0x%x",
+                      infile != NULL ? infile : "stdin",
+                      outfile != NULL ? outfile : "stdout",
+                      recipfile != NULL ? recipfile : "(null)",
+                      keyfile != NULL ? keyfile : "(null)", flags);
             goto end;
         }
     } else if (operation == SMIME_VERIFY) {
         if (PKCS7_verify(p7, other, store, indata, out, flags))
             BIO_printf(bio_err, "Verification successful\n");
         else {
-            BIO_printf(bio_err, "Verification failure\n");
+            pkcs7_err("PKCS#7 verification failed: in=%s content=%s out=%s CAfile=%s CApath=%s CAstore=%s flags=0x%x",
+                      infile != NULL ? infile : "stdin",
+                      contfile != NULL ? contfile : "(embedded)",
+                      outfile != NULL ? outfile : "stdout",
+                      CAfile != NULL ? CAfile : "(default)",
+                      CApath != NULL ? CApath : "(default)",
+                      CAstore != NULL ? CAstore : "(default)", flags);
             goto end;
         }
         signers = PKCS7_get0_signers(p7, other, flags);
         if (signers == NULL) {
-            BIO_printf(bio_err, "Error getting signers\n");
+            pkcs7_err("Failed to get signers from verified PKCS#7: in=%s flags=0x%x",
+                      infile != NULL ? infile : "stdin", flags);
             ret = 5;
             goto end;
         }
         if (!save_certs(signerfile, signers)) {
-            BIO_printf(bio_err, "Error writing signers to %s\n",
-                       signerfile != NULL ? signerfile : "(null)");
+            pkcs7_err("Failed to write signers: signerout=%s",
+                      signerfile != NULL ? signerfile : "(null)");
             ret = 5;
             goto end;
         }
@@ -1244,11 +1309,15 @@ int pkcs7_main(int argc, char **argv)
         } else if (outformat == FORMAT_ASN1) {
             rv = i2d_PKCS7_bio_stream(out, p7, in, flags);
         } else {
-            BIO_printf(bio_err, "Bad output format for PKCS#7 file\n");
+            pkcs7_err("Bad output format for PKCS#7 file: out=%s outform=%d operation=%s",
+                      outfile != NULL ? outfile : "stdout", outformat,
+                      operation_name(operation));
             goto end;
         }
         if (rv == 0) {
-            BIO_printf(bio_err, "Error writing output\n");
+            pkcs7_err("Failed to write PKCS#7 output: out=%s outform=%d operation=%s flags=0x%x",
+                      outfile != NULL ? outfile : "stdout", outformat,
+                      operation_name(operation), flags);
             ret = 3;
             goto end;
         }
