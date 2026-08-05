@@ -9,6 +9,7 @@
 #include "internal/deprecated.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdarg.h>
 #include <openssl/sdf.h>
 #include <openssl/bio.h>
 #include <openssl/tsapi.h>
@@ -235,6 +236,23 @@ static int sdf_pkey_bits(EVP_PKEY *pkey)
     int bits = EVP_PKEY_get_bits(pkey);
 
     return bits > 0 ? bits : 0;
+}
+
+/*
+ * 统一的失败输出：打印用户可读的错误消息 + OpenSSL 错误栈详情。
+ * TSAPI/SDFE 层通过 ERR_raise 设置的错误会在此一并输出，
+ * 帮助使用者定位底层原因（如设备未连接、密钥已存在、索引超限等）。
+ */
+static void sdf_fail(const char *fmt, ...)
+{
+    va_list args;
+
+    va_start(args, fmt);
+    BIO_vprintf(bio_err, fmt, args);
+    va_end(args);
+    BIO_printf(bio_err, "\n");
+    ERR_print_errors(bio_err);
+    ERR_clear_error();
 }
 
 static int sdf_map_asym_index(int relative_index, int sign)
@@ -498,7 +516,7 @@ opthelp:
 
     if (gensm2) {
         if (!TSAPI_GenerateSM2KeyWithIndex(index, sign, user, password)) {
-            BIO_printf(bio_err, "Failed to generate SM2 key pair with index %d\n", index);
+            sdf_fail("Failed to generate SM2 key pair with index %d", index);
             goto end;
         }
 
@@ -510,7 +528,7 @@ opthelp:
 
     if (delsm2) {
         if (!TSAPI_DelSm2KeyWithIndex(index, sign, user, password)) {
-            BIO_printf(bio_err, "Failed to delete SM2 key pair with index %d\n", index);
+            sdf_fail("Failed to delete SM2 key pair with index %d", index);
             goto end;
         }
 
@@ -522,7 +540,7 @@ opthelp:
 
     if (updatesm2) {
         if (!TSAPI_UpdateSm2KeyWithIndex(index, sign, user, password)) {
-            BIO_printf(bio_err, "Failed to update SM2 key pair with index %d\n", index);
+            sdf_fail("Failed to update SM2 key pair with index %d", index);
             goto end;
         }
 
@@ -554,8 +572,8 @@ opthelp:
             pkey = TSAPI_ExportRSAPubKeyWithIndex(index, sign);
 
         if (pkey == NULL) {
-            BIO_printf(bio_err, "Failed to export %s public key with index %d\n",
-                       exportsm2pubkey ? "SM2" : "RSA", index);
+            sdf_fail("Failed to export %s public key with index %d",
+                     exportsm2pubkey ? "SM2" : "RSA", index);
             goto end;
         }
 
@@ -583,7 +601,7 @@ opthelp:
     if (exportsm2key) {
         pkey = TSAPI_ExportSM2KeyWithIndex(index, sign, user, password);
         if (pkey == NULL) {
-            BIO_printf(bio_err, "Failed to export SM2 pubkey with index %d\n", index);
+            sdf_fail("Failed to export SM2 pubkey with index %d", index);
             goto end;
         }
 
@@ -609,7 +627,7 @@ opthelp:
         if (!TSAPI_ExportSM2KeyWithEvlp(index, sign, user, password, peer, &priv,
                                         &privlen, &pub, &publen, &outevlp,
                                         &outevlplen)) {
-            BIO_printf(bio_err, "Failed to export SM2 key with digital envelope\n");
+            sdf_fail("Failed to export SM2 key with digital envelope");
             goto end;
         }
 
@@ -644,7 +662,7 @@ opthelp:
         }
 
         if (!TSAPI_ImportSM2Key(index, sign, user, password, pkey)) {
-            BIO_printf(bio_err, "Failed to import SM2 key\n");
+            sdf_fail("Failed to import SM2 key");
             goto end;
         }
 
@@ -663,7 +681,7 @@ opthelp:
         }
 
         if (!TSAPI_ImportRSAKey(index, sign, user, password, pkey)) {
-            BIO_printf(bio_err, "Failed to import RSA key\n");
+            sdf_fail("Failed to import RSA key");
             goto end;
         }
 
@@ -725,7 +743,7 @@ opthelp:
 
         if (!TSAPI_ImportSM2KeyWithEvlp(index, sign, user, password, inkey,
                                         keylen, indek, deklen)) {
-            BIO_printf(bio_err, "Failed to import SM2 key with digital envelope\n");
+            sdf_fail("Failed to import SM2 key with digital envelope");
             goto end;
         }
 

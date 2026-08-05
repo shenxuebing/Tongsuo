@@ -21,6 +21,7 @@
 #include <openssl/engine.h>
 #include <openssl/rsa.h>
 #include <openssl/bn.h>
+#include <openssl/proverr.h>
 #include "internal/e_os.h"
 #include "crypto/rand.h"
 #include "crypto/sm2.h"
@@ -423,9 +424,14 @@ int TSAPI_ImportSM2Key(int index, int sign, const char *user,
     memcpy(sm2_key.pubkey, pubkey, sizeof(*pubkey));
     memcpy(sm2_key.privkey, privkey, sizeof(*privkey));
 
-    if (SDFE_ImportECCKey(hSessionHandle, &sm2_key, NULL)
-            != OSSL_SDR_OK)
-        goto end;
+    {
+        int sdf_ret = SDFE_ImportECCKey(hSessionHandle, &sm2_key, NULL);
+        if (sdf_ret != OSSL_SDR_OK) {
+            ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                           "SDFE_ImportECCKey failed: 0x%08x", sdf_ret);
+            goto end;
+        }
+    }
 
     ok = 1;
 end:
@@ -558,15 +564,27 @@ int TSAPI_ImportRSAKey(int index, int sign, const char *user,
         strcpy((char *)login_arg.name, user);
     }
 
-    if (!rsa_pkey_to_ref(rsa_pkey, &use_ex, &pub, &pri, &pub_ex, &pri_ex))
+    if (!rsa_pkey_to_ref(rsa_pkey, &use_ex, &pub, &pri, &pub_ex, &pri_ex)) {
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                       "RSA key conversion failed");
         goto end;
+    }
 
-    if (TSAPI_SDF_OpenDevice(&hDeviceHandle) != OSSL_SDR_OK)
+    if (TSAPI_SDF_OpenDevice(&hDeviceHandle) != OSSL_SDR_OK) {
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                       "SDF_OpenDevice failed");
         goto end;
-    if (TSAPI_SDF_OpenSession(hDeviceHandle, &hSessionHandle) != OSSL_SDR_OK)
+    }
+    if (TSAPI_SDF_OpenSession(hDeviceHandle, &hSessionHandle) != OSSL_SDR_OK) {
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                       "SDF_OpenSession failed");
         goto end;
-    if (SDFE_LoginUsr(hSessionHandle, &login_arg) != OSSL_SDR_OK)
+    }
+    if (SDFE_LoginUsr(hSessionHandle, &login_arg) != OSSL_SDR_OK) {
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                       "SDFE_LoginUsr failed");
         goto end;
+    }
 
     area = sign ? SDFE_ASYM_KEY_AREA_SIGN : SDFE_ASYM_KEY_AREA_ENC;
     rsa_key.area = area;
@@ -583,8 +601,14 @@ int TSAPI_ImportRSAKey(int index, int sign, const char *user,
         memcpy(rsa_key.pri, &pri, sizeof(pri));
     }
 
-    if (SDFE_ImportRSAKey(hSessionHandle, &rsa_key, NULL) != OSSL_SDR_OK)
-        goto end;
+    {
+        int sdf_ret = SDFE_ImportRSAKey(hSessionHandle, &rsa_key, NULL);
+        if (sdf_ret != OSSL_SDR_OK) {
+            ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                           "SDFE_ImportRSAKey failed: 0x%08x", sdf_ret);
+            goto end;
+        }
+    }
 
     ok = 1;
 end:
