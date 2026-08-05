@@ -480,8 +480,8 @@ opthelp:
         *p = '\0';
     }
 
-    map_asym_index = delsm2 || importsm2key || importsm2keywithevlp
-                     || importrsakey;
+    map_asym_index = gensm2 || delsm2 || updatesm2 || importsm2key
+                     || importsm2keywithevlp || importrsakey;
     if (map_asym_index) {
         logical_index = index;
         index = sdf_map_asym_index(logical_index, sign);
