@@ -32,9 +32,9 @@ if "%SM2_CLIENT_SIGN_KEY%"=="" set "SM2_CLIENT_SIGN_KEY=%CERTS%\sm2\client_sign.
 if "%SM2_CLIENT_ENC_KEY%"=="" set "SM2_CLIENT_ENC_KEY=%CERTS%\sm2\client_enc.key"
 
 if "%RSA1024_IDX%"=="" set "RSA1024_IDX=1"
-if "%RSA2048_IDX%"=="" set "RSA2048_IDX=2"
-if "%RSA3072_IDX%"=="" set "RSA3072_IDX=3"
-if "%RSA4096_IDX%"=="" set "RSA4096_IDX=4"
+if "%RSA2048_IDX%"=="" set "RSA2048_IDX=1"
+if "%RSA3072_IDX%"=="" set "RSA3072_IDX=2"
+if "%RSA4096_IDX%"=="" set "RSA4096_IDX=3"
 
 if "%RSA1024_SIGN_KEY%"=="" set "RSA1024_SIGN_KEY=%CERTS%\ee-key-1024.pem"
 if "%RSA1024_ENC_KEY%"=="" set "RSA1024_ENC_KEY=%CERTS%\ee-key-1024.pem"

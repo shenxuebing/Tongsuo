@@ -43,10 +43,10 @@ CLIENT_ENC_CERT="${CLIENT_ENC_CERT:-$CERTS/client_enc.crt}"
 CLIENT_SIGN_KEY="${CLIENT_SIGN_KEY:-$CERTS/client_sign.key}"
 CLIENT_ENC_KEY="${CLIENT_ENC_KEY:-$CERTS/client_enc.key}"
 
-SERVER_HW_SIGN_IDX="${SERVER_HW_SIGN_IDX:-0}"
-SERVER_HW_ENC_IDX="${SERVER_HW_ENC_IDX:-0}"
-CLIENT_HW_SIGN_IDX="${CLIENT_HW_SIGN_IDX:-1}"
-CLIENT_HW_ENC_IDX="${CLIENT_HW_ENC_IDX:-1}"
+SERVER_HW_SIGN_IDX="${SERVER_HW_SIGN_IDX:-1}"
+SERVER_HW_ENC_IDX="${SERVER_HW_ENC_IDX:-1}"
+CLIENT_HW_SIGN_IDX="${CLIENT_HW_SIGN_IDX:-2}"
+CLIENT_HW_ENC_IDX="${CLIENT_HW_ENC_IDX:-2}"
 
 apply_cert_profile() {
     side="$1"
@@ -117,6 +117,7 @@ run_handshake() {
 
     rm -f "$server_log" "$client_log"
 
+    echo "    server: $server_cmd"
     sh -c "$server_cmd" >"$server_log" 2>&1 &
     server_pid=$!
 
@@ -126,6 +127,7 @@ run_handshake() {
         wait_seconds 2
     fi
 
+    echo "    client: $client_cmd"
     sh -c "printf 'Q\n' | $client_cmd" >"$client_log" 2>&1 &
 
     while [ $timeout_count -lt 15 ]; do

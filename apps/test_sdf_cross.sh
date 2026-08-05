@@ -35,33 +35,35 @@ WARN=0
 ok() { echo "  [OK]   $1"; PASS=$((PASS + 1)); }
 no() { echo "  [FAIL] $1"; FAIL=$((FAIL + 1)); }
 wn() { echo "  [WARN] $1"; WARN=$((WARN + 1)); }
-# 静默执行（成功时无输出），失败时打印错误详情帮助定位
+# 执行命令并检查结果，打印完整命令便于独立调试
 q() {
-    local _cmd="$*"
+    echo "        $*"
     if "$@" >/dev/null 2>/tmp/sdf_cross_err.txt; then
         return 0
     else
-        echo "        error: $_cmd"
-        tail -5 /tmp/sdf_cross_err.txt 2>/dev/null | sed 's/^/        /'
+        echo "        --> FAILED, stderr:"
+        tail -5 /tmp/sdf_cross_err.txt 2>/dev/null | sed 's/^/            /'
         return 1
     fi
 }
-qq() { "$@" >/dev/null 2>&1; }
+qq() {
+    "$@" >/dev/null 2>&1
+}
 
-SM2_SIGN_IDX="${SM2_SIGN_IDX:-0}"
-SM2_ENC_IDX="${SM2_ENC_IDX:-0}"
+SM2_SIGN_IDX="${SM2_SIGN_IDX:-1}"
+SM2_ENC_IDX="${SM2_ENC_IDX:-1}"
 SM2_SIGN_CERT="${SM2_SIGN_CERT:-$CERTS/sm2/server_sign.crt}"
 SM2_SIGN_KEY="${SM2_SIGN_KEY:-$CERTS/sm2/server_sign.key}"
 SM2_ENC_CERT="${SM2_ENC_CERT:-$CERTS/sm2/server_enc.crt}"
 SM2_ENC_KEY="${SM2_ENC_KEY:-$CERTS/sm2/server_enc.key}"
 SM2_CAFILE="${SM2_CAFILE:-$CERTS/sm2/chain-ca.crt}"
 
-RSA2048_SIGN_IDX="${RSA2048_SIGN_IDX:-${RSA2048_IDX:-0}}"
-RSA2048_ENC_IDX="${RSA2048_ENC_IDX:-${RSA2048_IDX:-0}}"
-RSA3072_SIGN_IDX="${RSA3072_SIGN_IDX:-${RSA3072_IDX:-}}"
-RSA3072_ENC_IDX="${RSA3072_ENC_IDX:-${RSA3072_IDX:-}}"
-RSA4096_SIGN_IDX="${RSA4096_SIGN_IDX:-${RSA4096_IDX:-}}"
-RSA4096_ENC_IDX="${RSA4096_ENC_IDX:-${RSA4096_IDX:-}}"
+RSA2048_SIGN_IDX="${RSA2048_SIGN_IDX:-${RSA2048_IDX:-1}}"
+RSA2048_ENC_IDX="${RSA2048_ENC_IDX:-${RSA2048_IDX:-1}}"
+RSA3072_SIGN_IDX="${RSA3072_SIGN_IDX:-${RSA3072_IDX:-2}}"
+RSA3072_ENC_IDX="${RSA3072_ENC_IDX:-${RSA3072_IDX:-2}}"
+RSA4096_SIGN_IDX="${RSA4096_SIGN_IDX:-${RSA4096_IDX:-3}}"
+RSA4096_ENC_IDX="${RSA4096_ENC_IDX:-${RSA4096_IDX:-3}}"
 
 RSA2048_SIGN_CERT="${RSA2048_SIGN_CERT:-$CERTS/server-rsa-sign.crt}"
 RSA2048_SIGN_KEY="${RSA2048_SIGN_KEY:-$CERTS/server-rsa-sign.key}"
