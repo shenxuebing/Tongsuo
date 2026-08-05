@@ -96,7 +96,7 @@ char *TSAPI_Version(void)
 
 #ifndef OPENSSL_NO_SM2
 int TSAPI_DelSm2KeyWithIndex(int index, int sign, const char *user,
-                             const char *password)
+                                 const char *password)
 {
     int ok = 0;
 #ifdef SDF_LIB
@@ -126,18 +126,32 @@ int TSAPI_DelSm2KeyWithIndex(int index, int sign, const char *user,
         strcpy((char *)login_arg.name, user);
     }
 
-    if (TSAPI_SDF_OpenDevice(&hDeviceHandle) != OSSL_SDR_OK)
+    if (TSAPI_SDF_OpenDevice(&hDeviceHandle) != OSSL_SDR_OK) {
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                       "TSAPI_DelSm2KeyWithIndex: SDF_OpenDevice failed");
         goto end;
+    }
 
-    if (TSAPI_SDF_OpenSession(hDeviceHandle, &hSessionHandle) != OSSL_SDR_OK)
+    if (TSAPI_SDF_OpenSession(hDeviceHandle, &hSessionHandle) != OSSL_SDR_OK) {
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                       "TSAPI_DelSm2KeyWithIndex: SDF_OpenSession failed");
         goto end;
+    }
 
-    if (SDFE_LoginUsr(hSessionHandle, &login_arg) != OSSL_SDR_OK)
+    if (SDFE_LoginUsr(hSessionHandle, &login_arg) != OSSL_SDR_OK) {
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                       "TSAPI_DelSm2KeyWithIndex: SDFE_LoginUsr failed");
         goto end;
+    }
 
-    if (SDFE_DelECCKey(hSessionHandle, area, index)
-            != OSSL_SDR_OK)
-        goto end;
+    {
+        int sdf_ret = SDFE_DelECCKey(hSessionHandle, area, index);
+        if (sdf_ret != OSSL_SDR_OK) {
+            ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                           "TSAPI_DelSm2KeyWithIndex: SDFE_DelECCKey failed: 0x%08x", sdf_ret);
+            goto end;
+        }
+    }
 
     ok = 1;
 end:
@@ -177,17 +191,32 @@ int TSAPI_GenerateSM2KeyWithIndex(int index, int sign, const char *user,
         strcpy((char *)login_arg.name, user);
     }
 
-    if (TSAPI_SDF_OpenDevice(&hDeviceHandle) != OSSL_SDR_OK)
+    if (TSAPI_SDF_OpenDevice(&hDeviceHandle) != OSSL_SDR_OK) {
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                       "TSAPI_GenerateSM2KeyWithIndex: SDF_OpenDevice failed");
         goto end;
+    }
 
-    if (TSAPI_SDF_OpenSession(hDeviceHandle, &hSessionHandle) != OSSL_SDR_OK)
+    if (TSAPI_SDF_OpenSession(hDeviceHandle, &hSessionHandle) != OSSL_SDR_OK) {
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                       "TSAPI_GenerateSM2KeyWithIndex: SDF_OpenSession failed");
         goto end;
+    }
 
-    if (SDFE_LoginUsr(hSessionHandle, &login_arg) != OSSL_SDR_OK)
+    if (SDFE_LoginUsr(hSessionHandle, &login_arg) != OSSL_SDR_OK) {
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                       "TSAPI_GenerateSM2KeyWithIndex: SDFE_LoginUsr failed");
         goto end;
+    }
 
-    if (SDFE_GenECCKey(hSessionHandle, area, index, 0, NULL) != OSSL_SDR_OK)
-        goto end;
+    {
+        int sdf_ret = SDFE_GenECCKey(hSessionHandle, area, index, 0, NULL);
+        if (sdf_ret != OSSL_SDR_OK) {
+            ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                           "TSAPI_GenerateSM2KeyWithIndex: SDFE_GenECCKey failed: 0x%08x", sdf_ret);
+            goto end;
+        }
+    }
 
     ok = 1;
 end:
@@ -444,6 +473,56 @@ end:
 }
 
 # ifndef OPENSSL_NO_RSA
+int TSAPI_DelRSAKeyWithIndex(int index, int sign, const char *user,
+                             const char *password)
+{
+    int ok = 0;
+#ifdef SDF_LIB
+    void *hDeviceHandle = NULL;
+    void *hSessionHandle = NULL;
+    sdfe_login_arg_t login_arg;
+    int area;
+
+    if (sign)
+        area = SDFE_ASYM_KEY_AREA_SIGN;
+    else
+        area = SDFE_ASYM_KEY_AREA_ENC;
+
+    memset(&login_arg, 0, sizeof(login_arg));
+
+    login_arg.passwd = (uint8_t *)password;
+    if (password)
+        login_arg.passwd_len = strlen(password);
+    else
+        login_arg.passwd_len = 0;
+
+    if (user) {
+        if (strlen(user) >= sizeof(login_arg.name))
+            return 0;
+
+        strcpy((char *)login_arg.name, user);
+    }
+
+    if (TSAPI_SDF_OpenDevice(&hDeviceHandle) != OSSL_SDR_OK)
+        goto end;
+
+    if (TSAPI_SDF_OpenSession(hDeviceHandle, &hSessionHandle) != OSSL_SDR_OK)
+        goto end;
+
+    if (SDFE_LoginUsr(hSessionHandle, &login_arg) != OSSL_SDR_OK)
+        goto end;
+
+    if (SDFE_DelRSAKey(hSessionHandle, area, index) != OSSL_SDR_OK)
+        goto end;
+
+    ok = 1;
+end:
+    TSAPI_SDF_CloseSession(hSessionHandle);
+    TSAPI_SDF_CloseDevice(hDeviceHandle);
+#endif
+    return ok;
+}
+
 /*
  * RSA 私钥转换辅助函数（参考厂商库 csm_manager.cpp 的 convertEVPToRSA）。
  * 零外部依赖，只使用铜锁 libcrypto 的 RSA/BIGNUM API。
@@ -604,7 +683,7 @@ int TSAPI_ImportRSAKey(int index, int sign, const char *user,
     {
         int sdf_ret = SDFE_ImportRSAKey(hSessionHandle, &rsa_key, NULL);
         if (sdf_ret != OSSL_SDR_OK) {
-            ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+            ERR_raise_data(ERR_LIB_PROV, ERR_R_INTERNAL_ERROR,
                            "SDFE_ImportRSAKey failed: 0x%08x", sdf_ret);
             goto end;
         }
@@ -649,14 +728,23 @@ int TSAPI_ImportSM2KeyWithEvlp(int index, int sign, const char *user,
         strcpy((char *)login_arg.name, user);
     }
 
-    if (TSAPI_SDF_OpenDevice(&hDeviceHandle) != OSSL_SDR_OK)
+    if (TSAPI_SDF_OpenDevice(&hDeviceHandle) != OSSL_SDR_OK) {
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                       "TSAPI_ImportSM2KeyWithEvlp: SDF_OpenDevice failed");
         goto end;
+    }
 
-    if (TSAPI_SDF_OpenSession(hDeviceHandle, &hSessionHandle) != OSSL_SDR_OK)
+    if (TSAPI_SDF_OpenSession(hDeviceHandle, &hSessionHandle) != OSSL_SDR_OK) {
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                       "TSAPI_ImportSM2KeyWithEvlp: SDF_OpenSession failed");
         goto end;
+    }
 
-    if (SDFE_LoginUsr(hSessionHandle, &login_arg) != OSSL_SDR_OK)
+    if (SDFE_LoginUsr(hSessionHandle, &login_arg) != OSSL_SDR_OK) {
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                       "TSAPI_ImportSM2KeyWithEvlp: SDFE_LoginUsr failed");
         goto end;
+    }
 
     sym_key_evlp.flags = SDFE_SYM_KEY_EVLP_F_IMPORT_KEY_INDEX_VALID;
     sym_key_evlp.asym_key_type = SDFE_ASYM_KEY_TYPE_SM2;
@@ -684,14 +772,20 @@ int TSAPI_ImportSM2KeyWithEvlp(int index, int sign, const char *user,
 
     if (keylen != sizeof(sm2_key.privkey) + sizeof(sm2_key.pubkey))
         goto end;
-    
+
     memcpy(sm2_key.pubkey, key, sizeof(sm2_key.pubkey));
     memcpy(sm2_key.privkey, key + sizeof(sm2_key.pubkey),
                 sizeof(sm2_key.privkey));
 
-    if (SDFE_ImportECCKeyWithEvlp(hSessionHandle, &sm2_key, &sym_key_evlp, NULL)
-            != OSSL_SDR_OK)
-        goto end;
+    {
+        int sdf_ret = SDFE_ImportECCKeyWithEvlp(hSessionHandle, &sm2_key,
+                                                &sym_key_evlp, NULL);
+        if (sdf_ret != OSSL_SDR_OK) {
+            ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                           "TSAPI_ImportSM2KeyWithEvlp: SDFE_ImportECCKeyWithEvlp failed: 0x%08x", sdf_ret);
+            goto end;
+        }
+    }
 
     ok = 1;
 end:
@@ -740,14 +834,23 @@ int TSAPI_ExportSM2KeyWithEvlp(int index, int sign, const char *user,
         strcpy((char *)login_arg.name, user);
     }
 
-    if (TSAPI_SDF_OpenDevice(&hDeviceHandle) != OSSL_SDR_OK)
+    if (TSAPI_SDF_OpenDevice(&hDeviceHandle) != OSSL_SDR_OK) {
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                       "TSAPI_ExportSM2KeyWithEvlp: SDF_OpenDevice failed");
         goto end;
+    }
 
-    if (TSAPI_SDF_OpenSession(hDeviceHandle, &hSessionHandle) != OSSL_SDR_OK)
+    if (TSAPI_SDF_OpenSession(hDeviceHandle, &hSessionHandle) != OSSL_SDR_OK) {
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                       "TSAPI_ExportSM2KeyWithEvlp: SDF_OpenSession failed");
         goto end;
+    }
 
-    if (SDFE_LoginUsr(hSessionHandle, &login_arg) != OSSL_SDR_OK)
+    if (SDFE_LoginUsr(hSessionHandle, &login_arg) != OSSL_SDR_OK) {
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                       "TSAPI_ExportSM2KeyWithEvlp: SDFE_LoginUsr failed");
         goto end;
+    }
 
     sm2_key.area = area;
     sm2_key.index = index;
@@ -758,30 +861,48 @@ int TSAPI_ExportSM2KeyWithEvlp(int index, int sign, const char *user,
     sym_key_evlp.sym_key_len = 16;
 
     pubkey = TSAPI_EVP_PKEY_get_ECCrefPublicKey(sm2_pkey);
-    if (pubkey == NULL)
+    if (pubkey == NULL) {
+        ERR_raise_data(ERR_LIB_PROV, ERR_R_MALLOC_FAILURE,
+                       "TSAPI_ExportSM2KeyWithEvlp: pubkey alloc failed");
         goto end;
+    }
 
-    if (SDFE_ExportECCKeyWithEvlp(hSessionHandle, &sm2_key, &sym_key_evlp,
-                                  (void *)pubkey) != OSSL_SDR_OK)
-        goto end;
+    {
+        int sdf_ret = SDFE_ExportECCKeyWithEvlp(hSessionHandle, &sm2_key,
+                                                &sym_key_evlp, (void *)pubkey);
+        if (sdf_ret != OSSL_SDR_OK) {
+            ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                           "TSAPI_ExportSM2KeyWithEvlp: SDFE_ExportECCKeyWithEvlp failed: 0x%08x", sdf_ret);
+            goto end;
+        }
+    }
 
     *outevlp = OPENSSL_malloc(sym_key_evlp.data_len);
-    if (*outevlp == NULL)
+    if (*outevlp == NULL) {
+        ERR_raise_data(ERR_LIB_PROV, ERR_R_MALLOC_FAILURE,
+                       "TSAPI_ExportSM2KeyWithEvlp: outevlp alloc failed");
         goto end;
+    }
 
     memcpy(*outevlp, sym_key_evlp.data, sym_key_evlp.data_len);
     *outevlplen = sym_key_evlp.data_len;
 
     *priv = OPENSSL_malloc(sizeof(sm2_key.privkey));
-    if (*priv == NULL)
+    if (*priv == NULL) {
+        ERR_raise_data(ERR_LIB_PROV, ERR_R_MALLOC_FAILURE,
+                       "TSAPI_ExportSM2KeyWithEvlp: priv alloc failed");
         goto end;
-    
+    }
+
     memcpy(*priv, sm2_key.privkey, sizeof(sm2_key.privkey));
     *privlen = sizeof(sm2_key.privkey);
 
     *pub = OPENSSL_malloc(sizeof(sm2_key.pubkey));
-    if (*pub == NULL)
+    if (*pub == NULL) {
+        ERR_raise_data(ERR_LIB_PROV, ERR_R_MALLOC_FAILURE,
+                       "TSAPI_ExportSM2KeyWithEvlp: pub alloc failed");
         goto end;
+    }
 
     memcpy(*pub, sm2_key.pubkey, sizeof(sm2_key.pubkey));
     *publen = sizeof(sm2_key.pubkey);
@@ -839,30 +960,56 @@ EVP_PKEY *TSAPI_ExportSM2KeyWithIndex(int index, int sign, const char *user,
     else
         login_arg.passwd_len = 0;
 
-    if (TSAPI_SDF_OpenDevice(&hDeviceHandle) != OSSL_SDR_OK)
+    if (TSAPI_SDF_OpenDevice(&hDeviceHandle) != OSSL_SDR_OK) {
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                       "TSAPI_ExportSM2KeyWithIndex: SDF_OpenDevice failed");
         goto end;
+    }
 
-    if (TSAPI_SDF_OpenSession(hDeviceHandle, &hSessionHandle) != OSSL_SDR_OK)
+    if (TSAPI_SDF_OpenSession(hDeviceHandle, &hSessionHandle) != OSSL_SDR_OK) {
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                       "TSAPI_ExportSM2KeyWithIndex: SDF_OpenSession failed");
         goto end;
+    }
 
-    if (SDFE_LoginUsr(hSessionHandle, &login_arg) != OSSL_SDR_OK)
+    if (SDFE_LoginUsr(hSessionHandle, &login_arg) != OSSL_SDR_OK) {
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                       "TSAPI_ExportSM2KeyWithIndex: SDFE_LoginUsr failed");
         goto end;
+    }
 
-    if (SDFE_ExportECCPrivKey(hSessionHandle, area, index, 0, NULL,
-            (ECCrefPrivateKey *)&privkey) != OSSL_SDR_OK)
-        goto end;
+    {
+        int sdf_ret = SDFE_ExportECCPrivKey(hSessionHandle, area, index, 0, NULL,
+                                            (ECCrefPrivateKey *)&privkey);
+        if (sdf_ret != OSSL_SDR_OK) {
+            ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                           "TSAPI_ExportSM2KeyWithIndex: SDFE_ExportECCPrivKey failed: 0x%08x", sdf_ret);
+            goto end;
+        }
+    }
 
-    if (sign && TSAPI_SDF_ExportSignPublicKey_ECC(hSessionHandle, index,
-            &pubkey) != OSSL_SDR_OK)
-        goto end;
-    
-    if (!sign && TSAPI_SDF_ExportEncPublicKey_ECC(hSessionHandle, index,
-            &pubkey) != OSSL_SDR_OK)
-        goto end;
+    if (sign) {
+        int sdf_ret = TSAPI_SDF_ExportSignPublicKey_ECC(hSessionHandle, index, &pubkey);
+        if (sdf_ret != OSSL_SDR_OK) {
+            ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                           "TSAPI_ExportSM2KeyWithIndex: ExportSignPublicKey failed: 0x%08x", sdf_ret);
+            goto end;
+        }
+    } else {
+        int sdf_ret = TSAPI_SDF_ExportEncPublicKey_ECC(hSessionHandle, index, &pubkey);
+        if (sdf_ret != OSSL_SDR_OK) {
+            ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                           "TSAPI_ExportSM2KeyWithIndex: ExportEncPublicKey failed: 0x%08x", sdf_ret);
+            goto end;
+        }
+    }
 
     pkey = TSAPI_EVP_PKEY_new_from_ECCrefKey(&pubkey, &privkey);
-    if (pkey == NULL)
+    if (pkey == NULL) {
+        ERR_raise_data(ERR_LIB_PROV, ERR_R_MALLOC_FAILURE,
+                       "TSAPI_ExportSM2KeyWithIndex: pkey alloc failed");
         goto end;
+    }
 end:
     TSAPI_SDF_CloseSession(hSessionHandle);
     TSAPI_SDF_CloseDevice(hDeviceHandle);
@@ -877,16 +1024,23 @@ EVP_PKEY *TSAPI_ExportRSAPubKeyWithIndex(int index, int sign)
     void *hDeviceHandle = NULL;
     void *hSessionHandle = NULL;
     OSSL_RSArefPublicKeyEx pub_ex;   /* Ex 版可容纳 ≤4096，统一用 Ex 接收 */
+    OSSL_RSArefPublicKey pub;
     BIGNUM *n = NULL, *e = NULL;
     RSA *rsa = NULL;
     int nbytes, ret;
 
     memset(&pub_ex, 0, sizeof(pub_ex));
 
-    if (TSAPI_SDF_OpenDevice(&hDeviceHandle) != OSSL_SDR_OK)
+    if (TSAPI_SDF_OpenDevice(&hDeviceHandle) != OSSL_SDR_OK) {
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                       "TSAPI_ExportRSAPubKeyWithIndex: SDF_OpenDevice failed");
         goto end;
-    if (TSAPI_SDF_OpenSession(hDeviceHandle, &hSessionHandle) != OSSL_SDR_OK)
+    }
+    if (TSAPI_SDF_OpenSession(hDeviceHandle, &hSessionHandle) != OSSL_SDR_OK) {
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                       "TSAPI_ExportRSAPubKeyWithIndex: SDF_OpenSession failed");
         goto end;
+    }
 
     /*
      * 直接使用 Ex 版接口（RSArefPublicKeyEx 可容纳 ≤4096，兼容所有位长）。
@@ -899,43 +1053,89 @@ EVP_PKEY *TSAPI_ExportRSAPubKeyWithIndex(int index, int sign)
      * 先试 Ex 版接口（厂商库若有则覆盖所有位长），失败回退普通版（≤2048）。
      * 注意：部分厂商库 Ex 版与普通版索引语义不同，普通版更可靠。
      */
+    //先使用Ex获取长度，然后根据长度具体使用哪套接口
     if (sign)
-        ret = TSAPI_SDF_ExportSignPublicKey_RSA(hSessionHandle, index,
-                                                (OSSL_RSArefPublicKey *)&pub_ex);
+        ret = TSAPI_SDF_ExportSignPublicKey_RSAEx(hSessionHandle, index, &pub_ex);
     else
-        ret = TSAPI_SDF_ExportEncPublicKey_RSA(hSessionHandle, index,
-                                               (OSSL_RSArefPublicKey *)&pub_ex);
+        ret = TSAPI_SDF_ExportEncPublicKey_RSAEx(hSessionHandle, index, &pub_ex);
     if (ret != OSSL_SDR_OK) {
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                       "TSAPI_ExportRSAPubKeyWithIndex: ExportSignPublicKey failed: 0x%08x", ret);
+        goto end;
+    }
+
+    if (pub_ex.bits <= 2048)
+    {
+        if (sign)
+            ret = TSAPI_SDF_ExportSignPublicKey_RSA(hSessionHandle, index,
+                (OSSL_RSArefPublicKey*)&pub);
+        else
+            ret = TSAPI_SDF_ExportEncPublicKey_RSA(hSessionHandle, index,
+                (OSSL_RSArefPublicKey*)&pub);
+
+        if (!ret)
+        {
+            //switch Ex
+            memset(&pub_ex, 0, sizeof(pub_ex));
+            pub_ex.bits = pub.bits;
+            memcpy(&pub_ex.m[256], pub.m, sizeof(pub.m));
+            memcpy(&pub_ex.e[256], pub.e, sizeof(pub.e));
+        }
+    }
+    else
+    {//3072 4096
         memset(&pub_ex, 0, sizeof(pub_ex));
         if (sign)
             ret = TSAPI_SDF_ExportSignPublicKey_RSAEx(hSessionHandle, index, &pub_ex);
         else
             ret = TSAPI_SDF_ExportEncPublicKey_RSAEx(hSessionHandle, index, &pub_ex);
-        if (ret != OSSL_SDR_OK)
+        if (ret != OSSL_SDR_OK) {
+            ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                           "TSAPI_ExportRSAPubKeyWithIndex: ExportSignPublicKey failed: 0x%08x", ret);
             goto end;
+        }
     }
 
+
     nbytes = (pub_ex.bits + 7) / 8;
-    if (nbytes <= 0 || nbytes > (int)sizeof(pub_ex.m))
+    if (nbytes <= 0 || nbytes > (int)sizeof(pub_ex.m)) {
+        ERR_raise_data(ERR_LIB_PROV, ERR_R_INTERNAL_ERROR,
+                       "TSAPI_ExportRSAPubKeyWithIndex: invalid RSA key bits");
         goto end;
+    }
 
     n = BN_bin2bn(pub_ex.m, nbytes, NULL);
     e = BN_bin2bn(pub_ex.e, nbytes, NULL);
-    if (n == NULL || e == NULL)
+    if (n == NULL || e == NULL) {
+        ERR_raise_data(ERR_LIB_PROV, ERR_R_MALLOC_FAILURE,
+                       "TSAPI_ExportRSAPubKeyWithIndex: BN alloc failed");
         goto end;
+    }
 
     rsa = RSA_new();
-    if (rsa == NULL)
+    if (rsa == NULL) {
+        ERR_raise_data(ERR_LIB_PROV, ERR_R_MALLOC_FAILURE,
+                       "TSAPI_ExportRSAPubKeyWithIndex: RSA alloc failed");
         goto end;
-    if (!RSA_set0_key(rsa, n, e, NULL))
+    }
+    if (!RSA_set0_key(rsa, n, e, NULL)) {
+        ERR_raise_data(ERR_LIB_PROV, ERR_R_INTERNAL_ERROR,
+                       "TSAPI_ExportRSAPubKeyWithIndex: RSA_set0_key failed");
         goto end;
+    }
     n = e = NULL;  /* 所有权转移 */
 
     pkey = EVP_PKEY_new();
-    if (pkey == NULL)
+    if (pkey == NULL) {
+        ERR_raise_data(ERR_LIB_PROV, ERR_R_MALLOC_FAILURE,
+                       "TSAPI_ExportRSAPubKeyWithIndex: EVP_PKEY alloc failed");
         goto end;
-    if (!EVP_PKEY_assign_RSA(pkey, rsa))
+    }
+    if (!EVP_PKEY_assign_RSA(pkey, rsa)) {
+        ERR_raise_data(ERR_LIB_PROV, ERR_R_INTERNAL_ERROR,
+                       "TSAPI_ExportRSAPubKeyWithIndex: EVP_PKEY_assign_RSA failed");
         goto end;
+    }
     rsa = NULL;  /* 所有权转移 */
 
 end:
@@ -960,50 +1160,82 @@ EVP_PKEY *TSAPI_ExportSM2PubKeyWithIndex(int index, int sign)
     BIGNUM *x = NULL, *y = NULL;
     int nbytes;
 
-    if (TSAPI_SDF_OpenDevice(&hDeviceHandle) != OSSL_SDR_OK)
+    if (TSAPI_SDF_OpenDevice(&hDeviceHandle) != OSSL_SDR_OK) {
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                       "TSAPI_ExportSM2PubKeyWithIndex: SDF_OpenDevice failed");
         goto end;
+    }
 
-    if (TSAPI_SDF_OpenSession(hDeviceHandle, &hSessionHandle) != OSSL_SDR_OK)
+    if (TSAPI_SDF_OpenSession(hDeviceHandle, &hSessionHandle) != OSSL_SDR_OK) {
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                       "TSAPI_ExportSM2PubKeyWithIndex: SDF_OpenSession failed");
         goto end;
+    }
 
     if (sign) {
-        if (TSAPI_SDF_ExportSignPublicKey_ECC(hSessionHandle, index, &pubkey)
-                != OSSL_SDR_OK)
+        int sdf_ret = TSAPI_SDF_ExportSignPublicKey_ECC(hSessionHandle, index, &pubkey);
+        if (sdf_ret != OSSL_SDR_OK) {
+            ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                           "TSAPI_ExportSM2PubKeyWithIndex: ExportSignPublicKey failed: 0x%08x", sdf_ret);
             goto end;
+        }
     } else {
-        if (TSAPI_SDF_ExportEncPublicKey_ECC(hSessionHandle, index, &pubkey)
-                != OSSL_SDR_OK)
+        int sdf_ret = TSAPI_SDF_ExportEncPublicKey_ECC(hSessionHandle, index, &pubkey);
+        if (sdf_ret != OSSL_SDR_OK) {
+            ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                           "TSAPI_ExportSM2PubKeyWithIndex: ExportEncPublicKey failed: 0x%08x", sdf_ret);
             goto end;
+        }
     }
 
     group = EC_GROUP_new_by_curve_name(NID_sm2);
-    if (group == NULL)
+    if (group == NULL) {
+        ERR_raise_data(ERR_LIB_PROV, ERR_R_MALLOC_FAILURE,
+                       "TSAPI_ExportSM2PubKeyWithIndex: EC_GROUP alloc failed");
         goto end;
+    }
 
     eckey = EC_KEY_new();
-    if (eckey == NULL)
+    if (eckey == NULL) {
+        ERR_raise_data(ERR_LIB_PROV, ERR_R_MALLOC_FAILURE,
+                       "TSAPI_ExportSM2PubKeyWithIndex: EC_KEY alloc failed");
         goto end;
+    }
 
     EC_KEY_set_group(eckey, group);
 
     nbytes = (pubkey.bits + 7) / 8;
 
     x = BN_bin2bn(pubkey.x + sizeof(pubkey.x) - nbytes, nbytes, NULL);
-    if (x == NULL)
+    if (x == NULL) {
+        ERR_raise_data(ERR_LIB_PROV, ERR_R_MALLOC_FAILURE,
+                       "TSAPI_ExportSM2PubKeyWithIndex: BN x alloc failed");
         goto end;
+    }
 
     y = BN_bin2bn(pubkey.y + sizeof(pubkey.y) - nbytes, nbytes, NULL);
-    if (y == NULL)
+    if (y == NULL) {
+        ERR_raise_data(ERR_LIB_PROV, ERR_R_MALLOC_FAILURE,
+                       "TSAPI_ExportSM2PubKeyWithIndex: BN y alloc failed");
         goto end;
+    }
 
-    if (!EC_KEY_set_public_key_affine_coordinates(eckey, x, y))
+    if (!EC_KEY_set_public_key_affine_coordinates(eckey, x, y)) {
+        ERR_raise_data(ERR_LIB_PROV, ERR_R_INTERNAL_ERROR,
+                       "TSAPI_ExportSM2PubKeyWithIndex: EC_KEY_set_public_key_affine_coordinates failed");
         goto end;
+    }
 
     pkey = EVP_PKEY_new();
-    if (pkey == NULL)
+    if (pkey == NULL) {
+        ERR_raise_data(ERR_LIB_PROV, ERR_R_MALLOC_FAILURE,
+                       "TSAPI_ExportSM2PubKeyWithIndex: EVP_PKEY alloc failed");
         goto end;
+    }
 
     if (!EVP_PKEY_assign_EC_KEY(pkey, eckey)) {
+        ERR_raise_data(ERR_LIB_PROV, ERR_R_INTERNAL_ERROR,
+                       "TSAPI_ExportSM2PubKeyWithIndex: EVP_PKEY_assign_EC_KEY failed");
         EVP_PKEY_free(pkey);
         goto end;
     }
@@ -1049,22 +1281,41 @@ int TSAPI_UpdateSm2KeyWithIndex(int index, int sign, const char *user, const cha
     else
         login_arg.passwd_len = 0;
 
-    if (TSAPI_SDF_OpenDevice(&hDeviceHandle) != OSSL_SDR_OK)
+    if (TSAPI_SDF_OpenDevice(&hDeviceHandle) != OSSL_SDR_OK) {
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                       "TSAPI_UpdateSm2KeyWithIndex: SDF_OpenDevice failed");
         goto end;
+    }
 
-    if (TSAPI_SDF_OpenSession(hDeviceHandle, &hSessionHandle) != OSSL_SDR_OK)
+    if (TSAPI_SDF_OpenSession(hDeviceHandle, &hSessionHandle) != OSSL_SDR_OK) {
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                       "TSAPI_UpdateSm2KeyWithIndex: SDF_OpenSession failed");
         goto end;
+    }
 
-    if (SDFE_LoginUsr(hSessionHandle, &login_arg) != OSSL_SDR_OK)
+    if (SDFE_LoginUsr(hSessionHandle, &login_arg) != OSSL_SDR_OK) {
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                       "TSAPI_UpdateSm2KeyWithIndex: SDFE_LoginUsr failed");
         goto end;
+    }
 
-    if (SDFE_DelECCKey(hSessionHandle, area, index)
-            != OSSL_SDR_OK)
-        goto end;
+    {
+        int sdf_ret = SDFE_DelECCKey(hSessionHandle, area, index);
+        if (sdf_ret != OSSL_SDR_OK) {
+            ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                           "TSAPI_UpdateSm2KeyWithIndex: SDFE_DelECCKey failed: 0x%08x", sdf_ret);
+            goto end;
+        }
+    }
 
-    if (SDFE_GenECCKey(hSessionHandle, area, index, 0, NULL)
-            != OSSL_SDR_OK)
-        goto end;
+    {
+        int sdf_ret = SDFE_GenECCKey(hSessionHandle, area, index, 0, NULL);
+        if (sdf_ret != OSSL_SDR_OK) {
+            ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                           "TSAPI_UpdateSm2KeyWithIndex: SDFE_GenECCKey failed: 0x%08x", sdf_ret);
+            goto end;
+        }
+    }
 
     ok = 1;
 end:
@@ -1219,32 +1470,54 @@ unsigned char *TSAPI_SM2DecryptWithISK(int isk, const unsigned char *in,
     OSSL_ECCCipher *ecc = NULL;
     unsigned int len;
 
-    if (TSAPI_SDF_OpenDevice(&hDeviceHandle) != OSSL_SDR_OK)
+    if (TSAPI_SDF_OpenDevice(&hDeviceHandle) != OSSL_SDR_OK) {
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                       "TSAPI_SM2DecryptWithISK: SDF_OpenDevice failed");
         return NULL;
+    }
 
-    if (TSAPI_SDF_OpenSession(hDeviceHandle, &hSessionHandle) != OSSL_SDR_OK)
+    if (TSAPI_SDF_OpenSession(hDeviceHandle, &hSessionHandle) != OSSL_SDR_OK) {
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                       "TSAPI_SM2DecryptWithISK: SDF_OpenSession failed");
         goto end;
+    }
 
-    if (TSAPI_SDF_GetPrivateKeyAccessRight(hSessionHandle, isk, NULL, 0)
-            != OSSL_SDR_OK)
-        goto end;
+    {
+        int sdf_ret = TSAPI_SDF_GetPrivateKeyAccessRight(hSessionHandle, isk,
+                                                        NULL, 0);
+        if (sdf_ret != OSSL_SDR_OK) {
+            ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                           "TSAPI_SM2DecryptWithISK: GetPrivateKeyAccessRight failed: 0x%08x", sdf_ret);
+            goto end;
+        }
+    }
 
     ecc = TSAPI_SM2Ciphertext_to_ECCCipher(in, inlen);
-    if (ecc == NULL)
+    if (ecc == NULL) {
+        ERR_raise_data(ERR_LIB_PROV, ERR_R_MALLOC_FAILURE,
+                       "TSAPI_SM2DecryptWithISK: ECCCipher alloc failed");
         goto end;
+    }
 
     len = ecc->L;
     out = OPENSSL_malloc(len);
-    if (out == NULL)
+    if (out == NULL) {
+        ERR_raise_data(ERR_LIB_PROV, ERR_R_MALLOC_FAILURE,
+                       "TSAPI_SM2DecryptWithISK: out alloc failed");
         goto end;
+    }
 
-    if (TSAPI_SDF_InternalDecrypt_ECC(hSessionHandle, isk, OSSL_SGD_SM2_3,
-                                        ecc, out, &len)
-            != OSSL_SDR_OK) {
-        OPENSSL_free(out);
-        out = NULL;
-        *outlen = 0;
-        goto end;
+    {
+        int sdf_ret = TSAPI_SDF_InternalDecrypt_ECC(hSessionHandle, isk,
+                                                   OSSL_SGD_SM2_3, ecc, out, &len);
+        if (sdf_ret != OSSL_SDR_OK) {
+            ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                           "TSAPI_SM2DecryptWithISK: InternalDecrypt_ECC failed: 0x%08x", sdf_ret);
+            OPENSSL_free(out);
+            out = NULL;
+            *outlen = 0;
+            goto end;
+        }
     }
 
     *outlen = len;
@@ -1266,21 +1539,36 @@ unsigned char *TSAPI_SM2EncryptWithISK(int isk, const unsigned char *in,
     void *hSessionHandle = NULL;
     OSSL_ECCCipher *ecc = NULL;
 
-    if (TSAPI_SDF_OpenDevice(&hDeviceHandle) != OSSL_SDR_OK)
+    if (TSAPI_SDF_OpenDevice(&hDeviceHandle) != OSSL_SDR_OK) {
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                       "TSAPI_SM2EncryptWithISK: SDF_OpenDevice failed");
         return NULL;
+    }
 
-    if (TSAPI_SDF_OpenSession(hDeviceHandle, &hSessionHandle) != OSSL_SDR_OK)
+    if (TSAPI_SDF_OpenSession(hDeviceHandle, &hSessionHandle) != OSSL_SDR_OK) {
+        ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                       "TSAPI_SM2EncryptWithISK: SDF_OpenSession failed");
         goto end;
+    }
 
     ecc = OPENSSL_zalloc(sizeof(OSSL_ECCCipher) + inlen);
-    if (ecc == NULL)
+    if (ecc == NULL) {
+        ERR_raise_data(ERR_LIB_PROV, ERR_R_MALLOC_FAILURE,
+                       "TSAPI_SM2EncryptWithISK: ECCCipher alloc failed");
         goto end;
+    }
 
-    if (TSAPI_SDF_InternalEncrypt_ECC(hSessionHandle, isk, OSSL_SGD_SM2_3,
-                                      (unsigned char *)in,
-                                      inlen, ecc)
-            != OSSL_SDR_OK)
-        goto end;
+    {
+        int sdf_ret = TSAPI_SDF_InternalEncrypt_ECC(hSessionHandle, isk,
+                                                   OSSL_SGD_SM2_3,
+                                                   (unsigned char *)in,
+                                                   inlen, ecc);
+        if (sdf_ret != OSSL_SDR_OK) {
+            ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                           "TSAPI_SM2EncryptWithISK: InternalEncrypt_ECC failed: 0x%08x", sdf_ret);
+            goto end;
+        }
+    }
 
     out = TSAPI_ECCCipher_to_SM2Ciphertext(ecc, outlen);
 
@@ -1467,42 +1755,72 @@ static unsigned char *do_SM4Crypt(int mode, int enc,
 # ifdef SDF_LIB
     else {
 
-        if (TSAPI_SDF_OpenDevice(&hDeviceHandle) != OSSL_SDR_OK)
+        if (TSAPI_SDF_OpenDevice(&hDeviceHandle) != OSSL_SDR_OK) {
+            ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                           "TSAPI_SM4Crypt: SDF_OpenDevice failed");
             goto end;
+        }
 
-        if (TSAPI_SDF_OpenSession(hDeviceHandle, &hSessionHandle) != OSSL_SDR_OK)
+        if (TSAPI_SDF_OpenSession(hDeviceHandle, &hSessionHandle) != OSSL_SDR_OK) {
+            ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                           "TSAPI_SM4Crypt: SDF_OpenSession failed");
             goto end;
+        }
 
-        if (TSAPI_SDF_GetPrivateKeyAccessRight(hSessionHandle, isk, NULL, 0)
-                != OSSL_SDR_OK)
-            goto end;
+        {
+            int sdf_ret = TSAPI_SDF_GetPrivateKeyAccessRight(hSessionHandle, isk,
+                                                           NULL, 0);
+            if (sdf_ret != OSSL_SDR_OK) {
+                ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                               "TSAPI_SM4Crypt: GetPrivateKeyAccessRight failed: 0x%08x", sdf_ret);
+                goto end;
+            }
+        }
 
         ecc = TSAPI_SM2Ciphertext_to_ECCCipher(key, keylen);
-        if (ecc == NULL)
+        if (ecc == NULL) {
+            ERR_raise_data(ERR_LIB_PROV, ERR_R_MALLOC_FAILURE,
+                           "TSAPI_SM4Crypt: ECCCipher alloc failed");
             goto end;
+        }
 
-        if (TSAPI_SDF_ImportKeyWithISK_ECC(hSessionHandle, isk, ecc, &hkeyHandle)
-                != OSSL_SDR_OK)
-            goto end;
+        {
+            int sdf_ret = TSAPI_SDF_ImportKeyWithISK_ECC(hSessionHandle, isk,
+                                                       ecc, &hkeyHandle);
+            if (sdf_ret != OSSL_SDR_OK) {
+                ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                               "TSAPI_SM4Crypt: ImportKeyWithISK_ECC failed: 0x%08x", sdf_ret);
+                goto end;
+            }
+        }
 
         outbuf = (unsigned char *)OPENSSL_malloc(inlen + 128);
-        if (outbuf == NULL)
+        if (outbuf == NULL) {
+            ERR_raise_data(ERR_LIB_PROV, ERR_R_MALLOC_FAILURE,
+                           "TSAPI_SM4Crypt: outbuf alloc failed");
             goto end;
+        }
 
         if (enc) {
-            if (TSAPI_SDF_Encrypt(hSessionHandle, hkeyHandle,
-                                  OSSL_SGD_SM4 | mode,
-                                  (unsigned char *)iv, (unsigned char *)in,
-                                  inlen, outbuf, &len) != OSSL_SDR_OK) {
+            int sdf_ret = TSAPI_SDF_Encrypt(hSessionHandle, hkeyHandle,
+                                          OSSL_SGD_SM4 | mode,
+                                          (unsigned char *)iv, (unsigned char *)in,
+                                          inlen, outbuf, &len);
+            if (sdf_ret != OSSL_SDR_OK) {
+                ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                               "TSAPI_SM4Encrypt: SDF_Encrypt failed: 0x%08x", sdf_ret);
                 OPENSSL_free(outbuf);
                 outbuf = NULL;
                 goto end;
             }
         } else {
-            if (TSAPI_SDF_Decrypt(hSessionHandle, hkeyHandle,
-                                  OSSL_SGD_SM4 | mode,
-                                  (unsigned char *)iv, (unsigned char *)in,
-                                  inlen, outbuf, &len) != OSSL_SDR_OK) {
+            int sdf_ret = TSAPI_SDF_Decrypt(hSessionHandle, hkeyHandle,
+                                          OSSL_SGD_SM4 | mode,
+                                          (unsigned char *)iv, (unsigned char *)in,
+                                          inlen, outbuf, &len);
+            if (sdf_ret != OSSL_SDR_OK) {
+                ERR_raise_data(ERR_LIB_PROV, PROV_R_NOT_SUPPORTED,
+                               "TSAPI_SM4Decrypt: SDF_Decrypt failed: 0x%08x", sdf_ret);
                 OPENSSL_free(outbuf);
                 outbuf = NULL;
                 goto end;
