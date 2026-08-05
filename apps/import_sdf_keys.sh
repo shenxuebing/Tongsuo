@@ -31,9 +31,9 @@ SM2_CLIENT_SIGN_KEY="${SM2_CLIENT_SIGN_KEY:-$CERTS/sm2/client_sign.key}"
 SM2_CLIENT_ENC_KEY="${SM2_CLIENT_ENC_KEY:-$CERTS/sm2/client_enc.key}"
 
 RSA1024_IDX="${RSA1024_IDX:-1}"
-RSA2048_IDX="${RSA2048_IDX:-1}"
-RSA3072_IDX="${RSA3072_IDX:-2}"
-RSA4096_IDX="${RSA4096_IDX:-3}"
+RSA2048_IDX="${RSA2048_IDX:-2}"
+RSA3072_IDX="${RSA3072_IDX:-3}"
+RSA4096_IDX="${RSA4096_IDX:-4}"
 
 RSA1024_SIGN_KEY="${RSA1024_SIGN_KEY:-$CERTS/ee-key-1024.pem}"
 RSA1024_ENC_KEY="${RSA1024_ENC_KEY:-$CERTS/ee-key-1024.pem}"
@@ -43,12 +43,39 @@ RSA3072_SIGN_KEY="${RSA3072_SIGN_KEY:-$CERTS/client_3072_sign.key}"
 RSA3072_ENC_KEY="${RSA3072_ENC_KEY:-$CERTS/client_3072_enc.key}"
 RSA4096_SIGN_KEY="${RSA4096_SIGN_KEY:-$CERTS/client_4096_sign.key}"
 RSA4096_ENC_KEY="${RSA4096_ENC_KEY:-$CERTS/client_4096_enc.key}"
+IMPORT_GROUP="${IMPORT_GROUP:-all}"
+
+DO_SM2=0
+DO_RSA=0
+case "$IMPORT_GROUP" in
+    all)
+        DO_SM2=1
+        DO_RSA=1
+        ;;
+    sm2)
+        DO_SM2=1
+        ;;
+    rsa)
+        DO_RSA=1
+        ;;
+    *)
+        echo "[FAIL] unknown IMPORT_GROUP=$IMPORT_GROUP (expected all, sm2, or rsa)"
+        exit 1
+        ;;
+esac
 
 PASS=0
 FAIL=0
 
 ok() { echo "[OK]   $1"; PASS=$((PASS + 1)); }
 no() { echo "[FAIL] $1"; FAIL=$((FAIL + 1)); }
+
+run() {
+    printf '[CMD] ' >&2
+    printf '%q ' "$@" >&2
+    printf '\n' >&2
+    "$@"
+}
 
 check_file() {
     if [ ! -f "$1" ]; then
@@ -67,8 +94,8 @@ import_sm2() {
     check_file "$key" || return 0
     echo "[INFO] $label: index=$idx type=$type key=$key"
     # 先删除可能已存在的密钥（忽略错误，索引可能为空）
-    "$OSSL" sdf -delsm2key -index "$idx" -type "$type" 2>/dev/null
-    if "$OSSL" sdf -importsm2key -index "$idx" -type "$type" -inkey "$key" 2>/dev/null; then
+    run "$OSSL" sdf -delsm2key -index "$idx" -type "$type"
+    if run "$OSSL" sdf -importsm2key -index "$idx" -type "$type" -inkey "$key"; then
         ok "$label"
     else
         no "$label"
@@ -84,8 +111,8 @@ import_rsa() {
     check_file "$key" || return 0
     echo "[INFO] $label: index=$idx type=$type key=$key"
     # RSA 复用 delsm2key 删除（厂商库底层按容器索引删除，与密钥类型无关）
-    "$OSSL" sdf -delsm2key -index "$idx" -type "$type" 2>/dev/null
-    if "$OSSL" sdf -importrsakey -index "$idx" -type "$type" -inkey "$key" 2>/dev/null; then
+    run "$OSSL" sdf -delsm2key -index "$idx" -type "$type"
+    if run "$OSSL" sdf -importrsakey -index "$idx" -type "$type" -inkey "$key"; then
         ok "$label"
     else
         no "$label"
@@ -95,21 +122,26 @@ import_rsa() {
 echo "============================================================"
 echo " Import SDF keys"
 echo " OPENSSL_CONF=$OPENSSL_CONF"
+echo " IMPORT_GROUP=$IMPORT_GROUP"
 echo "============================================================"
 
-import_sm2 "SM2 server sign" "$SM2_SERVER_IDX" "sign" "$SM2_SERVER_SIGN_KEY"
-import_sm2 "SM2 server enc"  "$SM2_SERVER_IDX" "enc"  "$SM2_SERVER_ENC_KEY"
-import_sm2 "SM2 client sign" "$SM2_CLIENT_IDX" "sign" "$SM2_CLIENT_SIGN_KEY"
-import_sm2 "SM2 client enc"  "$SM2_CLIENT_IDX" "enc"  "$SM2_CLIENT_ENC_KEY"
+if [ "$DO_SM2" -eq 1 ]; then
+    import_sm2 "SM2 server sign" "$SM2_SERVER_IDX" "sign" "$SM2_SERVER_SIGN_KEY"
+    import_sm2 "SM2 server enc"  "$SM2_SERVER_IDX" "enc"  "$SM2_SERVER_ENC_KEY"
+    import_sm2 "SM2 client sign" "$SM2_CLIENT_IDX" "sign" "$SM2_CLIENT_SIGN_KEY"
+    import_sm2 "SM2 client enc"  "$SM2_CLIENT_IDX" "enc"  "$SM2_CLIENT_ENC_KEY"
+fi
 
-import_rsa "RSA1024 sign" "$RSA1024_IDX" "sign" "$RSA1024_SIGN_KEY"
-import_rsa "RSA1024 enc"  "$RSA1024_IDX" "enc"  "$RSA1024_ENC_KEY"
-import_rsa "RSA2048 sign" "$RSA2048_IDX" "sign" "$RSA2048_SIGN_KEY"
-import_rsa "RSA2048 enc"  "$RSA2048_IDX" "enc"  "$RSA2048_ENC_KEY"
-import_rsa "RSA3072 sign" "$RSA3072_IDX" "sign" "$RSA3072_SIGN_KEY"
-import_rsa "RSA3072 enc"  "$RSA3072_IDX" "enc"  "$RSA3072_ENC_KEY"
-import_rsa "RSA4096 sign" "$RSA4096_IDX" "sign" "$RSA4096_SIGN_KEY"
-import_rsa "RSA4096 enc"  "$RSA4096_IDX" "enc"  "$RSA4096_ENC_KEY"
+if [ "$DO_RSA" -eq 1 ]; then
+    import_rsa "RSA1024 sign" "$RSA1024_IDX" "sign" "$RSA1024_SIGN_KEY"
+    import_rsa "RSA1024 enc"  "$RSA1024_IDX" "enc"  "$RSA1024_ENC_KEY"
+    import_rsa "RSA2048 sign" "$RSA2048_IDX" "sign" "$RSA2048_SIGN_KEY"
+    import_rsa "RSA2048 enc"  "$RSA2048_IDX" "enc"  "$RSA2048_ENC_KEY"
+    import_rsa "RSA3072 sign" "$RSA3072_IDX" "sign" "$RSA3072_SIGN_KEY"
+    import_rsa "RSA3072 enc"  "$RSA3072_IDX" "enc"  "$RSA3072_ENC_KEY"
+    import_rsa "RSA4096 sign" "$RSA4096_IDX" "sign" "$RSA4096_SIGN_KEY"
+    import_rsa "RSA4096 enc"  "$RSA4096_IDX" "enc"  "$RSA4096_ENC_KEY"
+fi
 
 echo
 echo "============================================================"

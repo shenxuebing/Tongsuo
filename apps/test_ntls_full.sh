@@ -9,8 +9,11 @@ for arg in "$@"; do
     esac
 done
 
-export OPENSSL_CONF="${OPENSSL_CONF:-$(pwd)/openssl.cnf}"
-export SDF_LIB_PATH="${SDF_LIB_PATH:-$(pwd)/libbyzk0018.so}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR" || exit 1
+
+export OPENSSL_CONF="${OPENSSL_CONF:-$SCRIPT_DIR/openssl.cnf}"
+export SDF_LIB_PATH="${SDF_LIB_PATH:-$SCRIPT_DIR/libbyzk0018.so}"
 export BYZK0018_SKIP_OPENSSL_PROVIDER_INIT="${BYZK0018_SKIP_OPENSSL_PROVIDER_INIT:-1}"
 export SDF_MODULE_PASSWORD="${SDF_MODULE_PASSWORD:-88888888}"
 export SDF_USE_LOADMODULE="${SDF_USE_LOADMODULE:-1}"
@@ -27,7 +30,7 @@ fi
 PASS=0
 FAIL=0
 NUM=0
-OUTDIR="../ntls_out"
+OUTDIR="$PWD"
 CERTS="${CERTS:-../test/certs/sm2}"
 CAFILE="${CAFILE:-$CERTS/chain-ca.crt}"
 SERVER_CERT_PROFILE="${SERVER_CERT_PROFILE:-sm2}"
@@ -69,7 +72,10 @@ apply_cert_profile() {
 apply_cert_profile server "$SERVER_CERT_PROFILE"
 apply_cert_profile client "$CLIENT_CERT_PROFILE"
 
-mkdir -p "$OUTDIR"
+if [ "${IMPORT_KEYS:-1}" != "0" ]; then
+    echo "[CMD] $SCRIPT_DIR/import_sdf_keys.sh IMPORT_GROUP=sm2"
+    "$SCRIPT_DIR/import_sdf_keys.sh" IMPORT_GROUP=sm2 || exit 1
+fi
 
 cleanup_all() {
     pkill -f "$(basename "$OSSL")" >/dev/null 2>&1 || true
@@ -92,8 +98,8 @@ run_handshake() {
     local cipher="$2"
     local server_key_type="$3"
     local client_key_type="$4"
-    local server_log="$OUTDIR/svr_${port}.txt"
-    local client_log="$OUTDIR/cli_${port}.txt"
+    local server_log="$OUTDIR/ntls_svr_${port}.txt"
+    local client_log="$OUTDIR/ntls_cli_${port}.txt"
     local server_cmd
     local client_cmd
     local timeout_count=0
@@ -117,7 +123,7 @@ run_handshake() {
 
     rm -f "$server_log" "$client_log"
 
-    echo "    server: $server_cmd"
+    echo "[CMD] $server_cmd"
     sh -c "$server_cmd" >"$server_log" 2>&1 &
     server_pid=$!
 
@@ -127,7 +133,7 @@ run_handshake() {
         wait_seconds 2
     fi
 
-    echo "    client: $client_cmd"
+    echo "[CMD] printf 'Q\\n' | $client_cmd"
     sh -c "printf 'Q\n' | $client_cmd" >"$client_log" 2>&1 &
 
     while [ $timeout_count -lt 15 ]; do

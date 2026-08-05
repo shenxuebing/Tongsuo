@@ -9,8 +9,11 @@ for arg in "$@"; do
     esac
 done
 
-export OPENSSL_CONF="${OPENSSL_CONF:-$(pwd)/openssl.cnf}"
-export SDF_LIB_PATH="${SDF_LIB_PATH:-$(pwd)/libbyzk0018.so}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR" || exit 1
+
+export OPENSSL_CONF="${OPENSSL_CONF:-$SCRIPT_DIR/openssl.cnf}"
+export SDF_LIB_PATH="${SDF_LIB_PATH:-$SCRIPT_DIR/libbyzk0018.so}"
 export BYZK0018_SKIP_OPENSSL_PROVIDER_INIT="${BYZK0018_SKIP_OPENSSL_PROVIDER_INIT:-1}"
 export SDF_MODULE_PASSWORD="${SDF_MODULE_PASSWORD:-88888888}"
 export SDF_USE_LOADMODULE="${SDF_USE_LOADMODULE:-1}"
@@ -25,8 +28,7 @@ else
 fi
 
 CERTS="../test/certs"
-TMP="${TMP:-/tmp/sdf_cross}"
-mkdir -p "$TMP"
+TMP="$PWD"
 
 PASS=0
 FAIL=0
@@ -37,17 +39,13 @@ no() { echo "  [FAIL] $1"; FAIL=$((FAIL + 1)); }
 wn() { echo "  [WARN] $1"; WARN=$((WARN + 1)); }
 # 执行命令并检查结果，打印完整命令便于独立调试
 q() {
-    echo "        $*"
-    if "$@" >/dev/null 2>/tmp/sdf_cross_err.txt; then
-        return 0
-    else
-        echo "        --> FAILED, stderr:"
-        tail -5 /tmp/sdf_cross_err.txt 2>/dev/null | sed 's/^/            /'
-        return 1
-    fi
+    printf '[CMD] ' >&2
+    printf '%q ' "$@" >&2
+    printf '\n' >&2
+    "$@"
 }
 qq() {
-    "$@" >/dev/null 2>&1
+    q "$@" >/dev/null
 }
 
 SM2_SIGN_IDX="${SM2_SIGN_IDX:-1}"
@@ -58,12 +56,19 @@ SM2_ENC_CERT="${SM2_ENC_CERT:-$CERTS/sm2/server_enc.crt}"
 SM2_ENC_KEY="${SM2_ENC_KEY:-$CERTS/sm2/server_enc.key}"
 SM2_CAFILE="${SM2_CAFILE:-$CERTS/sm2/chain-ca.crt}"
 
-RSA2048_SIGN_IDX="${RSA2048_SIGN_IDX:-${RSA2048_IDX:-1}}"
-RSA2048_ENC_IDX="${RSA2048_ENC_IDX:-${RSA2048_IDX:-1}}"
-RSA3072_SIGN_IDX="${RSA3072_SIGN_IDX:-${RSA3072_IDX:-2}}"
-RSA3072_ENC_IDX="${RSA3072_ENC_IDX:-${RSA3072_IDX:-2}}"
-RSA4096_SIGN_IDX="${RSA4096_SIGN_IDX:-${RSA4096_IDX:-3}}"
-RSA4096_ENC_IDX="${RSA4096_ENC_IDX:-${RSA4096_IDX:-3}}"
+RSA1024_SIGN_IDX="${RSA1024_SIGN_IDX:-${RSA1024_IDX:-1}}"
+RSA1024_ENC_IDX="${RSA1024_ENC_IDX:-${RSA1024_IDX:-1}}"
+RSA2048_SIGN_IDX="${RSA2048_SIGN_IDX:-${RSA2048_IDX:-2}}"
+RSA2048_ENC_IDX="${RSA2048_ENC_IDX:-${RSA2048_IDX:-2}}"
+RSA3072_SIGN_IDX="${RSA3072_SIGN_IDX:-${RSA3072_IDX:-3}}"
+RSA3072_ENC_IDX="${RSA3072_ENC_IDX:-${RSA3072_IDX:-3}}"
+RSA4096_SIGN_IDX="${RSA4096_SIGN_IDX:-${RSA4096_IDX:-4}}"
+RSA4096_ENC_IDX="${RSA4096_ENC_IDX:-${RSA4096_IDX:-4}}"
+
+RSA1024_SIGN_CERT="${RSA1024_SIGN_CERT:-$CERTS/ee-cert-1024.pem}"
+RSA1024_SIGN_KEY="${RSA1024_SIGN_KEY:-$CERTS/ee-key-1024.pem}"
+RSA1024_ENC_CERT="${RSA1024_ENC_CERT:-$CERTS/ee-cert-1024.pem}"
+RSA1024_ENC_KEY="${RSA1024_ENC_KEY:-$CERTS/ee-key-1024.pem}"
 
 RSA2048_SIGN_CERT="${RSA2048_SIGN_CERT:-$CERTS/server-rsa-sign.crt}"
 RSA2048_SIGN_KEY="${RSA2048_SIGN_KEY:-$CERTS/server-rsa-sign.key}"
@@ -386,10 +391,23 @@ echo " SDF Provider Cross Verification"
 echo " OPENSSL_CONF=$OPENSSL_CONF"
 echo "============================================================"
 
+if [ "${IMPORT_KEYS:-1}" != "0" ]; then
+    echo "[CMD] $SCRIPT_DIR/import_sdf_keys.sh IMPORT_GROUP=sm2"
+    "$SCRIPT_DIR/import_sdf_keys.sh" IMPORT_GROUP=sm2 || exit 1
+fi
+
 printf "cross verify payload 0123456789" > "$TMP/plain.txt"
 
 run_sm2_suite "$SM2_SIGN_IDX" "$SM2_ENC_IDX" \
     "$SM2_SIGN_CERT" "$SM2_SIGN_KEY" "$SM2_ENC_CERT" "$SM2_ENC_KEY" "$SM2_CAFILE"
+
+if [ "${IMPORT_KEYS:-1}" != "0" ]; then
+    echo "[CMD] $SCRIPT_DIR/import_sdf_keys.sh IMPORT_GROUP=rsa"
+    "$SCRIPT_DIR/import_sdf_keys.sh" IMPORT_GROUP=rsa || exit 1
+fi
+
+run_rsa_suite "RSA1024" "$RSA1024_SIGN_IDX" "$RSA1024_ENC_IDX" \
+    "$RSA1024_SIGN_CERT" "$RSA1024_SIGN_KEY" "$RSA1024_ENC_CERT" "$RSA1024_ENC_KEY" "rsa1024"
 
 run_rsa_suite "RSA2048" "$RSA2048_SIGN_IDX" "$RSA2048_ENC_IDX" \
     "$RSA2048_SIGN_CERT" "$RSA2048_SIGN_KEY" "$RSA2048_ENC_CERT" "$RSA2048_ENC_KEY" "rsa2048"
