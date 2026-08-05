@@ -109,18 +109,16 @@ static int sdfprov_rsa_private_op(SDFPROV_RSA_SIG_CTX *ctx,
                     ctx->key->key_type == 0 ? SDFPROV_RSA_KEYTYPE_SIGN
                                             : SDFPROV_RSA_KEYTYPE_ENC,
                     (unsigned char *)in, (unsigned int)inlen, out, outlen);
-    } else if (sdfctx->sdfList->InternalPrivateKeyOperation_RSA_Ex != NULL) {
-        TLOG_DEBUG("rsa_sign: using RSA_Ex key_index=%u key_type=%d bits=%d",
-                   ctx->key->key_index, ctx->key->key_type, RSA_bits(ctx->key->rsa));
-        ret = TSAPI_SDF_InternalPrivateKeyOperation_RSA_Ex(ctx->key->hSession,
-                    ctx->key->key_index,
-                    ctx->key->key_type == 0 ? SDFPROV_RSA_KEYTYPE_SIGN
-                                            : SDFPROV_RSA_KEYTYPE_ENC,
-                    (unsigned char *)in, (unsigned int)inlen, out, outlen);
-    } else {
+    } else if (sdfctx->sdfList->InternalPrivateKeyOperation_RSA != NULL) {
         TLOG_DEBUG("rsa_sign: using RSA(legacy) key_index=%u key_type=%d bits=%d",
                    ctx->key->key_index, ctx->key->key_type, RSA_bits(ctx->key->rsa));
-        if (sdfctx->sdfList->InternalPrivateKeyOperation_RSA == NULL) {
+        ret = TSAPI_SDF_InternalPrivateKeyOperation_RSA(ctx->key->hSession,
+                    ctx->key->key_index, (unsigned char *)in, (unsigned int)inlen,
+                    out, outlen);
+    } else {
+        TLOG_DEBUG("rsa_sign: using RSA_Ex fallback key_index=%u key_type=%d bits=%d",
+                   ctx->key->key_index, ctx->key->key_type, RSA_bits(ctx->key->rsa));
+        if (sdfctx->sdfList->InternalPrivateKeyOperation_RSA_Ex == NULL) {
             if (ctx->key->key_password != NULL
                 && sdfctx->sdfList->ReleasePrivateKeyAccessRight != NULL)
                 TSAPI_SDF_ReleasePrivateKeyAccessRight(ctx->key->hSession,
@@ -129,9 +127,11 @@ static int sdfprov_rsa_private_op(SDFPROV_RSA_SIG_CTX *ctx,
                            "InternalPrivateKeyOperation_RSA not available");
             return 0;
         }
-        ret = TSAPI_SDF_InternalPrivateKeyOperation_RSA(ctx->key->hSession,
-                    ctx->key->key_index, (unsigned char *)in, (unsigned int)inlen,
-                    out, outlen);
+        ret = TSAPI_SDF_InternalPrivateKeyOperation_RSA_Ex(ctx->key->hSession,
+                    ctx->key->key_index,
+                    ctx->key->key_type == 0 ? SDFPROV_RSA_KEYTYPE_SIGN
+                                            : SDFPROV_RSA_KEYTYPE_ENC,
+                    (unsigned char *)in, (unsigned int)inlen, out, outlen);
     }
 
     if (ctx->key->key_password != NULL

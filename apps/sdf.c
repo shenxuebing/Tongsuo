@@ -36,6 +36,7 @@ typedef enum OPTION_choice {
     OPT_IMPORTSM2KEY,
     OPT_IMPORTSM2KEYWITHEVLP,
     OPT_IMPORTRSAKEY,
+    OPT_DELRSAKEY,
     OPT_LOGIN,
     OPT_ENCRYPT,
     OPT_DECRYPT,
@@ -75,6 +76,7 @@ typedef enum OPTION_choice {
  *   openssl sdf -exportsm2pubkey -index N -type enc -keyout sm2_enc.pub
  *
  * RSA key import:
+ *   openssl sdf -delrsakey -index N [-type sign|enc] [-login user:pass]
  *   openssl sdf -importrsakey -index N -type sign -inkey rsa_sign.key
  *   openssl sdf -importrsakey -index N -type enc  -inkey rsa_enc.key
  *
@@ -116,6 +118,7 @@ const OPTIONS sdf_options[] = {
     {"importsm2key", OPT_IMPORTSM2KEY, '-', "Import SM2 key with the index"},
     {"importsm2keywithevlp", OPT_IMPORTSM2KEYWITHEVLP, '-', "Import SM2 key with digital envelope"},
     {"importrsakey", OPT_IMPORTRSAKEY, '-', "Import RSA key with the index (auto 1024-4096)"},
+    {"delrsakey", OPT_DELRSAKEY, '-', "Delete RSA key pair with the index"},
     {"gensm2key", OPT_GENSM2KEY, '-', "Generate SM2 key pair with the index"},
     {"delsm2key", OPT_DELSM2KEY, '-', "Delete SM2 key pair with the index"},
     {"updatesm2key", OPT_UPDATESM2KEY, '-', "Update SM2 key pair with the index"},
@@ -171,6 +174,7 @@ static void sdf_print_usage(void)
     BIO_printf(bio_err, "    openssl sdf -config openssl.cnf -importsm2key -index 82 -type enc -inkey ..\\test\\certs\\sm2\\server_enc.key\n");
     BIO_printf(bio_err, "\n");
     BIO_printf(bio_err, "  Import RSA private key to device:\n");
+    BIO_printf(bio_err, "    openssl sdf -delrsakey -index N [-type sign|enc] [-login user:pass]\n");
     BIO_printf(bio_err, "    openssl sdf -importrsakey -inkey rsa.key -index N [-type sign|enc] [-login user:pass]\n");
     BIO_printf(bio_err, "\n");
     BIO_printf(bio_err, "  Import SM2 key with digital envelope:\n");
@@ -277,7 +281,7 @@ int sdf_main(int argc, char **argv)
     int exportsm2pubkey = 0, exportsm2keywithevlp = 0, importsm2keywithevlp = 0;
     int exportrsapubkey = 0;
     int exportsm2key = 0, importsm2key = 0, encrypt = 0, decrypt = 0;
-    int importrsakey = 0;
+    int importrsakey = 0, delrsakey = 0;
     unsigned char *inkey = NULL, *indek = NULL, *inbuf = NULL, *outbuf = NULL;
     char *p = NULL;
     char *login = NULL;
@@ -355,6 +359,9 @@ opthelp:
         case OPT_IMPORTRSAKEY:
             importrsakey = 1;
             break;
+        case OPT_DELRSAKEY:
+            delrsakey = 1;
+            break;
         case OPT_PEERKEY:
             peerkey_file = opt_arg();
             break;
@@ -410,7 +417,7 @@ opthelp:
     if (argc != 0)
         goto opthelp;
 
-    argc = gensm2 + delsm2 + updatesm2 + exportsm2pubkey + exportrsapubkey
+    argc = gensm2 + delsm2 + delrsakey + updatesm2 + exportsm2pubkey + exportrsapubkey
            + exportsm2key + exportsm2keywithevlp + importsm2key
            + importsm2keywithevlp + importrsakey + encrypt + decrypt;
     if (argc == 0) {
@@ -424,6 +431,7 @@ opthelp:
 
     if ((gensm2 && !sdf_require_index("-gensm2key", index))
         || (delsm2 && !sdf_require_index("-delsm2key", index))
+        || (delrsakey && !sdf_require_index("-delrsakey", index))
         || (updatesm2 && !sdf_require_index("-updatesm2key", index))
         || (exportsm2key && (!sdf_require_index("-exportsm2key", index)
                              || (outkeyfile == NULL
@@ -498,7 +506,7 @@ opthelp:
         *p = '\0';
     }
 
-    map_asym_index = gensm2 || delsm2 || updatesm2 || importsm2key
+    map_asym_index = gensm2 || delsm2 || delrsakey || updatesm2 || importsm2key
                      || importsm2keywithevlp || importrsakey;
     if (map_asym_index) {
         logical_index = index;
@@ -533,6 +541,18 @@ opthelp:
         }
 
         BIO_printf(bio_err, "Deleted SM2 %s key at logical index %d (device index %d)\n",
+                   sdf_key_type_name(sign), logical_index, index);
+        ret = 0;
+        goto end;
+    }
+
+    if (delrsakey) {
+        if (!TSAPI_DelRSAKeyWithIndex(index, sign, user, password)) {
+            sdf_fail("Failed to delete RSA key pair with index %d", index);
+            goto end;
+        }
+
+        BIO_printf(bio_err, "Deleted RSA %s key at logical index %d (device index %d)\n",
                    sdf_key_type_name(sign), logical_index, index);
         ret = 0;
         goto end;

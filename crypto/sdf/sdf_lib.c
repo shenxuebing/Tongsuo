@@ -422,6 +422,8 @@ DEFINE_RUN_ONCE_STATIC(ossl_sdf_lib_init)
             "SWCSM_GenerateECCKeyPair", "BYCSM_GenerateECCKeyPair", NULL);
         sdfm.DelECCKey = (SDFE_DelECCKey_fn)bind_first_available(sdf_dso,
             "SWCSM_DestroyECCKeyPair", "BYCSM_DestroyECCKeyPair", NULL);
+        sdfm.DelRSAKey = (SDFE_DelRSAKey_fn)bind_first_available(sdf_dso,
+            "SWCSM_DestroyRSAKeyPair", "BYCSM_DestroyRSAKeyPair", NULL);
         sdfm.ImportECCKey = (SDFE_ImportECCKey_fn)bind_first_available(sdf_dso,
             "SWCSM_ImportECCKeyPair", "BYCSM_ImportECCKeyPair",
             "SDF_ImportKeyPair_ECC");

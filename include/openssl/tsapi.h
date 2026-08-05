@@ -86,6 +86,8 @@ EVP_PKEY *TSAPI_ExportRSAPubKeyWithIndex(int index, int sign);
 # endif
 
 # ifndef OPENSSL_NO_RSA
+int TSAPI_DelRSAKeyWithIndex(int index, int sign, const char *user,
+                             const char *password);
 /*
  * 导入 RSA 密钥对到密码机指定索引。
  * 自动按 RSA 位数选择接口：≤2048 走 SWCSM_InputRSAKeyPair，

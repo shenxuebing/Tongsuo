@@ -68,6 +68,15 @@ int SDFE_DelECCKey(void *hSessionHandle, int area, int index)
     return meth->DelECCKey(hSessionHandle, (unsigned int)index);
 }
 
+int SDFE_DelRSAKey(void *hSessionHandle, int area, int index)
+{
+    const SDF_METHOD *meth = SDFE_GET_METH();
+
+    SDFE_CHECK_METH(meth, DelRSAKey);
+
+    return meth->DelRSAKey(hSessionHandle, (unsigned int)index);
+}
+
 int SDFE_GenECCKey(void *hSessionHandle, int area, int index,
                    unsigned int flags, void *cb)
 {

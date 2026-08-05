@@ -110,8 +110,8 @@ import_rsa() {
 
     check_file "$key" || return 0
     echo "[INFO] $label: index=$idx type=$type key=$key"
-    # RSA 复用 delsm2key 删除（厂商库底层按容器索引删除，与密钥类型无关）
-    run "$OSSL" sdf -delsm2key -index "$idx" -type "$type"
+    # Delete existing RSA key first. Ignore errors because the index may be empty.
+    run "$OSSL" sdf -delrsakey -index "$idx" -type "$type"
     if run "$OSSL" sdf -importrsakey -index "$idx" -type "$type" -inkey "$key"; then
         ok "$label"
     else

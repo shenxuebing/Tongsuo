@@ -123,7 +123,7 @@ run_handshake() {
 
     rm -f "$server_log" "$client_log"
 
-    echo "[CMD] $server_cmd"
+    echo "[CMD][server] $server_cmd"
     sh -c "$server_cmd" >"$server_log" 2>&1 &
     server_pid=$!
 
@@ -133,7 +133,7 @@ run_handshake() {
         wait_seconds 2
     fi
 
-    echo "[CMD] printf 'Q\\n' | $client_cmd"
+    echo "[CMD][client] printf 'Q\\n' | $client_cmd"
     sh -c "printf 'Q\n' | $client_cmd" >"$client_log" 2>&1 &
 
     while [ $timeout_count -lt 15 ]; do

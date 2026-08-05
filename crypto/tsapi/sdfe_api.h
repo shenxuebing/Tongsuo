@@ -97,6 +97,7 @@ typedef struct sdfe_sym_key_evlp_st {
 /* SDFE 扩展 API 函数声明 */
 int SDFE_LoginUsr(void *hSessionHandle, sdfe_login_arg_t *login_arg);
 int SDFE_DelECCKey(void *hSessionHandle, int area, int index);
+int SDFE_DelRSAKey(void *hSessionHandle, int area, int index);
 int SDFE_GenECCKey(void *hSessionHandle, int area, int index,
                    unsigned int flags, void *cb);
 int SDFE_ImportECCKey(void *hSessionHandle, sdfe_asym_key_ecc_t *key,

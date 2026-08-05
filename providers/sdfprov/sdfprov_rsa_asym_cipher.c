@@ -3,6 +3,7 @@
  * Copyright 2024-2026 The Tongsuo Project Authors. All Rights Reserved.
  */
 
+#include <stdio.h>
 #include <string.h>
 #include <openssl/core_dispatch.h>
 #include <openssl/core_names.h>
@@ -315,13 +316,13 @@ static int sdfprov_rsa_asym_decrypt(void *vctx, unsigned char *out,
         TLOG_DEBUG("rsa_decrypt: using RSA(legacy) key_index=%u key_type=%d bits=%d",
                    ctx->key->key_index, ctx->key->key_type, RSA_bits(ctx->key->rsa));
         if (sdfctx->sdfList->InternalPrivateKeyOperation_RSA == NULL) {
-            if (ctx->key->key_password != NULL
-                && sdfctx->sdfList->ReleasePrivateKeyAccessRight != NULL)
-                TSAPI_SDF_ReleasePrivateKeyAccessRight(ctx->key->hSession,
-                                                       ctx->key->key_index);
-            OPENSSL_free(buf);
-            return 0;
-        }
+        if (ctx->key->key_password != NULL
+            && sdfctx->sdfList->ReleasePrivateKeyAccessRight != NULL)
+            TSAPI_SDF_ReleasePrivateKeyAccessRight(ctx->key->hSession,
+                                                   ctx->key->key_index);
+        OPENSSL_free(buf);
+        return 0;
+    }
         ret = TSAPI_SDF_InternalPrivateKeyOperation_RSA(ctx->key->hSession,
                     ctx->key->key_index, (unsigned char *)in,
                     (unsigned int)inlen, buf, &olen);
@@ -342,7 +343,7 @@ static int sdfprov_rsa_asym_decrypt(void *vctx, unsigned char *out,
         return 0;
     }
 
-    TLOG_DEBUG("rsa_decrypt: SDF returned olen=%u pad_mode=%d", olen, ctx->pad_mode);
+    TLOG_DEBUG("rsa_decrypt: SDF returned olen=%u pad_mode=%d rsa_size=%d", olen, ctx->pad_mode, rsa_size);
 
     if (ctx->pad_mode == RSA_PKCS1_WITH_TLS_PADDING) {
         if (ctx->client_version == 0) {

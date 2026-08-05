@@ -120,8 +120,8 @@ set "TYPE=%~3"
 set "KEY=%~4"
 call :check_file "%KEY%" || exit /b 0
 echo [INFO] !LABEL!: index=!IDX! type=!TYPE! key=!KEY!
-REM Delete existing key first (RSA reuses delsm2key, vendor deletes by container index)
-call :run "%OSSL%" sdf -delsm2key -index "!IDX!" -type "!TYPE!"
+REM Delete existing RSA key first (ignore errors, index may be empty)
+call :run "%OSSL%" sdf -delrsakey -index "!IDX!" -type "!TYPE!"
 call :run "%OSSL%" sdf -importrsakey -index "!IDX!" -type "!TYPE!" -inkey "!KEY!"
 if errorlevel 1 (
     echo [FAIL] !LABEL!

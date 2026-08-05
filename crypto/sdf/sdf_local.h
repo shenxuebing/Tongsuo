@@ -183,6 +183,7 @@ typedef int (*SDFE_GenECCKey_fn)(void *hSessionHandle, unsigned int uiKeyIndex,
                                  OSSL_ECCrefPrivateKey *pucPrivateKey);
 /* SWCSM_DestroyECCKeyPair / BYCSM_DestroyECCKeyPair：按索引销毁 ECC(SM2) 密钥对 */
 typedef int (*SDFE_DelECCKey_fn)(void *hSessionHandle, unsigned int uiKeyIndex);
+typedef int (*SDFE_DelRSAKey_fn)(void *hSessionHandle, unsigned int uiKeyIndex);
 /* SWCSM_ImportECCKeyPair / BYCSM_ImportECCKeyPair：导入 ECC(SM2) 密钥对 */
 typedef int (*SDFE_ImportECCKey_fn)(void *hSessionHandle, unsigned int uiKeyIndex,
                                     OSSL_ECCrefPublicKey *pucPublicKey,
@@ -416,6 +417,7 @@ struct sdf_method_st {
      */
     SDFE_GenECCKey_fn   GenECCKey;     /* SWCSM_GenerateECCKeyPair */
     SDFE_DelECCKey_fn   DelECCKey;     /* SWCSM_DestroyECCKeyPair */
+    SDFE_DelRSAKey_fn   DelRSAKey;     /* SWCSM_DestroyRSAKeyPair */
     SDFE_ImportECCKey_fn ImportECCKey; /* SWCSM_ImportECCKeyPair (SM2) */
     SDFE_InputRSAKey_fn  InputRSAKey;  /* SWCSM_InputRSAKeyPair (RSA≤2048) */
     SDFE_InputRSAKeyEx_fn InputRSAKeyEx; /* SWCSM_InputRSAKeyPair_Ex (RSA 3072/4096) */

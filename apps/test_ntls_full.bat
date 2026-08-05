@@ -54,8 +54,8 @@ if /I not "%IMPORT_KEYS%"=="0" (
 
 echo.
 echo ================================================================
-echo   NTLS SM2 ÃÜÂëÌ×¼þÈ«×éºÏ²âÊÔ
-echo   2 ÃÜÂëÌ×¼þ x 4 ÃÜÔ¿×éºÏ = 8 ²âÊÔ³¡¾°
+echo   NTLS SM2 å¯†ç å¥—ä»¶å…¨ç»„åˆæµ‹è¯•
+echo   2 ä¸ªå¯†ç å¥—ä»¶ x 4 ç§å¯†é’¥ç»„åˆ = 8 ä¸ªæµ‹è¯•åœºæ™¯
 echo ================================================================
 
 taskkill /f /im openssl.exe >nul 2>&1
@@ -95,10 +95,10 @@ echo  [%NUM%] ECC-SM2-SM4-CBC-SM3 ^| Svr:HW ^| Cli:HW
 call :handshake 25104 ECC-SM2-SM4-CBC-SM3 hw hw
 
 :: ============================================================
-::  ECDHE ²âÊÔÇ°Éè±¸ÀäÈ´ (Ç°Ðò HW ²âÊÔÐèÒªÊÍ·Å SDF Éè±¸×ÊÔ´)
+::  ECDHE æµ‹è¯•å‰è®¾å¤‡å†·å´ï¼Œç¡®ä¿å‰åº HW æµ‹è¯•é‡Šæ”¾ SDF è®¾å¤‡èµ„æº
 :: ============================================================
 echo.
-echo  [ÀäÈ´µÈ´ý 5 Ãë - ÊÍ·Å SDF Éè±¸×ÊÔ´...]
+echo  [å†·å´ç­‰å¾… 5 ç§’ - é‡Šæ”¾ SDF è®¾å¤‡èµ„æº]
 taskkill /f /im openssl.exe >nul 2>&1
 del /f /q yj.db-shm yj.db-wal >nul 2>&1
 ping -n 6 127.0.0.1 >nul 2>&1
@@ -136,11 +136,11 @@ echo  [%NUM%] ECDHE-SM2-SM4-CBC-SM3 ^| Svr:HW ^| Cli:HW
 call :handshake 25108 ECDHE-SM2-SM4-CBC-SM3 hw hw
 
 :: ============================================================
-:: »ã×Ü
+:: æ±‡æ€»
 :: ============================================================
 echo.
 echo ================================================================
-echo   ²âÊÔ»ã×Ü:  Í¨¹ý %PASS% / %NUM%,  Ê§°Ü %FAIL% / %NUM%
+echo   æµ‹è¯•æ±‡æ€»: é€šè¿‡ %PASS% / %NUM%, å¤±è´¥ %FAIL% / %NUM%
 echo ================================================================
 
 taskkill /f /im openssl.exe >nul 2>&1
@@ -148,8 +148,8 @@ del /f /q yj.db-shm yj.db-wal >nul 2>&1
 exit /b
 
 :: ============================================================
-::  :handshake ×Ó³ÌÐò
-::  %1=¶Ë¿Ú  %2=ÃÜÂëÌ×¼þ  %3=·þÎñ¶ËÃÜÔ¿ÀàÐÍ(sw/hw)  %4=¿Í»§¶ËÃÜÔ¿ÀàÐÍ(sw/hw)
+::  :handshake å­ç¨‹åº
+::  %1=ç«¯å£  %2=å¯†ç å¥—ä»¶  %3=æœåŠ¡ç«¯å¯†é’¥ç±»åž‹(sw/hw)  %4=å®¢æˆ·ç«¯å¯†é’¥ç±»åž‹(sw/hw)
 :: ============================================================
 :handshake
 set "HP=%~1"
@@ -160,7 +160,7 @@ set "CKT=%~4"
 set "SF=%OUTDIR%\ntls_svr_%HP%.txt"
 set "CF=%OUTDIR%\ntls_cli_%HP%.txt"
 
-:: ¹¹½¨·þÎñ¶ËÃüÁî
+:: æž„å»ºæœåŠ¡ç«¯å‘½ä»¤
 set "SCMD=.\openssl.exe s_server -ntls -enable_ntls -accept %HP%"
 if "%SKT%"=="sw" (
     set "SCMD=%SCMD% -sign_cert %SERVER_SIGN_CERT% -enc_cert %SERVER_ENC_CERT% -sign_key %SERVER_SIGN_KEY% -enc_key %SERVER_ENC_KEY%"
@@ -169,7 +169,7 @@ if "%SKT%"=="sw" (
 )
 set "SCMD=%SCMD% -www -CAfile %CAFILE% -cipher %HC%"
 
-:: ¹¹½¨¿Í»§¶ËÃüÁî
+:: æž„å»ºå®¢æˆ·ç«¯å‘½ä»¤
 set "CCMD=.\openssl.exe s_client -ntls -enable_ntls -connect 127.0.0.1:%HP%"
 if "%CKT%"=="sw" (
     set "CCMD=%CCMD% -sign_cert %CLIENT_SIGN_CERT% -enc_cert %CLIENT_ENC_CERT% -sign_key %CLIENT_SIGN_KEY% -enc_key %CLIENT_ENC_KEY%"
@@ -178,22 +178,22 @@ if "%CKT%"=="sw" (
 )
 set "CCMD=%CCMD% -CAfile %CAFILE% -cipher %HC%"
 
-echo [CMD] %SCMD%
+echo [CMD][server] %SCMD%
 start /b cmd /c "%SCMD% > %SF% 2>&1"
 
-:: ·þÎñ¶ËÆô¶¯µÈ´ý (HW ÃÜÔ¿ÐèÒª¸ü³¤³õÊ¼»¯Ê±¼ä)
+:: æœåŠ¡ç«¯å¯åŠ¨ç­‰å¾…ï¼ŒHW å¯†é’¥éœ€è¦æ›´é•¿åˆå§‹åŒ–æ—¶é—´
 if "%SKT%"=="hw" (
     ping -n 5 127.0.0.1 >nul 2>&1
 ) else (
     ping -n 3 127.0.0.1 >nul 2>&1
 )
 
-:: Ê¹ÓÃºóÌ¨Æô¶¯ + ³¬Ê±¼ì²â£¨±ÜÃâ¿Í»§¶Ë¿¨ËÀ×èÈûÕû¸ö½Å±¾£©
-:: ¿Í»§¶ËºóÌ¨ÔËÐÐ£¬Ð´ÈëÊä³öÎÄ¼þ
-echo [CMD] echo Q ^| %CCMD%
+:: åŽå°è¿è¡Œå®¢æˆ·ç«¯å¹¶åšè¶…æ—¶æ£€æµ‹ï¼Œé¿å…å®¢æˆ·ç«¯å¡æ­»é˜»å¡žæ•´ä¸ªè„šæœ¬
+:: å®¢æˆ·ç«¯è¾“å‡ºå†™å…¥å¯¹åº”ç«¯å£æ—¥å¿—
+echo [CMD][client] echo Q ^| %CCMD%
 start /b cmd /c "echo Q | %CCMD% > %CF% 2>&1"
 
-:: ³¬Ê±µÈ´ý£º×î¶àµÈ´ý 15 Ãë£¬Ã¿Ãë¼ì²éÊä³öÎÄ¼þÊÇ·ñÒÑÓÐ Cipher is
+:: æœ€å¤šç­‰å¾… 15 ç§’ï¼Œæ¯ç§’æ£€æŸ¥å®¢æˆ·ç«¯è¾“å‡ºæ˜¯å¦å·²æœ‰ Cipher is
 set /a TIMEOUT=0
 :wait_loop
 ping -n 2 127.0.0.1 >nul 2>&1
@@ -204,9 +204,9 @@ if %ERRORLEVEL% EQU 0 goto :client_done
 goto :wait_loop
 
 :timeout_check
-:: ³¬Ê±ºóÇ¿ÖÆÖÕÖ¹¿Í»§¶Ë
+:: è¶…æ—¶åŽå¼ºåˆ¶ç»ˆæ­¢
 taskkill /f /im openssl.exe >nul 2>&1
-echo     [TIMEOUT] ¿Í»§¶ËµÈ´ý³¬Ê±£¬ÒÑÇ¿ÖÆÖÕÖ¹
+echo     [TIMEOUT] å®¢æˆ·ç«¯ç­‰å¾…è¶…æ—¶ï¼Œå·²å¼ºåˆ¶ç»ˆæ­¢
 
 :client_done
 
@@ -223,7 +223,7 @@ if %ERRORLEVEL% EQU 0 (
     set /a FAIL+=1
 )
 
-:: ²âÊÔ½áÊøºóÇåÀí - HW ²âÊÔÐèÒª¸ü³¤µÈ´ýÈ·±£Éè±¸×ÊÔ´ÊÍ·Å
+:: æ¯ä¸ªç”¨ä¾‹ç»“æŸåŽæ¸…ç†ï¼ŒHW æµ‹è¯•éœ€è¦æ›´é•¿ç­‰å¾…ç¡®ä¿è®¾å¤‡èµ„æºé‡Šæ”¾
 taskkill /f /im openssl.exe >nul 2>&1
 del /f /q yj.db-shm yj.db-wal >nul 2>&1
 if "%SKT%"=="hw" (

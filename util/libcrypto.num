@@ -6255,3 +6255,4 @@ SM2_Ciphertext_new                             9026	3_5_4	EXIST::FUNCTION:SM2
 SM2_Ciphertext_set0                            9027	3_5_4	EXIST::FUNCTION:SM2
 PKCS7_decryptEx                                9028	3_5_4	EXIST::FUNCTION:SM2
 PKCS7_encryptEx                                9029	3_5_4	EXIST::FUNCTION:SM2
+TSAPI_DelRSAKeyWithIndex                       9031	3_5_4	EXIST::FUNCTION:RSA
