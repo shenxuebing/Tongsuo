@@ -1,4 +1,5 @@
 @echo off
+chcp 65001 >nul 2>&1
 setlocal EnableDelayedExpansion
 
 set "RAW_ARGS=%*"
@@ -14,140 +15,187 @@ for /f "tokens=1,* delims==" %%K in ("!ONE_ARG!") do (
 goto parse_args
 :args_done
 
-set "OPENSSL_CONF=%OPENSSL_CONF%"
 if "%OPENSSL_CONF%"=="" set "OPENSSL_CONF=%~dp0openssl.cnf"
 set "OSSL=%~dp0openssl.exe"
 set "CERTS=..\test\certs"
-set "TMP=%TMP%"
-if "%TMP%"=="" set "TMP=%TEMP%\tls_rsa_accel"
-if not exist "%TMP%" mkdir "%TMP%"
+set "OUTDIR=%CD%"
 
-if "%RSA_SIGN_IDX%"=="" set "RSA_SIGN_IDX=0"
-if "%RSA_ENC_IDX%"=="" set "RSA_ENC_IDX=0"
+:: index: 1=server RSA2048, 2=client RSA2048
+if "%SERVER_RSA_IDX%"=="" set "SERVER_RSA_IDX=1"
+if "%CLIENT_RSA_IDX%"=="" set "CLIENT_RSA_IDX=2"
+
 if "%RSA_SIGN_CERT%"=="" set "RSA_SIGN_CERT=%CERTS%\server-rsa-sign.crt"
-if "%RSA_ENC_CERT%"=="" set "RSA_ENC_CERT=%CERTS%\server-rsa-enc.crt"
+if "%RSA_SIGN_KEY%"==""  set "RSA_SIGN_KEY=%CERTS%\server-rsa-sign.key"
+if "%RSA_ENC_CERT%"==""  set "RSA_ENC_CERT=%CERTS%\server-rsa-enc.crt"
+if "%RSA_ENC_KEY%"==""   set "RSA_ENC_KEY=%CERTS%\server-rsa-enc.key"
+if "%CLIENT_SIGN_CERT%"=="" set "CLIENT_SIGN_CERT=%CERTS%\client-rsa-sign.crt"
+if "%CLIENT_SIGN_KEY%"==""  set "CLIENT_SIGN_KEY=%CERTS%\client-rsa-sign.key"
+if "%CLIENT_ENC_CERT%"==""  set "CLIENT_ENC_CERT=%CERTS%\client-rsa-enc.crt"
+if "%CLIENT_ENC_KEY%"==""   set "CLIENT_ENC_KEY=%CERTS%\client-rsa-enc.key"
+
 if "%TLS_VERSION%"=="" set "TLS_VERSION=-tls1_2"
 if "%ECDHE_CIPHER%"=="" set "ECDHE_CIPHER=ECDHE-RSA-AES128-GCM-SHA256"
 if "%RSA_CIPHER%"=="" set "RSA_CIPHER=AES128-SHA"
-if "%RSA_SIGALGS%"=="" set "RSA_SIGALGS="
-if "%RSA_SIGALGS_COMPAT%"=="" set "RSA_SIGALGS_COMPAT=rsa_pkcs1_sha256"
-if "%PORT_SIGN%"=="" set "PORT_SIGN=25203"
-if "%PORT_DEC%"=="" set "PORT_DEC=25202"
 
 set PASS=0
 set FAIL=0
+set NUM=0
 
 echo ============================================================
-echo  TLS RSA Acceleration Test
-echo  OPENSSL_CONF=%OPENSSL_CONF%
-echo  RSA_SIGN_IDX=%RSA_SIGN_IDX%  RSA_ENC_IDX=%RSA_ENC_IDX%
+echo  TLS RSA Acceleration Test (with mTLS cross verification)
+echo  Server RSA2048 -^> index !SERVER_RSA_IDX!
+echo  Client RSA2048 -^> index !CLIENT_RSA_IDX!
 echo ============================================================
 
-call :run_ecdhe_rsa_sign "default" "%RSA_SIGALGS%" "%PORT_SIGN%"
-call :run_ecdhe_rsa_sign "compat" "%RSA_SIGALGS_COMPAT%" "25205"
-call :run_tls_rsa_decrypt
+:: ============================================================
+:: Import keys before testing
+:: ============================================================
+echo.
+echo ==== Import RSA keys to device ====
+"%OSSL%" sdf -delsm2key -index !SERVER_RSA_IDX! -type sign >nul 2>&1
+"%OSSL%" sdf -delsm2key -index !SERVER_RSA_IDX! -type enc  >nul 2>&1
+"%OSSL%" sdf -delsm2key -index !CLIENT_RSA_IDX! -type sign >nul 2>&1
+"%OSSL%" sdf -delsm2key -index !CLIENT_RSA_IDX! -type enc  >nul 2>&1
 
+echo [CMD] "%OSSL%" sdf -importrsakey -index !SERVER_RSA_IDX! -type sign -inkey "!RSA_SIGN_KEY!"
+"%OSSL%" sdf -importrsakey -index !SERVER_RSA_IDX! -type sign -inkey "!RSA_SIGN_KEY!" >nul 2>&1
+echo [CMD] "%OSSL%" sdf -importrsakey -index !SERVER_RSA_IDX! -type enc -inkey "!RSA_ENC_KEY!"
+"%OSSL%" sdf -importrsakey -index !SERVER_RSA_IDX! -type enc  -inkey "!RSA_ENC_KEY!"  >nul 2>&1
+echo [CMD] "%OSSL%" sdf -importrsakey -index !CLIENT_RSA_IDX! -type sign -inkey "!CLIENT_SIGN_KEY!"
+"%OSSL%" sdf -importrsakey -index !CLIENT_RSA_IDX! -type sign -inkey "!CLIENT_SIGN_KEY!" >nul 2>&1
+echo [CMD] "%OSSL%" sdf -importrsakey -index !CLIENT_RSA_IDX! -type enc -inkey "!CLIENT_ENC_KEY!"
+"%OSSL%" sdf -importrsakey -index !CLIENT_RSA_IDX! -type enc  -inkey "!CLIENT_ENC_KEY!"  >nul 2>&1
+
+taskkill /f /im openssl.exe >nul 2>&1
+del /f /q yj.db-shm yj.db-wal >nul 2>&1
+ping -n 3 127.0.0.1 >nul 2>&1
+
+:: ============================================================
+:: 1. ECDHE-RSA HW server-sign
+:: ============================================================
+set /a NUM+=1
+echo.
+echo [!NUM!] ECDHE-RSA HW server-sign (HW server, SW client)
+call :handshake 25211 "!ECDHE_CIPHER!" "!RSA_SIGN_CERT!" "sdf:rsa:!SERVER_RSA_IDX!:sign" "-provider sdfprov -provider default" "" "" ""
+
+:: 2. ECDHE-RSA SW server-sign (baseline)
+set /a NUM+=1
+echo.
+echo [!NUM!] ECDHE-RSA SW server-sign (baseline)
+call :handshake 25212 "!ECDHE_CIPHER!" "!RSA_SIGN_CERT!" "!RSA_SIGN_KEY!" "" "" "" ""
+
+:: 3. TLS-RSA HW server-decrypt
+set /a NUM+=1
+echo.
+echo [!NUM!] TLS-RSA HW server-decrypt (HW server, SW client)
+call :handshake 25213 "!RSA_CIPHER!" "!RSA_ENC_CERT!" "sdf:rsa:!SERVER_RSA_IDX!:enc" "-provider sdfprov -provider default" "" "" ""
+
+:: 4. TLS-RSA SW server-decrypt (baseline)
+set /a NUM+=1
+echo.
+echo [!NUM!] TLS-RSA SW server-decrypt (baseline)
+call :handshake 25214 "!RSA_CIPHER!" "!RSA_ENC_CERT!" "!RSA_ENC_KEY!" "" "" "" ""
+
+:: 5. mTLS HW server + HW client
+set /a NUM+=1
+echo.
+echo [!NUM!] mTLS HW server + HW client (both HW sign)
+call :handshake 25215 "!ECDHE_CIPHER!" "!RSA_SIGN_CERT!" "sdf:rsa:!SERVER_RSA_IDX!:sign" "-provider sdfprov -provider default" "!CLIENT_SIGN_CERT!" "sdf:rsa:!CLIENT_RSA_IDX!:sign" "-provider sdfprov -provider default" "-Verify 2"
+
+:: 6. mTLS HW server + SW client
+set /a NUM+=1
+echo.
+echo [!NUM!] mTLS HW server + SW client
+call :handshake 25216 "!ECDHE_CIPHER!" "!RSA_SIGN_CERT!" "sdf:rsa:!SERVER_RSA_IDX!:sign" "-provider sdfprov -provider default" "!CLIENT_SIGN_CERT!" "!CLIENT_SIGN_KEY!" "" "-Verify 2"
+
+:: 7. mTLS SW server + HW client
+set /a NUM+=1
+echo.
+echo [!NUM!] mTLS SW server + HW client
+call :handshake 25217 "!ECDHE_CIPHER!" "!RSA_SIGN_CERT!" "!RSA_SIGN_KEY!" "" "!CLIENT_SIGN_CERT!" "sdf:rsa:!CLIENT_RSA_IDX!:sign" "-provider sdfprov -provider default" "-Verify 2"
+
+:: 8. mTLS SW server + SW client (baseline)
+set /a NUM+=1
+echo.
+echo [!NUM!] mTLS SW server + SW client (baseline)
+call :handshake 25218 "!ECDHE_CIPHER!" "!RSA_SIGN_CERT!" "!RSA_SIGN_KEY!" "" "!CLIENT_SIGN_CERT!" "!CLIENT_SIGN_KEY!" "" "-Verify 2"
+
+:: ============================================================
 echo.
 echo ============================================================
-echo  SUMMARY: PASS=!PASS! FAIL=!FAIL!
+echo  SUMMARY: PASS=!PASS! / !NUM!, FAIL=!FAIL! / !NUM!
 echo ============================================================
 
+taskkill /f /im openssl.exe >nul 2>&1
+del /f /q yj.db-shm yj.db-wal >nul 2>&1
 if !FAIL! gtr 0 exit /b 1
 exit /b 0
 
-:pass
-set "msg=%~1"
-echo(  [PASS] !msg!
-set /a PASS+=1
-exit /b 0
+:: ============================================================
+::  :handshake
+::  %1=port %2=cipher %3=server_cert %4=server_key %5=server_prov
+::  %6=client_cert %7=client_key %8=client_prov %9=verify
+:: ============================================================
+:handshake
+set "HP=%~1"
+set "HC=%~2"
+set "SCERT=%~3"
+set "SKEY=%~4"
+set "SPROV=%~5"
+set "CCERT=%~6"
+set "CKEY=%~7"
+set "CPROV=%~8"
+set "VERIFY=%~9"
+set "SF=%OUTDIR%\tls_svr_%HP%.txt"
+set "CF=%OUTDIR%\tls_cli_%HP%.txt"
 
-:fail
-set "msg=%~1"
-echo(  [FAIL] !msg!
-set /a FAIL+=1
-exit /b 0
+set "SCMD="%OSSL%" s_server -accept %HP% %TLS_VERSION% -cipher %HC% -cert "%SCERT%" -key %SKEY% %SPROV% -www"
+if not "%VERIFY%"=="" set "SCMD=!SCMD! %VERIFY%"
 
-:cleanup_port
+set "CCMD="%OSSL%" s_client -connect 127.0.0.1:%HP% %TLS_VERSION% -cipher %HC%"
+if not "%CCERT%"=="" set "CCMD=!CCMD! -cert "%CCERT%""
+if not "%CKEY%"==""  set "CCMD=!CCMD! -key %CKEY%"
+if not "%CPROV%"=="" set "CCMD=!CCMD! %CPROV%"
+
+echo     [CMD][server] !SCMD!
+start "" /b cmd /c "!SCMD! > "%SF%" 2>&1"
+if "%SPROV%"=="-provider sdfprov -provider default" (
+    ping -n 5 127.0.0.1 >nul 2>&1
+) else (
+    ping -n 3 127.0.0.1 >nul 2>&1
+)
+
+echo     [CMD][client] echo Q ^| !CCMD!
+start "" /b cmd /c "echo Q| !CCMD! > "%CF%" 2>&1"
+
+set /a TIMEOUT=0
+:wait_loop
+ping -n 2 127.0.0.1 >nul 2>&1
+set /a TIMEOUT+=1
+if !TIMEOUT! GEQ 15 goto handshake_done
+findstr /C:"Cipher is" "%CF%" >nul 2>&1
+if !ERRORLEVEL! EQU 0 goto handshake_done
+goto wait_loop
+
+:handshake_done
+findstr /C:"Cipher is" "%CF%" >nul 2>&1
+if !ERRORLEVEL! EQU 0 (
+    echo     [PASS]
+    for /f "tokens=*" %%i in ('findstr /C:"Cipher is" "%CF%"') do echo     %%i
+    for /f "tokens=*" %%i in ('findstr /C:"Protocol" "%CF%"') do echo     %%i
+    set /a PASS+=1
+) else (
+    echo     [FAIL]
+    for /f "tokens=*" %%i in ('findstr /i /C:"error" "%CF%" 2^>nul') do echo     Client: %%i
+    for /f "tokens=*" %%i in ('findstr /i /C:"error" "%SF%" 2^>nul') do echo     Server: %%i
+    set /a FAIL+=1
+)
+
 taskkill /f /im openssl.exe >nul 2>&1
-ping -n 3 127.0.0.1 >nul 2>&1
-exit /b 0
-
-:run_ecdhe_rsa_sign
-set "MODE=%~1"
-set "SIGALGS=%~2"
-set "PORT=%~3"
-set "SF=%TMP%\tls_rsa_sign_server.txt"
-set "CF=%TMP%\tls_rsa_sign_client.txt"
-
-echo.
-echo ==== ECDHE-RSA server HW-sign (%MODE%) ====
-call :cleanup_port
-
-set "SERVER_SIGALGS="
-set "CLIENT_SIGALGS="
-if not "%SIGALGS%"=="" (
-    set "SERVER_SIGALGS=-sigalgs %SIGALGS%"
-    set "CLIENT_SIGALGS=-sigalgs %SIGALGS%"
-)
-
-start "" /b cmd /c ""%OSSL%" s_server -accept %PORT% %TLS_VERSION% -cipher %ECDHE_CIPHER% !SERVER_SIGALGS! -cert "%RSA_SIGN_CERT%" -key sdf:rsa:%RSA_SIGN_IDX%:sign -provider sdfprov -provider default -www > "%SF%" 2>&1"
-ping -n 3 127.0.0.1 >nul 2>&1
-start "" /b cmd /c "echo Q| "%OSSL%" s_client -connect 127.0.0.1:%PORT% %TLS_VERSION% -cipher %ECDHE_CIPHER% !CLIENT_SIGALGS! > "%CF%" 2>&1"
-
-set /a TIMEOUT=0
-:wait_sign
-ping -n 2 127.0.0.1 >nul 2>&1
-set /a TIMEOUT+=1
-if !TIMEOUT! GEQ 15 goto sign_done
-findstr /C:"Cipher is" "%CF%" >nul 2>&1
-if !ERRORLEVEL! EQU 0 goto sign_done
-goto wait_sign
-
-:sign_done
-findstr /C:"Cipher is %ECDHE_CIPHER%" "%CF%" >nul 2>&1
-if !ERRORLEVEL! EQU 0 (
-    call :pass "ECDHE-RSA server HW-sign (%MODE%)"
-    for /f "tokens=*" %%i in ('findstr /C:"Protocol" "%CF%"') do echo     %%i
-    for /f "tokens=*" %%i in ('findstr /C:"Cipher is" "%CF%"') do echo     %%i
+del /f /q yj.db-shm yj.db-wal >nul 2>&1
+if "%SPROV%"=="-provider sdfprov -provider default" (
+    ping -n 4 127.0.0.1 >nul 2>&1
 ) else (
-    call :fail "ECDHE-RSA server HW-sign (%MODE%)"
-    for /f "tokens=*" %%i in ('findstr /i /C:"error" "%CF%" 2^>nul') do echo     Client: %%i
-    for /f "tokens=*" %%i in ('findstr /i /C:"error" "%SF%" 2^>nul') do echo     Server: %%i
+    ping -n 2 127.0.0.1 >nul 2>&1
 )
-call :cleanup_port
-exit /b 0
-
-:run_tls_rsa_decrypt
-set "SF=%TMP%\tls_rsa_dec_server.txt"
-set "CF=%TMP%\tls_rsa_dec_client.txt"
-
-echo.
-echo ==== TLS_RSA server HW-decrypt ====
-call :cleanup_port
-
-    start "" /b cmd /c ""%OSSL%" s_server -accept %PORT_DEC% %TLS_VERSION% -cipher %RSA_CIPHER% -cert "%RSA_ENC_CERT%" -key sdf:rsa:%RSA_ENC_IDX%:enc -provider sdfprov -provider default -www > "%SF%" 2>&1"
-ping -n 3 127.0.0.1 >nul 2>&1
-    start "" /b cmd /c "echo Q| "%OSSL%" s_client -connect 127.0.0.1:%PORT_DEC% %TLS_VERSION% -cipher %RSA_CIPHER% > "%CF%" 2>&1"
-
-set /a TIMEOUT=0
-:wait_dec
-ping -n 2 127.0.0.1 >nul 2>&1
-set /a TIMEOUT+=1
-if !TIMEOUT! GEQ 15 goto dec_done
-findstr /C:"Cipher is" "%CF%" >nul 2>&1
-if !ERRORLEVEL! EQU 0 goto dec_done
-goto wait_dec
-
-:dec_done
-findstr /C:"Cipher is %RSA_CIPHER%" "%CF%" >nul 2>&1
-if !ERRORLEVEL! EQU 0 (
-    call :pass "TLS_RSA server HW-decrypt"
-    for /f "tokens=*" %%i in ('findstr /C:"Protocol" "%CF%"') do echo     %%i
-    for /f "tokens=*" %%i in ('findstr /C:"Cipher is" "%CF%"') do echo     %%i
-) else (
-    call :fail "TLS_RSA server HW-decrypt"
-    for /f "tokens=*" %%i in ('findstr /i /C:"error" "%CF%" 2^>nul') do echo     Client: %%i
-    for /f "tokens=*" %%i in ('findstr /i /C:"error" "%SF%" 2^>nul') do echo     Server: %%i
-)
-call :cleanup_port
-exit /b 0
+goto :eof
