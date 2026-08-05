@@ -82,7 +82,9 @@ set "TYPE=%~3"
 set "KEY=%~4"
 call :check_file "%KEY%" || exit /b 0
 echo [INFO] !LABEL!: index=!IDX! type=!TYPE! key=!KEY!
-"%OSSL%" sdf -importsm2key -index "!IDX!" -type "!TYPE!" -inkey "!KEY!"
+REM Delete existing key first (ignore errors, index may be empty)
+"%OSSL%" sdf -delsm2key -index "!IDX!" -type "!TYPE!" >nul 2>&1
+"%OSSL%" sdf -importsm2key -index "!IDX!" -type "!TYPE!" -inkey "!KEY!" >nul 2>&1
 if errorlevel 1 (
     echo [FAIL] !LABEL!
     set /a FAIL+=1
@@ -99,7 +101,9 @@ set "TYPE=%~3"
 set "KEY=%~4"
 call :check_file "%KEY%" || exit /b 0
 echo [INFO] !LABEL!: index=!IDX! type=!TYPE! key=!KEY!
-"%OSSL%" sdf -importrsakey -index "!IDX!" -type "!TYPE!" -inkey "!KEY!"
+REM Delete existing key first (RSA reuses delsm2key, vendor deletes by container index)
+"%OSSL%" sdf -delsm2key -index "!IDX!" -type "!TYPE!" >nul 2>&1
+"%OSSL%" sdf -importrsakey -index "!IDX!" -type "!TYPE!" -inkey "!KEY!" >nul 2>&1
 if errorlevel 1 (
     echo [FAIL] !LABEL!
     set /a FAIL+=1

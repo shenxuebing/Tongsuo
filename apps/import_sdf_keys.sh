@@ -66,7 +66,9 @@ import_sm2() {
 
     check_file "$key" || return 0
     echo "[INFO] $label: index=$idx type=$type key=$key"
-    if "$OSSL" sdf -importsm2key -index "$idx" -type "$type" -inkey "$key"; then
+    # 先删除可能已存在的密钥（忽略错误，索引可能为空）
+    "$OSSL" sdf -delsm2key -index "$idx" -type "$type" 2>/dev/null
+    if "$OSSL" sdf -importsm2key -index "$idx" -type "$type" -inkey "$key" 2>/dev/null; then
         ok "$label"
     else
         no "$label"
@@ -81,7 +83,9 @@ import_rsa() {
 
     check_file "$key" || return 0
     echo "[INFO] $label: index=$idx type=$type key=$key"
-    if "$OSSL" sdf -importrsakey -index "$idx" -type "$type" -inkey "$key"; then
+    # RSA 复用 delsm2key 删除（厂商库底层按容器索引删除，与密钥类型无关）
+    "$OSSL" sdf -delsm2key -index "$idx" -type "$type" 2>/dev/null
+    if "$OSSL" sdf -importrsakey -index "$idx" -type "$type" -inkey "$key" 2>/dev/null; then
         ok "$label"
     else
         no "$label"
