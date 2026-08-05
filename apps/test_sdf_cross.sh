@@ -35,7 +35,17 @@ WARN=0
 ok() { echo "  [OK]   $1"; PASS=$((PASS + 1)); }
 no() { echo "  [FAIL] $1"; FAIL=$((FAIL + 1)); }
 wn() { echo "  [WARN] $1"; WARN=$((WARN + 1)); }
-q() { "$@" 2>/dev/null; }
+# 静默执行（成功时无输出），失败时打印错误详情帮助定位
+q() {
+    local _cmd="$*"
+    if "$@" >/dev/null 2>/tmp/sdf_cross_err.txt; then
+        return 0
+    else
+        echo "        error: $_cmd"
+        tail -5 /tmp/sdf_cross_err.txt 2>/dev/null | sed 's/^/        /'
+        return 1
+    fi
+}
 qq() { "$@" >/dev/null 2>&1; }
 
 SM2_SIGN_IDX="${SM2_SIGN_IDX:-0}"
