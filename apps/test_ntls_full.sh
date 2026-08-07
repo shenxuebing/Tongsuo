@@ -68,6 +68,7 @@ apply_cert_profile client "$CLIENT_CERT_PROFILE"
 if [ "${IMPORT_KEYS:-1}" != "0" ]; then
     echo "[CMD] $SCRIPT_DIR/import_sdf_keys.sh IMPORT_GROUP=sm2"
     "$SCRIPT_DIR/import_sdf_keys.sh" IMPORT_GROUP=sm2 || exit 1
+fi
 
 cleanup_all() {
     pkill -f "$(basename "$OSSL")" >/dev/null 2>&1 || true

@@ -390,6 +390,7 @@ echo "============================================================"
 if [ "${IMPORT_KEYS:-1}" != "0" ]; then
     echo "[CMD] $SCRIPT_DIR/import_sdf_keys.sh IMPORT_GROUP=sm2"
     "$SCRIPT_DIR/import_sdf_keys.sh" IMPORT_GROUP=sm2 || exit 1
+fi
 
 printf "cross verify payload 0123456789" > "$TMP/plain.txt"
 
@@ -399,6 +400,7 @@ run_sm2_suite "$SM2_SIGN_IDX" "$SM2_ENC_IDX" \
 if [ "${IMPORT_KEYS:-1}" != "0" ]; then
     echo "[CMD] $SCRIPT_DIR/import_sdf_keys.sh IMPORT_GROUP=rsa"
     "$SCRIPT_DIR/import_sdf_keys.sh" IMPORT_GROUP=rsa || exit 1
+fi
 
 run_rsa_suite "RSA1024" "$RSA1024_SIGN_IDX" "$RSA1024_ENC_IDX" \
     "$RSA1024_SIGN_CERT" "$RSA1024_SIGN_KEY" "$RSA1024_ENC_CERT" "$RSA1024_ENC_KEY" "rsa1024"
