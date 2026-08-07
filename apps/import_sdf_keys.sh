@@ -21,7 +21,7 @@ else
     exit 1
 fi
 
-CERTS="${CERTS:-../test/certs}"
+CERTS="${CERTS:-.}"
 SM2_CERTS="${SM2_CERTS:-$CERTS/sm2}"
 RSA_CERTS="${RSA_CERTS:-$CERTS/rsa}"
 

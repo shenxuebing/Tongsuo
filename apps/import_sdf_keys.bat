@@ -17,7 +17,7 @@ goto parse_args
 set "OPENSSL_CONF=%OPENSSL_CONF%"
 if "%OPENSSL_CONF%"=="" set "OPENSSL_CONF=%~dp0openssl.cnf"
 set "OSSL=%~dp0openssl.exe"
-set "CERTS=..\test\certs"
+set "CERTS=."
 set "SM2_CERTS=%CERTS%\sm2"
 set "RSA_CERTS=%CERTS%\rsa"
 

@@ -27,7 +27,7 @@ else
     exit 1
 fi
 
-CERTS="../test/certs"
+CERTS="${CERTS:-.}"
 TMP="$PWD"
 
 PASS=0

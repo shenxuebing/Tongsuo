@@ -19,7 +19,7 @@ else
     exit 1
 fi
 
-CERTS="${CERTS:-../test/certs}"
+CERTS="${CERTS:-.}"
 export OPENSSL_CONF="${OPENSSL_CONF:-$SCRIPT_DIR/openssl.cnf}"
 TMP="${TMP:-/tmp/tls_rsa_accel}"
 mkdir -p "$TMP"
