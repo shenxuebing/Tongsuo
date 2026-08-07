@@ -21,20 +21,20 @@ set PASS=0
 set FAIL=0
 set NUM=0
 set "OUTDIR=%CD%"
-if "%CERTS%"=="" set "CERTS=..\test\certs\sm2"
-if "%CAFILE%"=="" set "CAFILE=%CERTS%\chain-ca.crt"
+if "%CERTS%"=="" set "CERTS=.\certs\sm2"
+if "%CAFILE%"=="" set "CAFILE=%CERTS%\sm2_chain-ca.crt"
 if "%SERVER_CERT_PROFILE%"=="" set "SERVER_CERT_PROFILE=sm2"
 if "%CLIENT_CERT_PROFILE%"=="" set "CLIENT_CERT_PROFILE=sm2"
 
-if "%SERVER_SIGN_CERT%"=="" set "SERVER_SIGN_CERT=%CERTS%\server_sign.crt"
-if "%SERVER_ENC_CERT%"=="" set "SERVER_ENC_CERT=%CERTS%\server_enc.crt"
-if "%SERVER_SIGN_KEY%"=="" set "SERVER_SIGN_KEY=%CERTS%\server_sign.key"
-if "%SERVER_ENC_KEY%"=="" set "SERVER_ENC_KEY=%CERTS%\server_enc.key"
+if "%SERVER_SIGN_CERT%"=="" set "SERVER_SIGN_CERT=%CERTS%\sm2_server_sign.crt"
+if "%SERVER_ENC_CERT%"=="" set "SERVER_ENC_CERT=%CERTS%\sm2_server_enc.crt"
+if "%SERVER_SIGN_KEY%"=="" set "SERVER_SIGN_KEY=%CERTS%\sm2_server_sign.key"
+if "%SERVER_ENC_KEY%"=="" set "SERVER_ENC_KEY=%CERTS%\sm2_server_enc.key"
 
-if "%CLIENT_SIGN_CERT%"=="" set "CLIENT_SIGN_CERT=%CERTS%\client_sign.crt"
-if "%CLIENT_ENC_CERT%"=="" set "CLIENT_ENC_CERT=%CERTS%\client_enc.crt"
-if "%CLIENT_SIGN_KEY%"=="" set "CLIENT_SIGN_KEY=%CERTS%\client_sign.key"
-if "%CLIENT_ENC_KEY%"=="" set "CLIENT_ENC_KEY=%CERTS%\client_enc.key"
+if "%CLIENT_SIGN_CERT%"=="" set "CLIENT_SIGN_CERT=%CERTS%\sm2_client_sign.crt"
+if "%CLIENT_ENC_CERT%"=="" set "CLIENT_ENC_CERT=%CERTS%\sm2_client_enc.crt"
+if "%CLIENT_SIGN_KEY%"=="" set "CLIENT_SIGN_KEY=%CERTS%\sm2_client_sign.key"
+if "%CLIENT_ENC_KEY%"=="" set "CLIENT_ENC_KEY=%CERTS%\sm2_client_enc.key"
 
 if "%SERVER_HW_SIGN_IDX%"=="" set "SERVER_HW_SIGN_IDX=1"
 if "%SERVER_HW_ENC_IDX%"=="" set "SERVER_HW_ENC_IDX=1"
