@@ -12,14 +12,7 @@ cd "$SCRIPT_DIR" || exit 1
 
 export OPENSSL_CONF="${OPENSSL_CONF:-$SCRIPT_DIR/openssl.cnf}"
 
-if [ -x "$SCRIPT_DIR/openssl" ]; then
-    OSSL="$SCRIPT_DIR/openssl"
-elif [ -x "$SCRIPT_DIR/openssl.exe" ]; then
-    OSSL="$SCRIPT_DIR/openssl.exe"
-else
-    echo "[FAIL] cannot find openssl in $SCRIPT_DIR"
-    exit 1
-fi
+OSSL="${OSSL:-openssl}"
 
 CERTS="${CERTS:-./certs}"
 SM2_CERTS="${SM2_CERTS:-$CERTS/sm2}"
@@ -132,7 +125,6 @@ if [ "$DO_SM2" -eq 1 ]; then
     import_sm2 "SM2 server enc"  "$SM2_SERVER_IDX" "enc"  "$SM2_SERVER_ENC_KEY"
     import_sm2 "SM2 client sign" "$SM2_CLIENT_IDX" "sign" "$SM2_CLIENT_SIGN_KEY"
     import_sm2 "SM2 client enc"  "$SM2_CLIENT_IDX" "enc"  "$SM2_CLIENT_ENC_KEY"
-fi
 
 if [ "$DO_RSA" -eq 1 ]; then
     import_rsa "RSA1024 sign" "$RSA1024_IDX" "sign" "$RSA1024_SIGN_KEY"
@@ -143,7 +135,6 @@ if [ "$DO_RSA" -eq 1 ]; then
     import_rsa "RSA3072 enc"  "$RSA3072_IDX" "enc"  "$RSA3072_ENC_KEY"
     import_rsa "RSA4096 sign" "$RSA4096_IDX" "sign" "$RSA4096_SIGN_KEY"
     import_rsa "RSA4096 enc"  "$RSA4096_IDX" "enc"  "$RSA4096_ENC_KEY"
-fi
 
 echo
 echo "============================================================"

@@ -162,7 +162,7 @@ set "SF=%OUTDIR%\ntls_svr_%HP%.txt"
 set "CF=%OUTDIR%\ntls_cli_%HP%.txt"
 
 :: 构建服务端命令
-set "SCMD=.\openssl.exe s_server -ntls -enable_ntls -accept %HP%"
+set "SCMD=openssl s_server -ntls -enable_ntls -accept %HP%"
 if "%SKT%"=="sw" (
     set "SCMD=%SCMD% -sign_cert %SERVER_SIGN_CERT% -enc_cert %SERVER_ENC_CERT% -sign_key %SERVER_SIGN_KEY% -enc_key %SERVER_ENC_KEY%"
 ) else (
@@ -171,7 +171,7 @@ if "%SKT%"=="sw" (
 set "SCMD=%SCMD% -www -CAfile %CAFILE% -cipher %HC%"
 
 :: 构建客户端命令
-set "CCMD=.\openssl.exe s_client -ntls -enable_ntls -connect 127.0.0.1:%HP%"
+set "CCMD=openssl s_client -ntls -enable_ntls -connect 127.0.0.1:%HP%"
 if "%CKT%"=="sw" (
     set "CCMD=%CCMD% -sign_cert %CLIENT_SIGN_CERT% -enc_cert %CLIENT_ENC_CERT% -sign_key %CLIENT_SIGN_KEY% -enc_key %CLIENT_ENC_KEY%"
 ) else (

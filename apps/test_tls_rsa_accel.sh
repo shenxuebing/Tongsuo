@@ -10,14 +10,7 @@ done
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR" || exit 1
 
-if [ -x "$SCRIPT_DIR/openssl" ]; then
-    OSSL="$SCRIPT_DIR/openssl"
-elif [ -x "$SCRIPT_DIR/openssl.exe" ]; then
-    OSSL="$SCRIPT_DIR/openssl.exe"
-else
-    echo "[FAIL] cannot find openssl in $SCRIPT_DIR"
-    exit 1
-fi
+OSSL="${OSSL:-openssl}"
 
 CERTS="${CERTS:-./certs}"
 export OPENSSL_CONF="${OPENSSL_CONF:-$SCRIPT_DIR/openssl.cnf}"

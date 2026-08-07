@@ -18,14 +18,7 @@ export BYZK0018_SKIP_OPENSSL_PROVIDER_INIT="${BYZK0018_SKIP_OPENSSL_PROVIDER_INI
 export SDF_MODULE_PASSWORD="${SDF_MODULE_PASSWORD:-88888888}"
 export SDF_USE_LOADMODULE="${SDF_USE_LOADMODULE:-1}"
 
-if [ -x ./openssl ]; then
-    OSSL=./openssl
-elif [ -x ./openssl.exe ]; then
-    OSSL=./openssl.exe
-else
-    echo "FAIL: cannot find ./openssl or ./openssl.exe"
-    exit 1
-fi
+OSSL="${OSSL:-openssl}"
 
 PASS=0
 FAIL=0
@@ -75,7 +68,6 @@ apply_cert_profile client "$CLIENT_CERT_PROFILE"
 if [ "${IMPORT_KEYS:-1}" != "0" ]; then
     echo "[CMD] $SCRIPT_DIR/import_sdf_keys.sh IMPORT_GROUP=sm2"
     "$SCRIPT_DIR/import_sdf_keys.sh" IMPORT_GROUP=sm2 || exit 1
-fi
 
 cleanup_all() {
     pkill -f "$(basename "$OSSL")" >/dev/null 2>&1 || true

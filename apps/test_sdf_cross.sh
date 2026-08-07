@@ -18,14 +18,7 @@ export BYZK0018_SKIP_OPENSSL_PROVIDER_INIT="${BYZK0018_SKIP_OPENSSL_PROVIDER_INI
 export SDF_MODULE_PASSWORD="${SDF_MODULE_PASSWORD:-88888888}"
 export SDF_USE_LOADMODULE="${SDF_USE_LOADMODULE:-1}"
 
-if [ -x ./openssl ]; then
-    OSSL=./openssl
-elif [ -x ./openssl.exe ]; then
-    OSSL=./openssl.exe
-else
-    echo "FAIL: cannot find ./openssl or ./openssl.exe"
-    exit 1
-fi
+OSSL="${OSSL:-openssl}"
 
 CERTS="${CERTS:-./certs}"
 TMP="$PWD"
@@ -397,7 +390,6 @@ echo "============================================================"
 if [ "${IMPORT_KEYS:-1}" != "0" ]; then
     echo "[CMD] $SCRIPT_DIR/import_sdf_keys.sh IMPORT_GROUP=sm2"
     "$SCRIPT_DIR/import_sdf_keys.sh" IMPORT_GROUP=sm2 || exit 1
-fi
 
 printf "cross verify payload 0123456789" > "$TMP/plain.txt"
 
@@ -407,7 +399,6 @@ run_sm2_suite "$SM2_SIGN_IDX" "$SM2_ENC_IDX" \
 if [ "${IMPORT_KEYS:-1}" != "0" ]; then
     echo "[CMD] $SCRIPT_DIR/import_sdf_keys.sh IMPORT_GROUP=rsa"
     "$SCRIPT_DIR/import_sdf_keys.sh" IMPORT_GROUP=rsa || exit 1
-fi
 
 run_rsa_suite "RSA1024" "$RSA1024_SIGN_IDX" "$RSA1024_ENC_IDX" \
     "$RSA1024_SIGN_CERT" "$RSA1024_SIGN_KEY" "$RSA1024_ENC_CERT" "$RSA1024_ENC_KEY" "rsa1024"
