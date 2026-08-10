@@ -141,8 +141,8 @@ providers/sdfprov/
 
 | 值 | 格式 | 说明 |
 |----|------|------|
-| 0 | C1C3C2 | 新国密标准格式（默认） |
-| 1 | C1C2C3 | 旧格式兼容 |
+| 0 | C1C2C3 | 默认格式 |
+| 1 | C1C3C2 | GM/T 0009 标准格式 |
 
 ```c
 // include/openssl/evp.h + crypto/evp/pmeth_lib.c
@@ -368,15 +368,15 @@ openssl enc -rc2-cbc -d -k test123 -in testfile.rc2 -out testfile.dec
 nmake test TESTS=test_rc2
 ```
 
-### 5.7 SM2 C1C2C3 格式测试
+### 5.7 SM2 密文格式测试
 
 ```bash
-# 使用 C1C2C3 旧格式加密
+# 使用 C1C2C3 默认格式加密
+openssl pkeyutl -encrypt -pubin -inkey sm2_pub.pem -in msg.txt -out msg.enc
+
+# 使用 C1C3C2 标准格式加密
 openssl pkeyutl -encrypt -pubin -inkey sm2_pub.pem -in msg.txt -out msg.enc \
   -pkeyopt sm2_encdata_format:1
-
-# 使用 C1C3C2 新格式加密（默认）
-openssl pkeyutl -encrypt -pubin -inkey sm2_pub.pem -in msg.txt -out msg.enc
 ```
 
 ---

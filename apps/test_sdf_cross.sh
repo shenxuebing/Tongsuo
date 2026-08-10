@@ -12,15 +12,13 @@ done
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR" || exit 1
 
-export OPENSSL_CONF="${OPENSSL_CONF:-$SCRIPT_DIR/openssl.cnf}"
-export SDF_LIB_PATH="${SDF_LIB_PATH:-$SCRIPT_DIR/libbyzk0018.so}"
-export BYZK0018_SKIP_OPENSSL_PROVIDER_INIT="${BYZK0018_SKIP_OPENSSL_PROVIDER_INIT:-1}"
-export SDF_MODULE_PASSWORD="${SDF_MODULE_PASSWORD:-88888888}"
-export SDF_USE_LOADMODULE="${SDF_USE_LOADMODULE:-1}"
+export PATH=/usr/local/angie/tongsuo/bin/:$PATH
+export OPENSSL_CONF=/usr/local/angie/tongsuo/ssl/openssl.cnf
+
 
 OSSL="${OSSL:-openssl}"
 
-CERTS="${CERTS:-./certs}"
+CERTS="${CERTS:-../certs}"
 TMP="$PWD"
 
 PASS=0

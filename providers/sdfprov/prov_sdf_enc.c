@@ -70,7 +70,7 @@ void *sdf_sm2_enc_newctx(void *provctx)
     ctx->provctx = (SDF_PROV_CTX *)provctx;
     ctx->key = NULL;
     ctx->md = EVP_MD_fetch(NULL, "SM3", NULL);
-    ctx->encdata_format = 1; /* 默认 C1C3C2 格式 */
+    ctx->encdata_format = 1; /* Default C1C3C2 format. */
     ctx->access_granted = 0;
     ctx->password = NULL;
     ctx->password_len = 0;
@@ -321,7 +321,7 @@ int sdf_sm2_enc_decrypt(void *vctx, unsigned char *out, size_t *outlen,
         const EC_GROUP *group = NULL;
 
         if (ctx->encdata_format == 0) {
-            /* ASN1 格式 — 暂不支持通过卡解密，回退到本地 */
+            /* C1C2C3 DER 格式 — 旧路径暂不支持通过卡解密，回退到本地 */
             return ossl_sm2_decrypt_ex(ctx->key->ec_key, ctx->md,
                                        in, inlen, out, outlen,
                                        ctx->encdata_format);

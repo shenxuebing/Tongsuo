@@ -16,7 +16,7 @@ goto parse_args
 
 set "OPENSSL_CONF=%OPENSSL_CONF%"
 if "%OPENSSL_CONF%"=="" set "OPENSSL_CONF=%~dp0openssl.cnf"
-set "OSSL=%~dp0openssl.exe"
+if "%OSSL%"=="" set "OSSL=%~dp0openssl.exe"
 set "CERTS=.\certs"
 set "SM2_CERTS=%CERTS%\sm2"
 set "RSA_CERTS=%CERTS%\rsa"
@@ -187,6 +187,15 @@ call :run "%OSSL%" pkeyutl -provider default -decrypt -inkey "%enc_key%" -in "%T
 if errorlevel 1 (call :no "SM2 plain SW baseline decrypt") else (
     fc /b "%TMP%\plain.txt" "%TMP%\sm2_pt2.txt" >nul 2>&1
     if errorlevel 1 (call :no "SM2 plain SW baseline content mismatch") else call :ok "SM2 plain SW-encrypt -> SW-decrypt (baseline)"
+)
+
+call :run "%OSSL%" pkeyutl -provider default -encrypt -pubin -inkey "%enc_pub%" -pkeyopt sm2_encdata_format:1 -in "%TMP%\plain.txt" -out "%TMP%\sm2_c1c3c2.ct"
+if errorlevel 1 (call :no "SM2 C1C3C2 SW-encrypt") else (
+    call :run "%OSSL%" pkeyutl -provider sdfprov -provider default -decrypt -inkey "sdf:sm2:%enc_idx%:enc" -pkeyopt sm2_encdata_format:1 -in "%TMP%\sm2_c1c3c2.ct" -out "%TMP%\sm2_c1c3c2_hw.pt"
+    if errorlevel 1 (call :no "SM2 C1C3C2 HW-decrypt") else (
+        fc /b "%TMP%\plain.txt" "%TMP%\sm2_c1c3c2_hw.pt" >nul 2>&1
+        if errorlevel 1 (call :wn "SM2 C1C3C2 SW-encrypt -> HW-decrypt (cert/index mismatch?)") else call :ok "SM2 C1C3C2 SW-encrypt -> HW-decrypt"
+    )
 )
 
 call :run "%OSSL%" pkcs7 -sign -gmt0010 -provider sdfprov -provider default -detached -in "%TMP%\plain.txt" -out "%TMP%\sm2_p7_h.p7" -outform DER -signer "%sign_local%" -inkey "sdf:sm2:%sign_idx%:sign"

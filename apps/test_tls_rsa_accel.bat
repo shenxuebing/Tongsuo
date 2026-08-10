@@ -16,7 +16,7 @@ goto parse_args
 :args_done
 
 if "%OPENSSL_CONF%"=="" set "OPENSSL_CONF=%~dp0openssl.cnf"
-set "OSSL=%~dp0openssl.exe"
+set "OSSL=openssl"
 set "CERTS=..\test\certs"
 set "OUTDIR=%CD%"
 

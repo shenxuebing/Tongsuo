@@ -20,8 +20,13 @@
 typedef struct {
     OSSL_LIB_CTX *libctx;
     SDF_SM2_KEY *key;
-    int encdata_format;         /* 0=C1C3C2, 1=C1C2C3 */
+    int encdata_format;         /* 0=C1C2C3, 1=C1C3C2 */
 } SDFPROV_SM2_ASYM_CTX;
+
+static int sdfprov_sm2_asym_set_ctx_params(void *vctx,
+                                            const OSSL_PARAM params[]);
+static const OSSL_PARAM *sdfprov_sm2_asym_settable_ctx_params(void *vctx,
+                                                              void *provctx);
 
 static void *sdfprov_sm2_asym_newctx(void *provctx)
 {
@@ -29,11 +34,7 @@ static void *sdfprov_sm2_asym_newctx(void *provctx)
     if (ctx == NULL)
         return NULL;
     ctx->libctx = PROV_LIBCTX_OF(provctx);
-    /*
-     * 默认 Provider 的 SM2 加密 (SM2_CiphertextEx) 输出 C1C2C3 格式,
-     * ossl_sm2_ciphertext_decode 按 C1C3C2 解码, 因此需要交换 C2/C3.
-     * encdata_format=1 表示输入是 C1C2C3 格式, 会自动交换.
-     */
+    /* Keep the core SM2 default: 1 = C1C3C2. */
     ctx->encdata_format = 1;
     return ctx;
 }
@@ -45,7 +46,7 @@ static int sdfprov_sm2_asym_encrypt_init(void *vctx, void *vkey,
     if (ctx == NULL || vkey == NULL)
         return 0;
     ctx->key = vkey;
-    return 1;
+    return sdfprov_sm2_asym_set_ctx_params(ctx, params);
 }
 
 static int sdfprov_sm2_asym_encrypt(void *vctx, unsigned char *out,
@@ -123,6 +124,35 @@ end:
     return ret;
 }
 
+static int sdfprov_sm2_asym_set_ctx_params(void *vctx,
+                                           const OSSL_PARAM params[])
+{
+    SDFPROV_SM2_ASYM_CTX *ctx = vctx;
+    const OSSL_PARAM *p;
+
+    if (ctx == NULL)
+        return 0;
+    if (params == NULL)
+        return 1;
+
+    p = OSSL_PARAM_locate_const(params, "sm2_encdata_format");
+    if (p != NULL && !OSSL_PARAM_get_int(p, &ctx->encdata_format))
+        return 0;
+
+    return 1;
+}
+
+static const OSSL_PARAM sdfprov_sm2_asym_settable_ctx_params_list[] = {
+    OSSL_PARAM_int("sm2_encdata_format", NULL),
+    OSSL_PARAM_END
+};
+
+static const OSSL_PARAM *sdfprov_sm2_asym_settable_ctx_params(void *vctx,
+                                                              void *provctx)
+{
+    return sdfprov_sm2_asym_settable_ctx_params_list;
+}
+
 static int sdfprov_sm2_asym_decrypt_init(void *vctx, void *vkey,
                                           const OSSL_PARAM params[])
 {
@@ -130,7 +160,7 @@ static int sdfprov_sm2_asym_decrypt_init(void *vctx, void *vkey,
     if (ctx == NULL || vkey == NULL)
         return 0;
     ctx->key = vkey;
-    return 1;
+    return sdfprov_sm2_asym_set_ctx_params(ctx, params);
 }
 
 static int sdfprov_sm2_asym_decrypt(void *vctx, unsigned char *out,
@@ -240,5 +270,9 @@ const OSSL_DISPATCH sdfprov_sm2_asym_cipher_functions[] = {
       (void (*)(void))sdfprov_sm2_asym_decrypt_init },
     { OSSL_FUNC_ASYM_CIPHER_DECRYPT, (void (*)(void))sdfprov_sm2_asym_decrypt },
     { OSSL_FUNC_ASYM_CIPHER_FREECTX, (void (*)(void))sdfprov_sm2_asym_freectx },
+    { OSSL_FUNC_ASYM_CIPHER_SET_CTX_PARAMS,
+      (void (*)(void))sdfprov_sm2_asym_set_ctx_params },
+    { OSSL_FUNC_ASYM_CIPHER_SETTABLE_CTX_PARAMS,
+      (void (*)(void))sdfprov_sm2_asym_settable_ctx_params },
     OSSL_DISPATCH_END
 };

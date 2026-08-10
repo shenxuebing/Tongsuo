@@ -10,11 +10,12 @@ done
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR" || exit 1
 
-export OPENSSL_CONF="${OPENSSL_CONF:-$SCRIPT_DIR/openssl.cnf}"
+export PATH=/usr/local/angie/tongsuo/bin/:$PATH
+export OPENSSL_CONF=/usr/local/angie/tongsuo/ssl/openssl.cnf
 
 OSSL="${OSSL:-openssl}"
 
-CERTS="${CERTS:-./certs}"
+CERTS="${CERTS:-../certs}"
 SM2_CERTS="${SM2_CERTS:-$CERTS/sm2}"
 RSA_CERTS="${RSA_CERTS:-$CERTS/rsa}"
 

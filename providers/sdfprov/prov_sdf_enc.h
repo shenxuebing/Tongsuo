@@ -21,7 +21,7 @@ typedef struct sdf_sm2_enc_ctx_st {
     SDF_PROV_CTX *provctx;
     SDF_PROV_KEY *key;
     EVP_MD *md;                  /* 摘要算法 (SM3) */
-    int encdata_format;          /* 加密输出格式: 0=ASN1, 1=C1C3C2 */
+    int encdata_format;          /* 加密输出格式: 0=C1C2C3, 1=C1C3C2 */
     int access_granted;
     unsigned char *password;
     int password_len;

@@ -19,7 +19,7 @@
 - **提交**: 6267baa19
 - **文件**: `include/openssl/evp.h`, `crypto/evp/pmeth_lib.c`
 - **新增**: `EVP_PKEY_CTX_set_sm2_encdata_format` 函数
-- **功能**: 设置 SM2 加密数据格式（0=C1C3C2, 1=C1C2C3）
+- **功能**: 设置 SM2 加密数据格式（0=C1C2C3, 1=C1C3C2）
 - **验证**: 输入参数验证，通过 EVP_PKEY_CTX_set_params 设置参数
 - **代码**:
   ```c

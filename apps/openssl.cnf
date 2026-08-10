@@ -85,19 +85,16 @@ activate = 1
 
 [sdfprov_sect]
 activate = 1
-# SDF 厂商库路径（32位 byzk0018.dll 在当前目录）
+# SDF 厂商库路径
 sdf_lib_path = E:\\vs2022workspace\\Tongsuo\\apps\\byzk0018.dll
 # 是否调用 BYCSM_LoadModule 接口（可选，默认: 1）
 # 1=调用（适用于博雅等需要此接口的厂商）
 # 0=不调用（适用于不需要此接口的厂商）
 sdf_use_loadmodule = 1
-# Logical asymmetric key index base used by openssl sdf key-management commands.
-# 1: logical N maps to sign=2*N-1, enc=2*N (default)
-# 0: logical N maps to sign=2*N+1, enc=2*N+2
-indexstart = 1
 # SDF 模块密码（可选，默认: 88888888）
 sdf_module_password = 88888888
-
+# 密码卡密钥起始索引号
+indexstart = 1
 
 ####################################################################
 [ ca ]

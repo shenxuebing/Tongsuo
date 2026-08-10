@@ -21,6 +21,8 @@ static const unsigned char *sdfprov_rsa_select_modulus_window(const unsigned cha
                                                               size_t field_len,
                                                               size_t nbytes);
 static BIGNUM *sdfprov_rsa_make_bn_trimmed(const unsigned char *buf, size_t len);
+extern SM2_CiphertextEx *SM2_Ciphertext_to_SM2_CiphertextEx(
+    const SM2_Ciphertext *c1c3c2);
 
 static char *sdfprov_next_token(char **cursor, const char *delim)
 {
@@ -390,17 +392,90 @@ int sdfprov_ecccipher_to_sm2_der(const OSSL_ECCCipher *cipher,
                                  unsigned char **out, size_t *out_len,
                                  int encdata_format)
 {
-    unsigned char *der;
+    unsigned char *der = NULL;
+    BIGNUM *x = NULL, *y = NULL;
+    ASN1_OCTET_STRING *c2 = NULL, *c3 = NULL;
+    SM2_Ciphertext *ct = NULL;
+    SM2_CiphertextEx *ctex = NULL;
+    int der_len;
+    int ret = 0;
 
     if (cipher == NULL || out == NULL || out_len == NULL)
         return 0;
 
-    der = TSAPI_ECCCipher_to_SM2Ciphertext(cipher, out_len);
+    /*
+     * encdata_format 语义必须与 crypto/sm2 保持一致:
+     *   0 = C1C2C3 (SM2_CiphertextEx，Tongsuo 默认)
+     *   1 = C1C3C2 (SM2_Ciphertext，GM/T 0009 标准格式)
+     */
+    if (encdata_format == 1) {
+        /*
+         * TSAPI_ECCCipher_to_SM2Ciphertext() 固定生成 SM2_Ciphertext，
+         * 字段顺序为 C1x, C1y, C3, C2，即 C1C3C2。
+         */
+        der = TSAPI_ECCCipher_to_SM2Ciphertext(cipher, out_len);
+        if (der == NULL)
+            return 0;
+
+        *out = der;
+        return 1;
+    }
+
+    /*
+     * encdata_format=0 时需要输出 C1C2C3。这里先构造标准
+     * SM2_Ciphertext(C1C3C2)，再复用 crypto/sm2 中已有转换函数
+     * 转成 SM2_CiphertextEx(C1C2C3) 后 DER 编码。
+     */
+    x = BN_bin2bn(cipher->x, sizeof(cipher->x), NULL);
+    y = BN_bin2bn(cipher->y, sizeof(cipher->y), NULL);
+    c2 = ASN1_OCTET_STRING_new();
+    c3 = ASN1_OCTET_STRING_new();
+    ct = SM2_Ciphertext_new();
+
+    if (x == NULL || y == NULL || c2 == NULL || c3 == NULL || ct == NULL)
+        goto end;
+
+    if (!ASN1_OCTET_STRING_set(c2, cipher->C, cipher->L)
+        || !ASN1_OCTET_STRING_set(c3, cipher->M, sizeof(cipher->M)))
+        goto end;
+
+    if (!SM2_Ciphertext_set0(ct, x, y, c3, c2))
+        goto end;
+    x = y = NULL;
+    c2 = c3 = NULL;
+
+    ctex = SM2_Ciphertext_to_SM2_CiphertextEx(ct);
+    if (ctex == NULL)
+        goto end;
+
+    der_len = i2d_SM2_CiphertextEx(ctex, NULL);
+    if (der_len <= 0)
+        goto end;
+
+    der = OPENSSL_malloc(der_len);
     if (der == NULL)
-        return 0;
+        goto end;
+
+    {
+        unsigned char *p = der;
+        if (i2d_SM2_CiphertextEx(ctex, &p) != der_len)
+            goto end;
+    }
 
     *out = der;
-    return 1;
+    *out_len = (size_t)der_len;
+    der = NULL;
+    ret = 1;
+
+end:
+    OPENSSL_free(der);
+    BN_free(x);
+    BN_free(y);
+    ASN1_OCTET_STRING_free(c2);
+    ASN1_OCTET_STRING_free(c3);
+    SM2_Ciphertext_free(ct);
+    SM2_CiphertextEx_free(ctex);
+    return ret;
 }
 
 int sdfprov_sm2_der_to_ecccipher(const unsigned char *der, size_t der_len,
@@ -426,17 +501,18 @@ int sdfprov_sm2_der_to_ecccipher(const unsigned char *der, size_t der_len,
     }
 
     /*
-     * 默认 Provider 的 SM2 加密使用 SM2_CiphertextEx (C1C2C3 格式),
-     * 但 ossl_sm2_ciphertext_decode 按 SM2_Ciphertext (C1C3C2) 解码,
-     * 导致 C2 和 C3 互换:
-     *   - 如果实际格式是 C1C2C3, decode 返回 C2=实际C3(hash,32), C3=实际C2(密文)
-     *   - 如果实际格式是 C1C3C2, decode 返回 C2=实际C2(密文), C3=实际C3(hash,32)
+     * encdata_format 语义必须与 crypto/sm2 保持一致:
+     *   0 = C1C2C3 (SM2_CiphertextEx，Tongsuo 默认)
+     *   1 = C1C3C2 (SM2_Ciphertext，GM/T 0009 标准格式)
      *
-     * 使用 encdata_format 参数确定是否需要交换:
-     *   encdata_format=1 表示 C1C2C3 格式（需要交换）
-     *   encdata_format=0 表示 C1C3C2 格式（不需要交换）
+     * 当前解码函数 ossl_sm2_ciphertext_decode() 按 SM2_Ciphertext
+     * 结构解析，也就是按 C1x, C1y, C3, C2 读取。
+     *
+     * 因此:
+     *   - 输入实际为 C1C3C2 时，C2/C3 已经在正确位置，不需要交换。
+     *   - 输入实际为 C1C2C3 时，按 C1C3C2 解码后 C2/C3 会反，需要交换回来。
      */
-    if (encdata_format == 1) {
+    if (encdata_format == 0) {
         /* C1C2C3 格式: decode 的 C2 实际是 C3(hash), C3 实际是 C2(密文), 需要交换 */
         uint8_t *tmp_data = C2;
         size_t tmp_len = C2_len;

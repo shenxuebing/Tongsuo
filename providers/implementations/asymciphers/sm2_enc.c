@@ -44,7 +44,7 @@ typedef struct {
     OSSL_LIB_CTX *libctx;
     EC_KEY *key;
     PROV_DIGEST md;
-    int encdata_format;         /* 0=C1C3C2 (default), 1=C1C2C3 */
+    int encdata_format;         /* 0=C1C2C3, 1=C1C3C2 (default) */
 } PROV_SM2_CTX;
 
 static void *sm2_newctx(void *provctx)
@@ -54,6 +54,7 @@ static void *sm2_newctx(void *provctx)
     if (psm2ctx == NULL)
         return NULL;
     psm2ctx->libctx = PROV_LIBCTX_OF(provctx);
+    psm2ctx->encdata_format = 1;
 
     return psm2ctx;
 }
