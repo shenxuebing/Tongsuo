@@ -176,16 +176,11 @@ static int pkcs7_decrypt_rinfo(unsigned char **pek, int *peklen,
     if (EVP_PKEY_decrypt_init(pctx) <= 0)
         goto err;
 
-    if (EVP_PKEY_decrypt(pctx, NULL, &eklen,
-                         ri->enc_key->data, ri->enc_key->length) <= 0)
+    ret = evp_pkey_decrypt_alloc(pctx, &ek, &eklen, fixlen,
+                                 ri->enc_key->data, ri->enc_key->length);
+    if (ret <= 0)
         goto err;
-
-    ek = OPENSSL_malloc(eklen);
-
-    if (ek == NULL) {
-        ERR_raise(ERR_LIB_PKCS7, ERR_R_MALLOC_FAILURE);
-        goto err;
-    }
+    
 
     if (EVP_PKEY_decrypt(pctx, ek, &eklen,
                          ri->enc_key->data, ri->enc_key->length) <= 0
@@ -1412,6 +1407,8 @@ ASN1_OCTET_STRING *PKCS7_digest_from_attributes(STACK_OF(X509_ATTRIBUTE) *sk)
 {
     ASN1_TYPE *astype;
     if ((astype = get_attribute(sk, NID_pkcs9_messageDigest)) == NULL)
+        return NULL;
+    if (astype->type != V_ASN1_OCTET_STRING)
         return NULL;
     return astype->value.octet_string;
 }
